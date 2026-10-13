@@ -1,0 +1,13 @@
+node_modules/
+# Your database URL and your signing key live here. Never commit it.
+.env
+.env.local
+# The signing key the server generates on first boot if you did not set one.
+# Back this up; without it every session and encrypted credential is lost.
+.snagset/
+# `vercel link` and `vercel dev` write the project binding here.
+.vercel
+# OS and editor clutter, so the first `git status` shows only the scaffold.
+.DS_Store
+Thumbs.db
+*.log

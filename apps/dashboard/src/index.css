@@ -1,0 +1,176 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/*
+ * The dashboard's tokens — the shipped ones from the Preact app (statuses,
+ * grounds and the four accessibility tokens), mapped onto shadcn's names
+ * so every component draws from the same eight values. The type is the system
+ * stack: the dashboard deliberately loads no web font.
+ *
+ * Tailwind's `dark:` variant keys on a `.dark` class on <html>. lib/theme.ts
+ * resolves the three-state choice (System / Light / Dark) into that class, and
+ * index.html repeats the resolution before first paint.
+ */
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --font-heading: var(--font-sans);
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  /* Ours, beyond shadcn's set. */
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-soft: var(--brand-soft);
+  --color-ink-soft: var(--ink-soft);
+  --color-line-strong: var(--line-strong);
+  --color-status-open: var(--status-open);
+  --color-status-progress: var(--status-progress);
+  --color-status-review: var(--status-review);
+  --color-status-resolved: var(--status-resolved);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn-soft: var(--warn-soft);
+  --color-caution: var(--caution);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* One warm hue, the product rung. */
+  --background: #faf8f6;
+  --foreground: #181716;
+  --card: #fefdfc;
+  --card-foreground: #181716;
+  --popover: #fefdfc;
+  --popover-foreground: #181716;
+  /* The primary control is ink-filled; the brand blue is for links, focus and
+     the one accent a screen carries. */
+  --primary: #181716;
+  --primary-foreground: #fefdfc;
+  --secondary: #eeecea;
+  --secondary-foreground: #181716;
+  --muted: #eeecea;
+  --muted-foreground: #6b6a68;
+  --accent: #eeecea;
+  --accent-foreground: #181716;
+  --destructive: #9a2929;
+  --border: #e4e3e0;
+  /* A control's only boundary must clear 1.4.11 — controls take the
+     strong line, decorative rules keep --border. */
+  --input: #939290;
+  --ring: #2a51b8;
+  --radius: 0.375rem;
+  --sidebar: #faf8f6;
+  --sidebar-foreground: #181716;
+  --sidebar-primary: #181716;
+  --sidebar-primary-foreground: #fefdfc;
+  --sidebar-accent: #eeecea;
+  --sidebar-accent-foreground: #181716;
+  --sidebar-border: #e4e3e0;
+  --sidebar-ring: #2a51b8;
+
+  --brand: #2a51b8;
+  --brand-foreground: #ffffff;
+  --brand-soft: #e9f0ff;
+  --ink-soft: #585755;
+  --line-strong: #939290;
+  --warn-soft: #fbeeee;
+  /* Readable amber for a caution SENTENCE (4.9:1 on the card) — the status fill is not text. */
+  --caution: #b45309;
+  --ok: #417332;
+  --ok-soft: #eaf3e6;
+  /* Status as TEXT — outlined pills, the widget's four hues one role down. */
+  /* Pastel's four. Fills, with the ink per status; never text on the ground. */
+  --status-open: #4f6ef7;
+  --status-progress: #f59e0b;
+  --status-review: #8b5cf6;
+  --status-resolved: #10b981;
+}
+
+.dark {
+  --background: #100f0e;
+  --foreground: #f0eeec;
+  --card: #1d1c1a;
+  --card-foreground: #f0eeec;
+  --popover: #1d1c1a;
+  --popover-foreground: #f0eeec;
+  --primary: #f0eeec;
+  --primary-foreground: #100f0e;
+  --secondary: #242321;
+  --secondary-foreground: #f0eeec;
+  --muted: #242321;
+  --muted-foreground: #8e8c8b;
+  --accent: #242321;
+  --accent-foreground: #f0eeec;
+  --destructive: #ed8c84;
+  --border: #2e2c2b;
+  --input: #696866;
+  --ring: #8aafff;
+  --sidebar: #100f0e;
+  --sidebar-foreground: #f0eeec;
+  --sidebar-primary: #f0eeec;
+  --sidebar-primary-foreground: #100f0e;
+  --sidebar-accent: #242321;
+  --sidebar-accent-foreground: #f0eeec;
+  --sidebar-border: #2e2c2b;
+  --sidebar-ring: #8aafff;
+
+  --brand: #8aafff;
+  --brand-foreground: #100f0e;
+  --brand-soft: #17223b;
+  --ink-soft: #a7a6a4;
+  --line-strong: #696866;
+  --warn-soft: #2b1a19;
+  --caution: #fbbf24;
+  --ok: #6ca05d;
+  --ok-soft: #1b2a17;
+  --status-open: #4f6ef7;
+  --status-progress: #f59e0b;
+  --status-review: #8b5cf6;
+  --status-resolved: #10b981;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-background text-foreground text-[13.5px] leading-normal;
+  }
+}

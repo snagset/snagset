@@ -1,0 +1,100 @@
+name: CI
+
+# Every pull request and every push to main, plus on demand: types, unit and
+# server tests, size budgets and the built widget. The browser suite runs
+# before every release, outside this repository.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Every externally visible name comes from packages/types/registry.json.
+  registry:
+    name: registry (generated files match)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: names.ts and .size-limit.json regenerate identically
+        run: pnpm gen:names:check
+      - name: the rename property still holds
+        run: pnpm --filter @snagset/types test
+      - name: no hard-coded or unregistered name in src/
+        run: pnpm lint:names
+      - name: create-snagset and @snagset/server carry the same version
+        run: pnpm lint:lockstep
+      - name: no backtick inside a SQL comment in a template
+        run: pnpm lint:sql
+
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  test:
+    name: unit tests
+    runs-on: ubuntu-latest
+    # Most server tests need a database and skip without one.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_PASSWORD: test, POSTGRES_DB: snagset_test }
+        ports: ["54329:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d snagset_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      SNAGSET_TEST_DATABASE_URL: postgres://postgres:test@localhost:54329/snagset_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
+  size:
+    name: size budgets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:widget
+      - run: pnpm size
+      - run: pnpm size:map
+
+  # What ships must not contain what must never ship.
+  verify-dist:
+    name: verify-dist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:widget
+      - run: pnpm verify:dist
+      - run: pnpm verify:capture
+

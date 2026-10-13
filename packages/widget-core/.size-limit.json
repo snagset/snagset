@@ -1,0 +1,91 @@
+[
+  {
+    "name": "snag.js",
+    "path": "dist/snag.js",
+    "limit": "8 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.runtime.js — reported, 20 KB estimated",
+    "path": "dist/snag.runtime.js",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.panels.js — reported, 20 KB estimated",
+    "path": "dist/snag.panels.js",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.crumbs.js (lazy)",
+    "path": "dist/snag.crumbs.js",
+    "limit": "8 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.capture.js (lazy)",
+    "path": "dist/snag.capture.js",
+    "limit": "15 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.screenshot.js (lazy)",
+    "path": "dist/snag.screenshot.js",
+    "limit": "25 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.anchor-ext.js (lazy)",
+    "path": "dist/snag.anchor-ext.js",
+    "limit": "4 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.anchor-fuzzy.js (lazy)",
+    "path": "dist/snag.anchor-fuzzy.js",
+    "limit": "5 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.dock.js (lazy)",
+    "path": "dist/snag.dock.js",
+    "limit": "22 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "snag.text.js (lazy)",
+    "path": "dist/snag.text.js",
+    "limit": "6 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "runtime envelope (2 chunks), verbatim",
+    "path": [
+      "dist/snag.runtime.js",
+      "dist/snag.panels.js"
+    ],
+    "limit": "44 KB",
+    "gzip": true,
+    "brotli": false
+  },
+  {
+    "name": "total activation cost (3 eager chunks) — the rows summed",
+    "path": [
+      "dist/snag.js",
+      "dist/snag.runtime.js",
+      "dist/snag.panels.js"
+    ],
+    "limit": "48 KB",
+    "gzip": true,
+    "brotli": false
+  }
+]

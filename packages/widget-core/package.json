@@ -1,0 +1,53 @@
+{
+  "name": "@snagset/widget",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "sideEffects": [
+    "./dist/snag.js"
+  ],
+  "exports": {
+    "./snag.js": "./dist/snag.js",
+    "./runtime": "./dist/snag.runtime.js",
+    "./redact": "./src/redact/predicates.ts"
+  },
+  "files": [
+    "dist",
+    "src/redact"
+  ],
+  "scripts": {
+    "build:stub": "vite build --mode stub",
+    "build:chunks": "vite build --mode chunks",
+    "build": "pnpm run build:stub && pnpm run build:runtime && pnpm run build:panels && pnpm run build:capture && pnpm run build:anchor-ext && pnpm run build:dock && pnpm run build:crumbs && pnpm run build:screenshot && pnpm run build:anchor-fuzzy && pnpm run build:text",
+    "size": "size-limit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "dev:stub": "vite build --mode stub --watch",
+    "dev:chunks": "vite build --mode chunks --watch",
+    "dev": "pnpm run --parallel \"/^dev:(stub|runtime|panels)$/\"",
+    "build:runtime": "vite build --mode runtime",
+    "build:panels": "vite build --mode panels",
+    "build:capture": "vite build --mode capture",
+    "build:anchor-ext": "vite build --mode anchor-ext",
+    "dev:runtime": "vite build --mode runtime --watch",
+    "dev:panels": "vite build --mode panels --watch",
+    "build:crumbs": "vite build --mode crumbs",
+    "build:screenshot": "vite build --mode screenshot",
+    "build:anchor-fuzzy": "vite build --mode anchor-fuzzy",
+    "build:dock": "vite build --mode dock",
+    "build:text": "vite build --mode text"
+  },
+  "dependencies": {
+    "@medv/finder": "4.0.2",
+    "@snagset/types": "workspace:*",
+    "approx-string-match": "^2.0.0",
+    "preact": "10.29.8"
+  },
+  "devDependencies": {
+    "@size-limit/file": "^11.1.6",
+    "@snagset/tsconfig": "workspace:*",
+    "size-limit": "^11.1.6",
+    "vite": "^6.0.7"
+  }
+}

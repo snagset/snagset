@@ -1,0 +1,28 @@
+{
+  "name": "@snagset/types",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "docs": "Internal package \u2014 exports TS source; the consumer's bundler (Vite) or node --strip-types compiles it. No intermediate JS build. A real bundler build lands when v1 first publishes.",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./names": "./src/names.ts",
+    "./brief": "./src/brief.ts"
+  },
+  "files": [
+    "src",
+    "registry.json"
+  ],
+  "scripts": {
+    "gen": "node scripts/gen-names.mjs",
+    "gen:check": "node scripts/gen-names.mjs --check",
+    "build": "node scripts/gen-names.mjs --check && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@snagset/tsconfig": "workspace:*"
+  }
+}

@@ -1,0 +1,273 @@
+{
+  "$comment": "H1 (v0). Every field this widget captures and every breadcrumb source it will ever install, each carrying the release it ships in. The design makes the claim this file answers: 'Nothing is captured that is not listed in of this document; the list is also shipped as a machine-readable manifest.' A claim a client cannot check is a claim they have to take on trust, and this product's whole argument is that they should not have to. tools/verify-capture.mjs asserts it against the BUILT artefacts, in both directions: nothing emitted is missing here, and nothing tagged v0.1+ is reachable from the v0 build.",
+  "schemaVersion": "snagset.v1",
+  "$releaseComment": "What THIS build ships, and the axis every `release` tag below is read against. It was implicit — `tools/verify-capture.mjs` hard-coded \"v0\" — so the moment M2 shipped breadcrumbs, screenshots and masking, the checker reported its own product as a leak: six findings, every one of them the tool being a release behind. A stage that is written down moves in one edit and is visible in the artefact a client reads.",
+  "release": "v0.1",
+  "spec": "",
+  "context": {
+    "$comment": "The CaptureContext. A CLOSED type: validates 'no extra keys and no null values', which is only enforceable because it is closed. The omission convention is that an unavailable field is an ABSENT KEY — never null, never an empty string — so `optional: true` here means 'may not appear', not 'may be empty'.",
+    "fields": [
+      {
+        "path": "schemaVersion",
+        "release": "v0",
+        "what": "The record format, so a reader knows what it is holding."
+      },
+      {
+        "path": "url",
+        "release": "v0",
+        "what": "The page address, already through redactUrl and the caps before it lands.",
+        "redacted": true
+      },
+      {
+        "path": "page.route",
+        "release": "v0",
+        "what": "The route pattern the comment belongs to."
+      },
+      {
+        "path": "page.pathname",
+        "release": "v0",
+        "what": "The path as it was."
+      },
+      {
+        "path": "page.query",
+        "release": "v0",
+        "optional": true,
+        "what": "Query parameters that survived redaction.",
+        "redacted": true
+      },
+      {
+        "path": "page.origin",
+        "release": "v0",
+        "what": "Recorded for display and debugging ONLY — and both say never to match on it."
+      },
+      {
+        "path": "viewport.w",
+        "release": "v0",
+        "what": "Viewport width in CSS pixels, at the moment of the click."
+      },
+      {
+        "path": "viewport.h",
+        "release": "v0",
+        "what": "Viewport height in CSS pixels."
+      },
+      {
+        "path": "viewport.dpr",
+        "release": "v0",
+        "what": "Device pixel ratio, stored RAW and rounded only at render."
+      },
+      {
+        "path": "screen.w",
+        "release": "v0",
+        "what": "Screen width. 'It breaks on my monitor' is a different report from 'it breaks in my window'."
+      },
+      {
+        "path": "screen.h",
+        "release": "v0",
+        "what": "Screen height."
+      },
+      {
+        "path": "ua",
+        "release": "v0",
+        "what": "The user-agent string, raw and unparsed. The authoritative record; `derived` is never written back onto it."
+      },
+      {
+        "path": "uaData.brands",
+        "release": "v0",
+        "optional": true,
+        "what": "The low-entropy client-hint brand list, as a structured COPY. getHighEntropyValues is never called ('not called. Ever.')."
+      },
+      {
+        "path": "uaData.platform",
+        "release": "v0",
+        "optional": true,
+        "what": "Low-entropy platform name."
+      },
+      {
+        "path": "uaData.mobile",
+        "release": "v0",
+        "optional": true,
+        "what": "The low-entropy mobile flag."
+      },
+      {
+        "path": "derived.browser",
+        "release": "v0",
+        "what": "Parsed from `ua` for display. Never a behavioural input."
+      },
+      {
+        "path": "derived.os",
+        "release": "v0",
+        "what": "Parsed from `ua` for display."
+      },
+      {
+        "path": "derived.device",
+        "release": "v0",
+        "what": "Mobile | Desktop. The ONE behavioural consumer the design permits is the dock's device glyph."
+      },
+      {
+        "path": "language",
+        "release": "v0",
+        "what": "navigator.language — 'it is broken in German' is a real report."
+      },
+      {
+        "path": "prefersColorScheme",
+        "release": "v0",
+        "what": "light | dark, because half of 'this is unreadable' is which theme it was."
+      },
+      {
+        "path": "timestamp",
+        "release": "v0",
+        "what": "T0 — the CLICK, not the send."
+      },
+      {
+        "path": "capture.screenshot",
+        "release": "v0",
+        "what": "Populated on EVERY submission. Always 'disabled' at v0."
+      },
+      {
+        "path": "capture.breadcrumbs",
+        "release": "v0",
+        "what": "Same. Always 'disabled' at v0."
+      },
+      {
+        "path": "capture.reasons",
+        "release": "v0",
+        "what": "Sentences, not codes, rendered verbatim to the reviewer."
+      },
+      {
+        "path": "capture.blindSpots",
+        "release": "v0.1",
+        "what": "What a screenshot could not."
+      },
+      {
+        "path": "capture.maskedCount",
+        "release": "v0.1",
+        "what": "How many regions were masked before the screenshot left the browser."
+      },
+      {
+        "path": "breadcrumbs",
+        "release": "v0.1",
+        "what": "The ring buffer. Absent at v0, and the sources below are not installed."
+      },
+      {
+        "path": "capture.droppedCategories",
+        "release": "v1",
+        "what": "What the 8 KB custom cap shed.",
+      "typeOnly": true,
+      "typeOnlyBecause": "The key exists on CaptureInput and report.ts forwards it when non-empty, but nothing at v0.1 ever populates it — the 8 KB custom cap that sheds categories is v1. So it is visible to the type-reading check in direction 2 and absent from every payload. Marked rather than silenced: a checker that quietly covers less than it appears to is worse than one that covers less and says so."
+    },
+      {
+        "path": "build",
+        "release": "v1",
+        "what": "The REVIEWED SITE's build metadata — never our server's commit."
+      },
+      {
+        "path": "custom",
+        "release": "v1",
+        "what": "Host metadata via setMetadata/addMetadata, plus the reserved `cr.` prefix."
+      }
+    ]
+  },
+  "breadcrumbSources": {
+    "$comment": "The table, every row. ALL v0.1 — the release table is explicit that v0 ships 'no breadcrumbs … no monkey-patching of any host global' and that 'capture's stub footprint in v0 is 0 bytes'. They are listed here at v0 precisely because the interesting assertion is their ABSENCE: verify-capture greps the built artefacts for each installer and fails if one appears.",
+    "sources": [
+      {
+        "id": "error-event",
+        "tier": "A",
+        "release": "v0.1",
+        "installs": "addEventListener('error', …, {capture:true})",
+        "records": "message, redacted filename, lineno, colno, error.name, first 10 stack frames"
+      },
+      {
+        "id": "unhandledrejection",
+        "tier": "A",
+        "release": "v0.1",
+        "installs": "addEventListener('unhandledrejection', …)",
+        "records": "reduced reason; an Error becomes {name, message, stack}"
+      },
+      {
+        "id": "console-error-warn",
+        "tier": "B",
+        "release": "v0.1",
+        "installs": "wraps console.error and console.warn via the patch registry",
+        "records": "level, arguments reduced eagerly"
+      },
+      {
+        "id": "console-log-info-debug",
+        "tier": "C",
+        "release": "v0.1",
+        "installs": "wraps console.log / .info / .debug",
+        "records": "level (debug → 'info'), serialised args"
+      },
+      {
+        "id": "fetch",
+        "tier": "C",
+        "release": "v0.1",
+        "installs": "wraps window.fetch",
+        "records": "method, redacted URL, status, ok, type, redirected, duration_ms, aborted — never bodies, headers, FormData or credentials"
+      },
+      {
+        "id": "xhr",
+        "tier": "C",
+        "release": "v0.1",
+        "installs": "wraps XMLHttpRequest.open/send",
+        "records": "method, redacted URL, status, duration_ms — never responseText, response, responseXML, the request body or headers"
+      },
+      {
+        "id": "navigation",
+        "tier": "C",
+        "release": "v0.1",
+        "installs": "SUBSCRIBES to the onNav event — 04 installs no navigation patch of its own",
+        "records": "the resulting redacted URL",
+        "verifiable": false,
+        "unverifiableBecause": "04 installs no navigation patch at all — it subscribes to the onNav event. There is nothing of ours to grep for, and the own history patch is sanctioned by A3 and ships at v0 for route detection."
+      },
+      {
+        "id": "click",
+        "tier": "C",
+        "release": "v0.1",
+        "installs": "a throttled click listener, max one breadcrumb per 100 ms",
+        "records": "a selector string; the element reference dies with the handler frame",
+        "verifiable": false,
+        "unverifiableBecause": "Indistinguishable from our own work in the shipped bytes: The capture net adds a click listener for hit-testing, so a grep for one proves nothing. The v0 promise this source falls under is checked positively instead — see hostGlobals below, and the release table: 'no monkey-patching of any host global'."
+      }
+    ]
+  },
+  "neverCaptured": {
+    "$comment": "The table, which is v0 and has CI tests of its own. Listed here so the manifest is the single machine-readable answer to 'what does this thing take', including the negative half — the half a client actually worries about.",
+    "release": "v0",
+    "items": [
+      "HTMLInputElement.value and HTMLTextAreaElement.value, including type=hidden",
+      "HTMLSelectElement.value and selected option text",
+      "Any input[type=password] — value, placeholder, or autofill state",
+      "[contenteditable] text content, and innerText/innerHTML/textContent of any element as breadcrumb data",
+      "localStorage, sessionStorage, IndexedDB and Cache Storage contents — except the widget's own snag: keys",
+      "document.cookie — never read, including our own snag_off/snag_on",
+      "The review-link token (snag_k) and the bearer session",
+      "Request bodies — fetch init body, xhr.send(body), FormData",
+      "Response bodies — text(), json(), blob(), .clone()",
+      "All request and response headers, not merely auth headers",
+      "Keyboard events of any kind — keydown, keyup, keypress, input, beforeinput, paste",
+      "Clipboard contents",
+      "navigator.credentials, navigator.geolocation, navigator.mediaDevices — never called, no exceptions (D25)",
+      "Framework hydration payloads — __NEXT_DATA__ beyond buildId, __remixContext, __sveltekit_*, Apollo/Redux state",
+      "window.name",
+      "performance.getEntries() bulk dumps",
+      "document.referrer",
+      "Cross-origin frame contents"
+    ]
+  },
+  "hostGlobals": {
+    "$comment": "The release table for v0: 'no monkey-patching of any host global. Capture's stub footprint in v0 is 0 bytes.' This is the POSITIVE form of the breadcrumb absence check and the one a client can run themselves — every source above that is unverifiable by its own installer is covered by this, because every one of them would have to wrap something here.",
+    "release": "v0.1",
+    "mustNotBeAssigned": [
+      "console.error",
+      "console.warn",
+      "console.log",
+      "console.info",
+      "console.debug",
+      "window.fetch",
+      "XMLHttpRequest.prototype.open",
+      "XMLHttpRequest.prototype.send"
+    ]
+  }
+}

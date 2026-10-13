@@ -1,0 +1,42 @@
+{
+  "name": "snagset-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.34.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "gen:names": "node packages/types/scripts/gen-names.mjs",
+    "gen:names:check": "node packages/types/scripts/gen-names.mjs --check",
+    "test:names": "node --experimental-strip-types --test packages/types/test/names.test.ts",
+    "build:widget": "pnpm --filter @snagset/widget build",
+    "size": "pnpm --filter @snagset/widget size",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "verify:dist": "node tools/verify-dist.mjs",
+    "verify:capture": "node tools/verify-capture.mjs",
+    "verify": "pnpm gen:names:check && pnpm lint:names && pnpm lint:lockstep && pnpm lint:sql && pnpm typecheck && pnpm test && pnpm build:widget && pnpm size && pnpm size:map && pnpm verify:dist && pnpm verify:capture",
+    "lint:names": "node tools/lint-names.mjs",
+    "size:map": "node tools/module-map.mjs",
+    "lint:sql": "node tools/lint-sql-comments.mjs",
+    "lint:lockstep": "node tools/check-lockstep.mjs"
+  },
+  "devDependencies": {
+    "@snagset/types": "workspace:*",
+    "@types/node": "26.2.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
+    "overrides": {
+      "nanoid@<3.3.18": "^3.3.18",
+      "qs@<6.16.0": "^6.16.0",
+      "@modelcontextprotocol/sdk@<1.31.0": "^1.31.0"
+    }
+  }
+}

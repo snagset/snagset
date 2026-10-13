@@ -1,0 +1,27 @@
+.DS_Store
+node_modules/
+dist/
+# The dashboard's build output, emitted INTO the server package
+# so `npx snagset` ships a UI. Built, not committed — wires it into
+# the publish step, the same way the widget's dist is built rather than stored.
+apps/server/static/
+*.log
+.env
+.env.*
+# …but .env.example is a COMMITTED file, not a local one: docs/self-hosting.md
+# points people at it ("`.env.example` in the repo lists every option with its
+# default").
+!.env.example
+.turbo/
+*.tsbuildinfo
+playwright-report/
+test-results/
+.playwright/
+
+# The server's data directory (the SNAGSET_DATA_DIR default). Holds
+# secret.key — the ONE secret everything else is derived from — and
+# bootstrap.txt, which carries a live claim URL until it is used.
+.snagset/
+
+# publish-manifest.mjs leaves this only if a pack is interrupted
+package.json.prepack-backup

@@ -1,0 +1,53 @@
+{
+  "name": "@snagset/mcp",
+  "version": "0.1.18",
+  "private": false,
+  "type": "module",
+  "description": "Read your Snagset review threads from a coding agent \u2014 the pin, the element, the route and the console with each one.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snagset/snagset.git",
+    "directory": "packages/mcp"
+  },
+  "bin": {
+    "snagset-mcp": "./dist/bin.js"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs && node ../../tools/publish-manifest.mjs strip",
+    "postpack": "node ../../tools/publish-manifest.mjs restore"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@snagset/adapters": "workspace:*",
+    "@snagset/tsconfig": "workspace:*",
+    "@snagset/types": "workspace:*",
+    "@types/node": "26.2.0",
+    "typescript": "^5.7.3"
+  },
+  "exports": {
+    ".": "./src/server.ts",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "publishExports": {
+    ".": "./dist/server.js",
+    "./package.json": "./package.json"
+  }
+}

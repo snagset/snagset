@@ -1,0 +1,79 @@
+{
+  "name": "snagset",
+  "version": "0.1.18",
+  "private": false,
+  "type": "module",
+  "description": "Click-to-comment review for a live website. One script tag, or one import. React, Vue, Next.js, Vite, Astro.",
+  "license": "MIT",
+  "keywords": [
+    "review",
+    "feedback",
+    "annotation",
+    "qa",
+    "widget",
+    "react",
+    "vue",
+    "astro",
+    "nextjs",
+    "vite"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": "./dist/index.js",
+    "./vanilla": "./dist/index.js",
+    "./react": "./dist/react.js",
+    "./vue": "./dist/vue.js",
+    "./astro": "./dist/astro.js",
+    "./next": "./dist/next.js",
+    "./vite": "./dist/vite.js",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "react": ">=17",
+    "vue": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "vue": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs && node ../../tools/publish-manifest.mjs strip",
+    "postpack": "node ../../tools/publish-manifest.mjs restore"
+  },
+  "devDependencies": {
+    "@snagset/tsconfig": "workspace:*",
+    "@snagset/types": "workspace:*",
+    "@types/node": "26.2.0",
+    "@types/react": "19.0.7",
+    "react": "19.0.0",
+    "typescript": "^5.7.3",
+    "vue": "3.5.43"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snagset/snagset.git",
+    "directory": "packages/widget-npm"
+  },
+  "homepage": "https://github.com/snagset/snagset",
+  "bugs": {
+    "url": "https://github.com/snagset/snagset/issues"
+  }
+}

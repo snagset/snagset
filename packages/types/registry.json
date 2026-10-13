@@ -1,0 +1,321 @@
+{
+  "$comment": "THE NAME REGISTRY \u2014 single source of truth for every externally visible name in Snagset. Executable mirror. NOTHING below hardcodes the product name: `brand` holds it once, and every token is DERIVED from it by scripts/registry-derive.mjs. That is what makes the claim \u2014 'renaming is a task measured in minutes' \u2014 actually true; test/rename.test.ts proves it by flipping the brand and asserting zero survivors. Change a name, run `pnpm gen:names`, commit the diff.",
+  "brand": {
+    "$comment": "The ONLY place the product name appears. `long` = display/global name. `short` = the terse prefix that goes on attributes, classes, params, storage keys and artefact filenames (a client's DOM should not carry a long word). `pkg` = the npm/lowercase form used for env vars, headers, metrics, DOM events and symbols.",
+    "long": "Snagset",
+    "short": "snag",
+    "pkg": "snagset"
+  },
+  "frozen": {
+    "$comment": "DELIBERATELY NOT DERIVED.: schemaVersion is stamped permanently into exported records, GitHub issue bodies and the MCP contract, so it must survive a future product rename unchanged. It freezes when v1 first stores real data. This is the single intentional literal in the registry.",
+    "schemaVersion": "snagset.v1"
+  },
+  "vocabulary": {
+    "$comment": "The product's DOMAIN VOCABULARY \u2014 the words every user-facing surface must use: the widget, the dashboard, emails, GitHub issue bodies, docs, error copy. Registered here for the same reason names are: one place, or it drifts. NOTE the terms themselves are DERIVED, not stored \u2014 the set term is brand.long and the item term is brand.short capitalised, so the vocabulary is coherent by construction and survives a rename. These are UI/product words; the wire and DB identifiers (prj_/thr_, `projects`/`threads`) are deliberately NOT renamed by this.",
+    "set": {
+      "means": "a review set \u2014 one website under review",
+      "mapsTo": "the schema's project (prj_)"
+    },
+    "item": {
+      "means": "an individual issue \u2014 one pin and its thread",
+      "mapsTo": "the schema's thread (thr_)"
+    }
+  },
+  "scriptAttrs": {
+    "$comment": "On the host <script> tag. Prefix derived: `data-<short>-`. 06 owns types/defaults; names and polarities are fixed here.",
+    "names": [
+      "site",
+      "host",
+      "disabled",
+      "env",
+      "mode",
+      "badge",
+      "lang",
+      "theme",
+      "position",
+      "offset",
+      "asset-base",
+      "branch",
+      "build",
+      "storage",
+      "hotkey",
+      "allow-automation",
+      "screenshots",
+      "mask-selectors",
+      "nonce",
+      "auto-mount"
+    ]
+  },
+  "widgetAttrs": {
+    "$comment": "DOM the widget authors on itself. `root` marks the single shadow host, the only node we add to the page.",
+    "names": [
+      "root"
+    ]
+  },
+  "hostAttrs": {
+    "$comment": "What the HOST APPLICATION may author to guide anchoring and masking.",
+    "names": [
+      "anchor",
+      "ignore",
+      "mask",
+      "nomask",
+      "src",
+      "component"
+    ]
+  },
+  "cssClasses": {
+    "$comment": "Class-form masking hooks. Prefix derived: `<short>-`.",
+    "names": [
+      "mask",
+      "block"
+    ]
+  },
+  "cssVars": {
+    "$comment": "Registers only the PREFIX (`--<short>-`), while the design makes every `--<short>-*` property public SemVer surface \u2014 so an UNREGISTERED token is unversioned public API, and nothing mechanically stopped one being minted. Two already had been (`tb-h`, `dock-w`) before this block existed. Names only: VALUES live .3 and widget-core/src/runtime/theme.ts, because the registry governs names and never design. Grouped by role so the dark block can be asserted to override exactly the theme-variant tokens and nothing else.",
+    "groups": {
+      "theme": {
+        "$comment": "Block verbatim. These carry a light value and a dark override (except font/accent/radius/z/motion, which are theme-invariant but still belong to the block 01 owns).",
+        "names": [
+          "font",
+          "accent",
+          "onAccent",
+          "bg",
+          "fg",
+          "muted",
+          "border",
+          "radius",
+          "shadow",
+          "z",
+          "motion"
+        ]
+      },
+      "derived": {
+        "$comment": "Computed from `bg`/`fg`/`accent`/`muted` with color-mix(), so they need NO dark override. NOTE `onAccent` was here and is NOT computed \u2014 it is a literal ink chosen to contrast `accent`, so it cannot re-derive from a flip and must move WITH its accent; found white-on-light-accent at 3.0:1 in dark mode because of it \u2014 custom properties substitute lazily, so flipping bg/fg re-derives all of these for free. This is why the implementation needs no second palette.",
+        "names": [
+          "surface",
+          "sunken",
+          "hover",
+          "focus",
+          "disabled"
+        ]
+      },
+      "status": {
+        "$comment": "Obliges the four normative status colours to be EXPOSED as custom properties (and names none). Values are generated from the one STATUS table in widget-core/src/storage/types.ts so each literal still occurs exactly once in source. Deliberately NOT theme-overridable: The design forbids a per-surface palette, and a theme is a surface.",
+        "names": [
+          "status-open",
+          "status-progress",
+          "status-review",
+          "status-resolved"
+        ]
+      },
+      "anchor": {
+        "$comment": "(as amended 2026-08-10) fixes the orphan ring at #DC2626. Anchor state and status are different axes on the SAME pin, and the silhouette never varies: status owns the fill, anchor state owns the rings. An orphan takes TWO \u2014 white inside, red outside \u2014 so the red never abuts the fill and only has to contrast with white. That is what makes the state legible on all four status fills and under red-green colour blindness, which no single ring colour manages.",
+        "names": [
+          "anchor-orphan"
+        ]
+      },
+      "geometry": {
+        "$comment": "Published at runtime by the component that alone can measure them, and read by another. Not colours and not themeable: `tb-h` is the toolbar's height including its safe-area inset, `dock-w` the dock's width while open, `kb` the on-screen keyboard's height derived from `visualViewport` \u2014 zero whenever no keyboard is up. `thumb-x`/`thumb-w` are the Browse/Comment toggle's sliding indicator: the position and width of the pressed half, measured from bounding rects by the toolbar because CSS cannot size two content-width halves equally, and read by the segment's ::before. Registered rather than inlined for the same reason as the other two \u2014 the design makes every `--<short>-*` property public SemVer surface, and an unregistered token is unversioned public API.",
+        "names": [
+          "tb-h",
+          "dock-w",
+          "kb",
+          "thumb-x",
+          "thumb-w"
+        ]
+      }
+    }
+  },
+  "urlParams": {
+    "$comment": "Prefix derived: `<short>_`. The review-link secret lives in the FRAGMENT (never sent to the server, never in access logs or Referer); everything else is query.",
+    "query": [
+      "t",
+      "off",
+      "debug",
+      "theme"
+    ],
+    "fragment": [
+      "k"
+    ]
+  },
+  "storage": {
+    "$comment": "Web-storage keys. Prefix derived: `<short>:` (colon, never dot \u2014 a dot prefix once made an E2E purity test that could not fail). Templates are suffixes; {placeholders} become function arguments in order. The raw review token is NEVER persisted, only the derived session.",
+    "keys": {
+      "session": "session:{uid}",
+      "silent": "silent:{uid}",
+      "identity": "identity",
+      "threads": "threads:{uid}:{env}",
+      "seen": "seen:{uid}:{env}",
+      "counts": "counts:{origin}",
+      "draft": "draft:{route}:{draftId}",
+      "outbox": "outbox:{uid}",
+      "mode": "mode",
+      "handoff": "handoff",
+      "seenCoach": "seen-coach",
+      "disclosure": "disclosure:v1"
+    }
+  },
+  "idb": {
+    "$comment": "The v0.1 IndexedDB blob store. ONE database, ONE object store: screenshots at v0.1, reviewer images at v0.1, and the v2 blob-capable outbox REUSES it (05: 'one blob store, not two'). Database name is `<short>:` + suffix, same prefix rule as web storage; discoverable via indexedDB.databases(), hence registered. Key = attachment id (att_...), index on [uid, env] for export-and-clear.",
+    "database": "blobs",
+    "store": "blobs"
+  },
+  "cookies": {
+    "$comment": "Derived `<short>_*`. The two WIDGET cookies carry no credential and no cookie authenticates the widget API. The two DASHBOARD cookies are a different surface (first-party, server's own origin, owner audience) and are the session + CSRF pair the design specifies; they are listed separately so the widget-side rule stays a rule.",
+    "names": [
+      "off",
+      "on"
+    ],
+    "dashboard": [
+      "session",
+      "csrf"
+    ]
+  },
+  "artifacts": {
+    "$comment": "Built widget chunks. Filename derived: `<short>[.<suffix>].js`. Preact lives only in `panels`; the runtime core is vanilla.",
+    "suffixes": {
+      "stub": "",
+      "runtime": "runtime",
+      "panels": "panels",
+      "crumbs": "crumbs",
+      "capture": "capture",
+      "screenshot": "screenshot",
+      "anchorExt": "anchor-ext",
+      "anchorFuzzy": "anchor-fuzzy",
+      "dock": "dock",
+      "text": "text"
+    }
+  },
+  "identifiers": {
+    "$comment": "Wire-form entity id prefixes. NOT brand-derived: they are entity abbreviations, and they survive a rename untouched.",
+    "prefixes": {
+      "project": "prj_",
+      "thread": "thr_",
+      "comment": "cmt_",
+      "reviewer": "rev_",
+      "attachment": "att_",
+      "link": "lnk_",
+      "round": "rnd_"
+    },
+    "threadRefPrefix": "SN-",
+    "credentialPrefixes": {
+      "$comment": "Credential literals, DERIVED from brand.short unlike the entity prefixes above. The shape deliberately breaks the three-letter row form: the literal is what gets registered with GitHub secret scanning, so a token pasted into a public repo is reported automatically. A credential must be recognisable as a credential. The spec awards `cdmcp_`, which predates the rename; it is derived here so it cannot drift from the brand again.",
+      "mcp": "mcp_"
+    }
+  },
+  "metaNames": {
+    "$comment": "Host-authored `<meta name>` keys the widget READS and never mints. Derived `<pkg>:*`, the same namespace as domEvents, which is why an unregistered one looked like an invented DOM event to the linter.: `route` is the ONLY host-authored meta key any spec reads; the build-metadata keys are the and arrive through CaptureContext.build, not the head.",
+    "names": [
+      "route"
+    ]
+  },
+  "httpHeaders": {
+    "$comment": "The request/response header NAMES inside the `x-<pkg>-` prefix. Registers the PREFIX and scopes it to our own API, and says the individual names are the; they are enumerated HERE because the lint matches the prefix and would otherwise report every one of them as an invented token. Derived `x-<pkg>-*`, so a rename carries them.",
+    "names": [
+      "client",
+      "schema",
+      "idempotency-key",
+      "identity",
+      "csrf",
+      "attachment-kind",
+      "attachment-width",
+      "attachment-height",
+      "server",
+      "min-client",
+      "time",
+      "config-version",
+      "idempotent-replay",
+      "request-id",
+      "mcp-transport"
+    ]
+  },
+  "domEvents": {
+    "$comment": "CustomEvents on document, mirroring the on() event map. Derived `<pkg>:*`.",
+    "names": [
+      "ready",
+      "activate",
+      "deactivate",
+      "thread-created",
+      "thread-resolved"
+    ]
+  },
+  "symbols": {
+    "$comment": "Symbol.for('<pkg>.*') for patch bookkeeping. The source-level CONSTANTS holding these are named SYM_* so they do not match the env-var grep. `instance` is the BRAND: it is what tells a second copy of the stub that the global it found is ours rather than a host's, which is the difference between first-wins and installing at the collision fallback.",
+    "names": [
+      "original",
+      "wrapped",
+      "instance"
+    ]
+  },
+  "reservedCustom": {
+    "$comment": "Reserved prefix inside CaptureContext.custom. DELIBERATELY NAME-INDEPENDENT and NOT derived: a fixed internal token so the host-facing custom-key contract survives any future rebrand untouched. Registered as the one intentional exception; not rename residue.",
+    "prefix": "cr."
+  },
+  "budgets": {
+    "$comment": "Keys match `artifacts.suffixes`. gzip:true, brotli:false (a silent switch to brotli relaxes every budget ~15%). RATIFIED 2026-08-12: The spike's bottom-up re-derivation is done, so these are HARD gates now rather than targets \u2014 `size-limit` exits 1 on breach, verified by breaching it. The envelope is 40000 BYTES (not 40960), gzip level 9, measured per artefact and summed; each of those three was an ambiguity big enough to decide the question on its own, so `tools/envelope.mjs` asserts them rather than inheriting them. `built` gates the generated .size-limit.json to chunks that currently exist; flip to true as each lands. activationEnvelopeKb 44 = runtime + panels (40 at ratification; raised publicly 2026-08-26) \u2014 the row names those two files and gives the stub its OWN 8 KB row, so summing three charged the stub twice. `envelope:false` marks an eager artefact as budgeted separately; `enforced:false` marks a budget as REPORTED rather than gated, which is what the two `\u2014 of which` sub-rows are: a decomposition of the 40 with an empty Enforced-by cell; the generator emits the envelope row plus a total row at the sum of every eager budget, so correcting the first leaves no byte unwatched.",
+    "activationEnvelopeKb": 44,
+    "artifacts": {
+      "stub": {
+        "budgetKb": 8,
+        "lazy": false,
+        "built": true,
+        "envelope": false,
+        "$comment": "Always loaded, and budgets it on its own row \u2014 NOT inside the runtime envelope. envelope:false is what keeps it out of that sum; it is still counted in the total-activation row."
+      },
+      "runtime": {
+        "budgetKb": 20,
+        "lazy": false,
+        "built": true,
+        "enforced": false,
+        "$comment": "Part of the runtime envelope, which is the gate. This per-file number is the own estimate of how the 40 KB would divide and is REPORTED, not enforced \u2014 the product divided it 19.5/20.4."
+      },
+      "panels": {
+        "budgetKb": 20,
+        "lazy": false,
+        "built": true,
+        "enforced": false,
+        "$comment": "Part of the runtime envelope, which is the gate. This per-file number is the own estimate of how the 40 KB would divide and is REPORTED, not enforced \u2014 the product divided it 19.5/20.4."
+      },
+      "crumbs": {
+        "budgetKb": 8,
+        "lazy": true,
+        "built": true
+      },
+      "capture": {
+        "budgetKb": 15,
+        "lazy": true,
+        "built": true,
+        "$comment": "Built from v0, ahead .1's v0.1 tag. Always specified this home for the redaction module; PLAN inverted it only because isSensitiveValue was believed to be needed at pin time in the eager chunk. It is not: anchor CREATION only happens with the composer open, so capture is lazy like the spec said. lazy:true keeps it out of the activation envelope, which is what the design makes normative. Budget raised 8 -> 12 KB when selector generation landed, and 12 -> 14 when the anchor RECORDER moved in beside it: chooses @medv/finder (~2 KB min+gz) and allocates it inside the anchor core, but GENERATION only happens at creation while RESOLUTION runs on every load \u2014 so it belongs in this lazy chunk rather than the eager one. lazy:true keeps it outside the normative activation envelope, which is the sum that is actually gated. Raised 14 -> 15 at the Phase-1 close-out: 01 SS10.3's keyboard virtual cursor lands here, beside the add chrome it draws through, because `add` is unreachable without this chunk. Lazy bytes, so the envelope is untouched \u2014 the same trade priced for the dock."
+      },
+      "screenshot": {
+        "budgetKb": 25,
+        "lazy": true,
+        "built": true
+      },
+      "anchorExt": {
+        "budgetKb": 4,
+        "lazy": true,
+        "built": true,
+        "$comment": "Built from v0 even though the design makes the v0 cascade `testid` + `css` only and P8 asserts a v0 session fetches NEITHER anchor chunk. Building it is not the same as loading it: the steps shipped inside snag.runtime.js until selector generation landed, and keeping them compiled and tested here is what makes the v0.1 wiring a fetch rather than a rewrite. lazy:true keeps it out of the normative envelope."
+      },
+      "anchorFuzzy": {
+        "budgetKb": 5,
+        "lazy": true,
+        "built": true,
+        "$comment": "3 -> 5 at. Draft 4's 3 KB priced 'matchQuote and approx-string-match, the chunk's entire contents' \u2014 before the decision made chunks self-contained. The chunk now carries its own TextIndex copy (the collapse machine + build, ~0.9 KB, one SOURCE file shared with snag.text.js) and the pass-budget engine; the scorers are INJECTED from anchor-ext (which is loaded by construction before fuzzy ever escalates) rather than bundled, which is what keeps this at 5 and not 6.5. Lazy, fetched only after the resident and extended steps BOTH missed on a record with a searchable quote \u2014 a session with no orphaned text pins never downloads it."
+      },
+      "dock": {
+        "budgetKb": 22,
+        "lazy": true,
+        "built": true,
+        "$comment": "The funded lever, taken at. The dock opens on demand, so its bytes left the activation envelope. SELF-CONTAINED \u2014 it bundles its own Preact copy (16.2 KB gz measured standalone, exactly the prediction), because cross-chunk imports died of module-map poisoning; lazy bytes cost the envelope nothing, which is the whole argument. Raised 21 -> 22 at 0.1.15: the reply box asks who is writing as the composer does, so the sign-in popup and the identity reader ride along here too."
+      },
+      "text": {
+        "budgetKb": 6,
+        "lazy": true,
+        "built": true,
+        "$comment": "The TENTH artefact: creation-side text picking \u2014 the selection watcher, the TextIndex build, quote policy and createTextAnchor. Loaded on entering the text sub-mode of `add`, never before. It exists because the machinery outgrew every existing home: capture's 14 KB is metadata+redaction+recorder and went 2 KB over with this inside; anchor-ext's 4 KB is resolution steps with ~1 KB of headroom. Self-contained \u2014 it bundles its own copies of the shared sources (index, labels, selectors), and the resolution-side index copy in anchor-ext is the same one SOURCE file."
+      }
+    }
+  }
+}

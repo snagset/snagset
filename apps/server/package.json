@@ -1,0 +1,65 @@
+{
+  "name": "@snagset/server",
+  "version": "0.1.18",
+  "private": false,
+  "type": "module",
+  "description": "The Snagset server: API, dashboard and widget in one package. Node and Postgres, or Vercel.",
+  "license": "AGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snagset/snagset.git",
+    "directory": "apps/server"
+  },
+  "bin": {
+    "snagset": "./dist/bin.js"
+  },
+  "scripts": {
+    "dev": "node --experimental-strip-types --watch src/bin.ts",
+    "start": "node --experimental-strip-types src/bin.ts",
+    "migrate": "node --experimental-strip-types src/db/migrate.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test --test-concurrency=1 test/*.test.ts",
+    "build": "node scripts/build.mjs",
+    "prepack": "node scripts/build.mjs && node ../../tools/publish-manifest.mjs strip",
+    "postpack": "node ../../tools/publish-manifest.mjs restore"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.1",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "aws4fetch": "1.0.20",
+    "drizzle-orm": "0.45.2",
+    "hono": "4.13.13",
+    "jose": "6.2.8",
+    "postgres": "3.4.9",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@snagset/adapters": "workspace:*",
+    "@snagset/mcp": "workspace:*",
+    "@snagset/tsconfig": "workspace:*",
+    "@snagset/types": "workspace:*",
+    "@snagset/widget": "workspace:*",
+    "@types/node": "26.2.0",
+    "typescript": "^5.7.3"
+  },
+  "main": "./dist/app.js",
+  "exports": {
+    ".": "./dist/app.js",
+    "./bin": "./dist/bin.js",
+    "./package.json": "./package.json",
+    "./serverless": "./dist/serverless.js"
+  },
+  "files": [
+    "dist",
+    "static",
+    "vercel.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

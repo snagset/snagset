@@ -1,0 +1,26 @@
+{
+  "name": "@snagset/adapters",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "docs": "Internal package — exports TS source; the consumer compiles it (node --strip-types on the server, Vite in the widget). The design names this location: the outbound sanitiser is shared by every provider AND by the MCP server, so it cannot live inside one consumer.",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./outbound/sanitise": "./src/outbound/sanitise.ts",
+    "./outbound/fence": "./src/outbound/fence.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@snagset/tsconfig": "workspace:*",
+    "@snagset/types": "workspace:*"
+  }
+}

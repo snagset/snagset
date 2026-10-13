@@ -1,0 +1,35 @@
+-- ─────────────────────────────────────────────────────────────────────────
+-- `email` joins snag_provider, so notification mail can ride the outbox
+-- (L1.4, plan/03 §M2-32: "Delivered through M2-31's outbox, so a retry never
+-- double-sends").
+--
+-- The outbox already carries exactly the guarantee email needs and nothing
+-- else in this system does: UNIQUE (provider, dedupe_key) makes re-enqueueing
+-- a no-op, and the status machine makes a delivered row un-redeliverable. A
+-- second table beside it would be that mechanism written twice, and the second
+-- copy is the one that gets the retry semantics subtly wrong.
+--
+-- WHY 05 §3's ENUM BLOCK IS NOT EDITED, for the second time.
+--
+-- §3 is the sole schema source and 0001 is generated from it — so editing the
+-- enum there regenerates 0001, changes its checksum, and makes migrate.ts
+-- refuse to start against every database that already applied it. The
+-- convention `migrate.ts` documents is that 0001 stays regenerable UNTIL M2-35
+-- freezes schemaVersion, after which §3 describes the current schema and the
+-- generator's check becomes "0001 plus every later file EQUALS §3".
+--
+-- This is the SECOND migration to work around that boundary (0002 was the
+-- first), and two is the point at which it stops being an exception. The
+-- freeze is now overdue: until it happens, §3 describes the schema a FRESH
+-- database gets before its later migrations run, which is a subtly different
+-- thing from the schema, and a reader has no way to tell from §3 alone. A
+-- prose note beside the enum in §3 points here; it sits outside the fenced
+-- block, so the generator does not see it and 0001 is unchanged.
+--
+-- ADD VALUE IF NOT EXISTS is transaction-safe on PostgreSQL 12+ (08 §2.2
+-- targets 14+) provided the new value is not USED in the same transaction.
+-- Nothing here uses it; the first use is the first notification, which is a
+-- different transaction entirely.
+-- ─────────────────────────────────────────────────────────────────────────
+
+ALTER TYPE snag_provider ADD VALUE IF NOT EXISTS 'email';

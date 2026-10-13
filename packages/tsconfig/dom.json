@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "docs": "Browser packages (widget-core, playground, dashboard). DOM libs, Preact JSX, still NO node types. JSX lives here rather than per-package because Preact is the browser UI framework product-wide \u2014 a package that imports a .tsx from another package needs it too, which is how the playground broke.",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
+  }
+}

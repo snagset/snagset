@@ -1,0 +1,43 @@
+{
+  "name": "create-snagset",
+  "version": "0.1.18",
+  "private": false,
+  "type": "module",
+  "description": "Scaffold your own Snagset instance. One command, Postgres included, one variable to fill in.",
+  "license": "MIT",
+  "bin": {
+    "create-snagset": "dist/index.js"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-template.mjs",
+    "prepack": "tsc -p tsconfig.build.json && node scripts/copy-template.mjs && node ../../tools/publish-manifest.mjs strip",
+    "postpack": "node ../../tools/publish-manifest.mjs restore"
+  },
+  "devDependencies": {
+    "@snagset/tsconfig": "workspace:*",
+    "@types/node": "26.2.0",
+    "typescript": "^5.7.3"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snagset/snagset.git",
+    "directory": "packages/create-snagset"
+  },
+  "homepage": "https://github.com/snagset/snagset",
+  "bugs": {
+    "url": "https://github.com/snagset/snagset/issues"
+  }
+}
