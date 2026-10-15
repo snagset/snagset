@@ -86,8 +86,18 @@ export function effectiveWriteMode(
  * gets them is a review link whose stored `permissions` already contain them —
  * the "team link".
  */
-function permissionsFor(kind: SessionKind, link: { permissions: string[] } | null): Permission[] {
-  if (kind === "guest") return CLIENT_PERMISSIONS.filter((p) => p !== "thread:resolve");
+function permissionsFor(
+  kind: SessionKind,
+  link: { permissions: string[] } | null,
+  project: { guest_can_resolve: boolean },
+): Permission[] {
+  // A guest's status changes are the SITE's call, not a constant. The
+  // column is read here at exchange and again on every refresh, so a toggle
+  // reaches a guest already on the page within one sliding window — and the
+  // thread PATCH reads it live besides, so "off" does not wait even that long.
+  if (kind === "guest") {
+    return project.guest_can_resolve ? CLIENT_PERMISSIONS : CLIENT_PERMISSIONS.filter((p) => p !== "thread:resolve");
+  }
   if (kind === "link" && link) {
     const stored = link.permissions.filter((p): p is Permission =>
       ["thread:create", "comment:create", "thread:resolve", "thread:delete:own", "thread:private", "thread:assign"].includes(p),
@@ -291,6 +301,15 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
         return fail(c, 401, "session_revoked", "This account is no longer a member of the studio.");
       }
 
+      /**
+       * A guest's `perm` is RECOMPUTED from the site's current setting
+       * rather than carried: carried, a guest minted before the studio turned
+       * status changes on would be refused until the twelve-hour cap, and one
+       * minted before it was turned off would keep a grant the studio took
+       * away. Link sessions keep their link's grant and members theirs —
+       * neither depends on a project setting.
+       */
+      const permissions = v.claims.kind === "guest" ? permissionsFor("guest", null, project) : v.claims.perm;
       const minted = await mintSession(
         keys,
         {
@@ -299,7 +318,7 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
           environmentKey: v.claims.env,
           kind: v.claims.kind,
           reviewLinkId: v.claims.lnk,
-          permissions: v.claims.perm,
+          permissions,
           sessionEpoch: project.session_epoch,
           // Carried forward — the cap does not slide (session.ts).
           sid: v.claims.sid,
@@ -314,6 +333,9 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
         sessionToken: minted.token,
         expiresAt: minted.expiresAt.toISOString(),
         refreshableUntil: minted.refreshableUntil.toISOString(),
+        // On a refresh too: the widget draws the status control from
+        // this, and a guest's set can change under it between two refreshes.
+        permissions,
         serverTime: now().toISOString(),
       });
     }
@@ -407,7 +429,7 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
     }
 
     const kind: SessionKind = identity.kind;
-    const permissions = permissionsFor(kind, link);
+    const permissions = permissionsFor(kind, link, project);
 
     // ── The reviewer.: the SERVER mints the holder secret and returns
     //    it once; later exchanges present it back.

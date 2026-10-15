@@ -259,14 +259,21 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
     const rawOrigins = body?.["origins"];
     const rawDomain = body?.["domain"];
     const rawStatus = body?.["status"];
+    const rawGuests = body?.["guestsCanChangeStatus"];
     if (
       mode === undefined &&
       rawName === undefined &&
       rawOrigins === undefined &&
       rawDomain === undefined &&
-      rawStatus === undefined
+      rawStatus === undefined &&
+      rawGuests === undefined
     ) {
-      return fail(c, 400, "validation_failed", "Send at least one of name, origins, domain, status or writeMode.");
+      return fail(
+        c,
+        400,
+        "validation_failed",
+        "Send at least one of name, origins, domain, status, writeMode or guestsCanChangeStatus.",
+      );
     }
     if (mode !== undefined && mode !== "open" && mode !== "link-required" && mode !== "verified-only") {
       return fail(c, 400, "validation_failed", "writeMode must be open, link-required or verified-only.");
@@ -303,6 +310,23 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
         return fail(c, 400, "validation_failed", "status must be active or paused.");
       }
       status = rawStatus;
+    }
+
+    /**
+     * Whether guests may change a comment's status. Who may do what on
+     * the site is the same register as rounds' rename and archive, so the
+     * same roles: an owner or an admin. The other fields keep the route's
+     * existing gate (any member of the studio).
+     */
+    let guests: boolean | undefined;
+    if (rawGuests !== undefined) {
+      if (typeof rawGuests !== "boolean") {
+        return fail(c, 400, "validation_failed", "guestsCanChangeStatus must be true or false.");
+      }
+      if (owner.role !== "owner" && owner.role !== "admin") {
+        return fail(c, 403, "forbidden", "Only an owner or an admin can change what guests may do.");
+      }
+      guests = rawGuests;
     }
 
     /**
@@ -345,6 +369,7 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
                      : tx`settings || jsonb_build_object('domain', ${domain}::text)`
                },
                write_mode = ${mode === undefined ? tx`write_mode` : tx`${mode}::snag_write_mode`},
+               guest_can_resolve = ${guests === undefined ? tx`guest_can_resolve` : tx`${guests}`},
                write_mode_downgrade_at = ${
                  mode === undefined
                    ? tx`write_mode_downgrade_at`
@@ -374,8 +399,9 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
     // made on the dashboard should be true on the next page load, not the
     // one after.
     deps.projects?.invalidate(c.req.param("uid"));
-    const [row] = await inOrg(sql, project.org_id, (tx) => tx<{ name: string; write_mode: string; write_mode_downgrade_at: Date | null; status: string; domain: string | null }[]>`
-      SELECT name, write_mode, write_mode_downgrade_at, status, settings->>'domain' AS domain FROM projects WHERE id = ${project.id}::uuid
+    const [row] = await inOrg(sql, project.org_id, (tx) => tx<{ name: string; write_mode: string; write_mode_downgrade_at: Date | null; status: string; domain: string | null; guest_can_resolve: boolean }[]>`
+      SELECT name, write_mode, write_mode_downgrade_at, status, settings->>'domain' AS domain, guest_can_resolve
+      FROM projects WHERE id = ${project.id}::uuid
     `);
     const all = await inOrg(sql, project.org_id, (tx) => tx<{ pattern: string }[]>`
       SELECT pattern FROM project_origins WHERE project_id = ${project.id}::uuid ORDER BY pattern
@@ -387,6 +413,7 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
       writeMode: row ? effectiveWriteMode(row, new Date()) : undefined,
       status: row?.status,
       domain: row?.domain ?? null,
+      guestsCanChangeStatus: row?.guest_can_resolve,
       origins: all.map((r) => r.pattern),
     });
   });

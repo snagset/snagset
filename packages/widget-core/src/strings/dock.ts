@@ -114,6 +114,8 @@ export const dockStrings = {
   "who.signout": "Not you? Sign out",
   "detail.hidden.show": "Show anyway",
   "field.status": "Status",
+  // Beside a read-only status, for a session that cannot change it.
+  "field.status.locked": "Only the studio can change status here.",
   // Who holds a snag. Shown read-only to anyone who cannot change it.
   "field.assignee": "Assigned to",
   "assignee.none": "Unassigned",

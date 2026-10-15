@@ -72,7 +72,7 @@ test("the key set is stable — adding or removing one is a deliberate act", () 
     "error.sendfailed", "error.sessionended", "export.button", "export.by",
     "export.device", "export.heading", "export.json", "export.md", "export.nobody",
     "export.on", "export.screenshot", "export.selector", "export.summary.many", "export.summary.one", "export.title",
-    "field.assignee", "field.status",
+    "field.assignee", "field.status", "field.status.locked",
     "filter.button", "filter.button.n", "filter.by", "filter.by.anyone", "filter.clear", "filter.new", "filter.new.none", "filter.new.on", "filter.pageonly", "filter.pages", "filter.pages.all", "filter.read", "filter.read.all", "filter.read.read", "filter.read.unread", "filter.selectall", "filter.status", "highlight.chip", "highlight.chip.unnamed", "hint.coarse", "hint.fine",
     "label.button", "label.image", "label.link", "label.tag", "label.text",
     "nav.announce",

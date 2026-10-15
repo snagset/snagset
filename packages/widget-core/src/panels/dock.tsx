@@ -94,6 +94,13 @@ export interface DockProps {
   isMine?: (author: import("../storage/types.ts").Reviewer) => boolean;
   /** The session may delete a thread it started (`thread:delete:own`). */
   canDeleteOwnThread?: boolean;
+  /**
+   * The session may change a thread's status (`thread:resolve`). False draws
+   * the status read-only with a one-line reason, and the 1-4 and R chords do
+   * nothing: a control the server will refuse is the bug real guests
+   * reported — they resolved a comment and it came back. Absent: editable.
+   */
+  canStatus?: boolean;
   /** A signed-in studio owner or admin: Delete on every comment and thread,
    *  Edit still only on their own — the dashboard's rule. */
   canModerate?: boolean;
@@ -106,7 +113,11 @@ export interface DockProps {
   onAssign?(id: string, who: import("../storage/types.ts").Reviewer | null): void;
   onClearAll(): void;
   onClose(): void;
-  onExport(kind: "md" | "json"): void;
+  /**
+   * Absent on a server-backed install: everything is in the dashboard there,
+   * and Export is the one way out only for the local, server-less mode.
+   */
+  onExport?: (kind: "md" | "json") => void;
   /** Lift the matching pin while a row is pointed at, so list and page connect. */
   onHover(id: string | null): void;
   /** The round's filter — runtime-owned, because its first
@@ -988,16 +999,34 @@ function List({
       {/* One control, and it shows whenever there is anything to control:
           snags to filter, or a second round to switch back to. The round
           selector used to be its own bar for exactly that second reason. */}
-      {(snags.length > 0 || (rounds && rounds.length > 1 && onRound)) && (
+      {/* The ROUND, in plain sight. It sat inside the Filter menu, and a
+          reviewer looking at an empty round saw "No comments yet" with no hint
+          that another round held the conversation. Parallel rounds made it the
+          first question the panel answers, not a filter. */}
+      {rounds && rounds.length > 1 && onRound && (
+        <label class="snag-dk-roundbar">
+          <span class="snag-dk-dim">{format("round.label")}</span>
+          <select
+            class="snag-input"
+            value={String(activeRound ?? "")}
+            onChange={(e) => onRound(Number((e.currentTarget as HTMLSelectElement).value))}
+          >
+            {rounds.map((r) => (
+              <option value={String(r.number)} key={r.number}>
+                {r.name}
+                {r.closed ? ` ${format("round.closed")}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {snags.length > 0 && (
         <FilterBar
           round={snags}
           filter={filter}
           onFilter={onFilter}
           onClearAll={onClearAll}
           {...(seenAt === undefined ? {} : { seenAt })}
-          {...(rounds === undefined ? {} : { rounds })}
-          {...(activeRound === undefined ? {} : { activeRound })}
-          {...(onRound === undefined ? {} : { onRound })}
         />
       )}
       {/* ONE control whose label is its state, not three.
@@ -1090,6 +1119,7 @@ function List({
           </div>
         </>
       )}
+      {onExport && (
       <div class="snag-dk-foot">
         {/* ONE Export. Two formats side by side made the choice of format look
             like the decision, when the decision is whether to export at all —
@@ -1128,6 +1158,7 @@ function List({
           </span>
         </div>
       </div>
+      )}
     </>
   );
 }
@@ -1507,6 +1538,7 @@ function Detail({
   isMine,
   canDeleteOwnThread = true,
   canModerate = false,
+  canStatus = true,
   studio,
   assignees,
   onAssign,
@@ -1677,25 +1709,36 @@ function Detail({
       {/* Status is a first-class field and the CLIENT can set it too: the round
           trip this product exists for is the studio asking and the client
           answering. Colour is the primary signal and is shared with the pin. */}
-      <label class="snag-dk-field">
-        <span class="snag-dk-dim">{format("field.status")}</span>
-        <select
-          class="snag-dk-select"
-          style={{ borderColor: statusColour(snag.status) }}
-          value={snag.status}
-          onChange={(e) => {
-            const next = (e.target as HTMLSelectElement).value as Status;
-            onStatus(snag.id, next);
-            onAnnounce?.(format("announce.status", { key: snag.key, status: statusLabel(next) }));
-          }}
-        >
-          {STATUS_ORDER.map((k) => (
-            <option key={k} value={k}>
-              {statusLabel(k)}
-            </option>
-          ))}
-        </select>
-      </label>
+      {canStatus ? (
+        <label class="snag-dk-field">
+          <span class="snag-dk-dim">{format("field.status")}</span>
+          <select
+            class="snag-dk-select"
+            style={{ borderColor: statusColour(snag.status) }}
+            value={snag.status}
+            onChange={(e) => {
+              const next = (e.target as HTMLSelectElement).value as Status;
+              onStatus(snag.id, next);
+              onAnnounce?.(format("announce.status", { key: snag.key, status: statusLabel(next) }));
+            }}
+          >
+            {STATUS_ORDER.map((k) => (
+              <option key={k} value={k}>
+                {statusLabel(k)}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        // Read-only, in the same place: the status is still the field a client
+        // reads first, and the reason sits beside it rather than in an error
+        // after they tried.
+        <p class="snag-dk-field" data-status-locked>
+          <span class="snag-dk-dim">{format("field.status")}</span>
+          <strong>{statusLabel(snag.status)}</strong>
+          <span class="snag-dk-dim">{format("field.status.locked")}</span>
+        </p>
+      )}
 
       <Assignee snag={snag} {...(assignees && onAssign ? { list: assignees, onAssign } : {})} />
 
@@ -1967,13 +2010,15 @@ function Dock(props: DockProps) {
    * the snag it acts on is whatever the last render says it is — "with the
    * detail open" is a guard on the event, not a lifecycle to race.
    */
-  const live = useRef({ snag: open, onStatus: props.onStatus });
-  live.current = { snag: open, onStatus: props.onStatus };
+  // `can` rides the same ref: a session whose permissions change on a refresh
+  // gets inert chords from the next render, not the next mount.
+  const live = useRef({ snag: open, onStatus: props.onStatus, can: props.canStatus !== false });
+  live.current = { snag: open, onStatus: props.onStatus, can: props.canStatus !== false };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      const { snag, onStatus } = live.current;
-      if (!snag) return;
+      const { snag, onStatus, can } = live.current;
+      if (!snag || !can) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const editable = e
         .composedPath()
@@ -2227,6 +2272,8 @@ const CSS = `
 .snag-dk-empty p{margin:0 0 4px}
 .snag-dk-notice{margin:0;padding:11px 14px;font-size:12px;color:${t.muted};
   border-bottom:1px solid ${t.border};flex:0 0 auto}
+.snag-dk-roundbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid ${t.border};flex:0 0 auto}
+.snag-dk-roundbar .snag-input{flex:1;min-width:0}
 .snag-dk-foot{display:flex;gap:6px;padding:10px 14px;border-top:1px solid ${t.border};flex:0 0 auto}
 .snag-dk-link{background:transparent;border:0;color:${t.accent};font:inherit;cursor:pointer;
   padding:4px 6px;border-radius:calc(${t.radius} - 2px);transition:background ${t.motion}}

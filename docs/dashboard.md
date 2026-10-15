@@ -100,6 +100,12 @@ loads the page, or only people with a link), the install tag, and the **widget
 switch**: paused, the widget disappears from the site while your triage goes
 on. Deleting a site asks you to type its name.
 
+**Guests can change status** is on by default: people who comment without an
+account or a review link can move a comment between Open, In progress, In
+review and Resolved. Turn it off and they see the status but cannot change it —
+at once, including anyone already on the page. Owners and admins can change
+it. Review links keep their own permissions either way.
+
 **Rounds** are managed here too, newest first, each with its number, whether
 it is open, closed or archived, and how many comments it holds. Owners and
 admins can rename a round, close or reopen it, **archive** it — out of the

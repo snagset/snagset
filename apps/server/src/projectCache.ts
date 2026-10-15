@@ -36,6 +36,11 @@ export interface ProjectRow {
    *  with "keep it open"). See `effectiveWriteMode` in `routes/sessions.ts`. */
   write_mode_downgrade_at: Date | null;
   read_mode: string | null;
+  /** Whether a guest session may change a thread's status. Read live
+   *  by the thread PATCH and by every refresh, so a toggle applies to guests
+   *  already on the page within this cache's window (at once on the node
+   *  that saved it, which invalidates). */
+  guest_can_resolve: boolean;
   session_epoch: number;
   config_version: number;
   config_etag: string;
@@ -79,7 +84,7 @@ export function createProjectCache(
   async function load(uid: string): Promise<ProjectRow | null> {
     const rows = await maintenance(sql, (tx) => tx<ProjectRow[]>`
       SELECT id, org_id, uid, name, status, write_mode, write_mode_downgrade_at, read_mode,
-             session_epoch, config_version, config_etag, key_prefix, ip_salt,
+             guest_can_resolve, session_epoch, config_version, config_etag, key_prefix, ip_salt,
              settings->>'domain' AS domain
       FROM projects WHERE uid = ${uid} AND deleted_at IS NULL
     `);

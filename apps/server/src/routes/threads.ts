@@ -1129,8 +1129,28 @@ export function threadRoutes(
     if (!asOwner && !asAgent && !session) {
       return fail(c, 401, "unauthorized", "Open your review link, or reload the page, and try again.");
     }
-    if (!asOwner && !asAgent && !session!.perm.includes("thread:resolve")) {
-      return fail(c, 403, "forbidden", "This review link does not allow changing status.");
+    /**
+     * For a GUEST the site's current setting is the answer, not the
+     * token. The token's `perm` was right when it was minted, but a studio
+     * that turns guest status changes off means now, not at the guest's next
+     * refresh — and one that turns them on should not leave a guest refused
+     * for up to fifteen minutes. `p` is the 10-second project cache, which the
+     * settings route invalidates on save. Link and member sessions are
+     * unchanged: their grant comes from the link or the membership.
+     */
+    if (!asOwner && !asAgent) {
+      const mayChangeStatus =
+        session!.kind === "guest" ? p.guest_can_resolve : session!.perm.includes("thread:resolve");
+      if (!mayChangeStatus) {
+        return fail(
+          c,
+          403,
+          "forbidden",
+          session!.kind === "guest"
+            ? "Only the studio can change status on this site."
+            : "This review link does not allow changing status.",
+        );
+      }
     }
 
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;

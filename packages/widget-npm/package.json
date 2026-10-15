@@ -1,6 +1,6 @@
 {
   "name": "snagset",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "private": false,
   "type": "module",
   "description": "Click-to-comment review for a live website. One script tag, or one import. React, Vue, Next.js, Vite, Astro.",

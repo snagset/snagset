@@ -28,7 +28,7 @@ export function useEditSite(uid: string) {
       await Promise.all([qc.cancelQueries({ queryKey: meKey }), qc.cancelQueries({ queryKey: originsKey })]);
       const me = qc.getQueryData<Me>(meKey);
       const origins = qc.getQueryData<Addresses>(originsKey);
-      if (me && (patch.name !== undefined || patch.writeMode !== undefined || patch.status !== undefined || patch.domain !== undefined)) {
+      if (me && (patch.name !== undefined || patch.writeMode !== undefined || patch.status !== undefined || patch.domain !== undefined || patch.guestsCanChangeStatus !== undefined)) {
         qc.setQueryData<Me>(meKey, {
           ...me,
           projects: me.projects.map((p) =>
@@ -39,6 +39,7 @@ export function useEditSite(uid: string) {
                   ...(patch.writeMode !== undefined ? { writeMode: patch.writeMode } : {}),
                   ...(patch.status !== undefined ? { status: patch.status } : {}),
                   ...(patch.domain !== undefined ? { domain: patch.domain } : {}),
+                  ...(patch.guestsCanChangeStatus !== undefined ? { guestsCanChangeStatus: patch.guestsCanChangeStatus } : {}),
                 }
               : p,
           ),

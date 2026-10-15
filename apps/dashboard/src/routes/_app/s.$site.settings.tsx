@@ -52,6 +52,8 @@ function SiteSettings() {
   const { site: uid } = Route.useParams();
   const me = useMe();
   const site = me.projects.find((p) => p.uid === uid)!;
+  // The switch is an owner's or an admin's, as the server enforces.
+  const manager = me.user.role === "owner" || me.user.role === "admin";
   const origins = useQuery(q.origins(uid));
   const edit = useEditSite(uid);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -80,7 +82,7 @@ function SiteSettings() {
         />
       </SettingsRow>
 
-      <SettingsRow title="Widget" description="Whether it runs, who the toolbar appears for, and the tag itself.">
+      <SettingsRow title="Widget" description="Whether it runs, who the toolbar appears for, what guests may do, and the tag itself.">
         <div className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2.5">
           <div>
             <Label htmlFor="widget-on" className="text-[13px] font-medium">
@@ -95,6 +97,25 @@ function SiteSettings() {
             aria-label="Widget on this site"
             checked={site.status !== "paused"}
             onCheckedChange={(on) => save({ status: on ? "active" : "paused" })}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2.5">
+          <div>
+            <Label htmlFor="guests-status" className="text-[13px] font-medium">
+              Guests can change status
+            </Label>
+            <p className="m-0 mt-0.5 text-[12px] leading-normal text-muted-foreground">
+              People who comment without an account or a review link can move a comment between Open, In progress, In
+              review and Resolved.
+              {!manager && " Only an owner or an admin can change this."}
+            </p>
+          </div>
+          <Switch
+            id="guests-status"
+            aria-label="Guests can change status"
+            checked={site.guestsCanChangeStatus !== false}
+            disabled={!manager}
+            onCheckedChange={(on) => save({ guestsCanChangeStatus: on })}
           />
         </div>
         <div className="flex flex-col gap-2">

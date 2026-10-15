@@ -65,6 +65,8 @@ export interface SitePatch {
   /** Null clears it. */
   domain?: string | null;
   status?: "active" | "paused";
+  /** Whether guests (no account, no link) may change a comment's status. */
+  guestsCanChangeStatus?: boolean;
 }
 
 /** Where a site's widget may run: its domain, and the exact addresses besides. */
@@ -113,6 +115,8 @@ export interface Me {
     status: "active" | "paused" | string;
     /** The site's domain, or null when it lives on exact addresses only. */
     domain: string | null;
+    /** Whether guests may change a comment's status. Optional: an older server omits it. */
+    guestsCanChangeStatus?: boolean;
     threads: number;
     unresolved: number;
     /** The newest screenshot on this site, as a blob URL — the site's face.

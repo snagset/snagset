@@ -64,6 +64,12 @@ snagset link prj_… "Ana at Acme"
 | `thread:private` | — |
 | `thread:assign` | — |
 
+Guests have no link to carry permissions, so they get the default set, and
+whether that includes changing status is the site's choice: **Guests can
+change status** in the site's settings, on unless you turn it off. It applies
+to guests already on the page, not only the next ones — their next change is
+refused, and the widget shows the status as read-only once it refreshes.
+
 `thread:delete:own` lets a reviewer delete a snag they started, and only
 while nobody else has replied to it — once someone has answered, deleting it
 would take their words too. Their own replies they can always edit or delete;

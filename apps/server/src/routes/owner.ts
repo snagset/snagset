@@ -377,13 +377,13 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
       {
         uid: string; name: string; key_prefix: string; write_mode: string;
         write_mode_downgrade_at: Date | null;
-        status: string; domain: string | null;
+        status: string; domain: string | null; guest_can_resolve: boolean;
         threads: number; unresolved: number;
         shot: string | null; last_activity: Date | null;
       }[]
     >`
       SELECT p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status,
-             p.settings->>'domain' AS domain,
+             p.settings->>'domain' AS domain, p.guest_can_resolve,
              count(t.id)::int AS threads,
              count(t.id) FILTER (WHERE t.status <> 'resolved')::int AS unresolved,
              max(t.updated_at) AS last_activity,
@@ -408,7 +408,8 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
         LIMIT 1
       ) s ON true
       WHERE p.org_id = ${owner.orgId} AND p.deleted_at IS NULL
-      GROUP BY p.id, p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status, p.settings, s.id
+      GROUP BY p.id, p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status, p.settings,
+               p.guest_can_resolve, s.id
       ORDER BY p.created_at
     `);
     // The plan's numbers and how far along them the studio is
@@ -453,6 +454,8 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
         // (the switch) and (the domain), for the card and Settings.
         status: p.status,
         domain: p.domain,
+        // Whether guests may change a comment's status, for Settings.
+        guestsCanChangeStatus: p.guest_can_resolve,
         threads: p.threads,
         unresolved: p.unresolved,
         // A URL, not an id, so the client never has to know how a blob is

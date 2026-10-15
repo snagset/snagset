@@ -1044,6 +1044,9 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
           }
         : {}),
       canDeleteOwnThread: storage.can ? storage.can("thread:delete:own") : true,
+      // Asked per paint, so a refresh that changed a guest's set (the
+      // site's setting moved) shows on the next repaint.
+      canStatus: storage.can ? storage.can("thread:resolve") : true,
       canModerate: storage.canModerate?.() ?? false,
       // In the widget: everyone sees who holds a snag; a session with
       // `thread:assign` (a signed-in member, a team link) may change it.
@@ -1052,7 +1055,8 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
         : {}),
       onClearAll: () => void clearAll(),
       onClose: closePanel,
-      onExport: exportAs,
+      // Export only where there is no server to read the comments from.
+      ...(storage.kind === "local" ? { onExport: exportAs } : {}),
       onHover: (id) => pins.highlight(id),
       // T10/: one round visible at a time. The selector shows only when
       // the adapter can switch (local cannot) and there is a choice to make.
@@ -1153,9 +1157,9 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
       // putting the substitutions there renders "that {item}" verbatim.
       all = before;
       paint();
-      // One word for all three callers. "change" is true of an edit, a
-      // deletion and a removed thread, and three literals for one sentence is
-      // three literals in a chunk with a byte budget.
+      // One word for every caller. "change" is true of an edit, a deletion, a
+      // removed thread, a status and an assignee, and a literal per caller for
+      // one sentence is that many literals in a chunk with a byte budget.
       notice.show("error.sendfailed", undefined, { item: "change" });
     }
   }
@@ -1568,23 +1572,28 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
   }
 
   async function setStatus(id: string, status: Status): Promise<void> {
-    // Optimistic: the panel repaints from memory immediately, and the write is
-    // what may fail. A status flip that waits on storage feels broken.
-    all = all.map((s) => (s.id === id ? { ...s, status } : s));
-    paint();
     // Named `thread:resolve` but fired for EVERY status move (the payload
     // carries the status, which would be pointless if it were only ever
     // "resolved"). A host wiring this to its issue tracker needs the in-progress
     // transitions as much as the final one.
     emit("thread:resolve", { threadId: id, status });
-    await guard(() => storage.patchThread(id, { status }));
+    // Optimistic: the panel repaints from memory immediately, and the write is
+    // what may fail. A status flip that waits on storage feels broken — and
+    // one that fails must come BACK, with the notice. It used to stay
+    // on screen after a refusal, so guests resolved a comment, saw it
+    // resolved, and found it open again on the next load.
+    await optimistic(
+      all.map((s) => (s.id === id ? { ...s, status } : s)),
+      () => storage.patchThread(id, { status }),
+    );
   }
 
-  /** Optimistic, like the status: the name changes now, the write may fail. */
+  /** Optimistic, like the status: the name changes now, the write may fail and roll back. */
   async function setAssignee(id: string, who: import("../storage/types.ts").Reviewer | null): Promise<void> {
-    all = all.map((s) => (s.id === id ? { ...s, assignee: who } : s));
-    paint();
-    await guard(() => storage.patchThread(id, { assignee: who && who.id }));
+    await optimistic(
+      all.map((s) => (s.id === id ? { ...s, assignee: who } : s)),
+      () => storage.patchThread(id, { assignee: who && who.id }),
+    );
   }
 
   async function reply(id: string, body: string, name?: string): Promise<void> {

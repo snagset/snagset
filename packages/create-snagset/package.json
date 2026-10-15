@@ -1,6 +1,6 @@
 {
   "name": "create-snagset",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "private": false,
   "type": "module",
   "description": "Scaffold your own Snagset instance. One command, Postgres included, one variable to fill in.",
