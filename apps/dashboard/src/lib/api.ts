@@ -293,6 +293,9 @@ export interface Round {
   name: string;
   closed: boolean;
   closedAt?: string;
+  /** Put away — out of the widget and the round menu, listed in Settings. */
+  archived: boolean;
+  archivedAt?: string;
   createdAt: string;
   threads: number;
   /** The safeguard, computed server-side per round. */
@@ -446,6 +449,14 @@ export const api = {
   rounds: (uid: string) => call<{ data: Round[] }>("GET", `/api/v1/projects/${encodeURIComponent(uid)}/rounds`),
   createRound: (uid: string, name: string) =>
     call<Round>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/rounds`, { name }),
+  editRound: (id: string, patch: { name?: string; closed?: boolean; archived?: boolean }) =>
+    call<Round>("PATCH", `/api/v1/rounds/${encodeURIComponent(id)}`, patch),
+  /** File threads into another round (owner or admin). Keys are kept; numbers are the target's next. */
+  moveThreads: (uid: string, ids: string[], round: number) =>
+    call<{ moved: number; round: number }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/threads/move`, { ids, round }),
+  /** The round and every thread in it, softly. `confirm` is its exact name; the server checks it again. */
+  deleteRound: (id: string, confirm: string) =>
+    call<{ id: string; deleted: true; threads: number }>("DELETE", `/api/v1/rounds/${encodeURIComponent(id)}`, { confirm }),
   setStatus: (uid: string, threadId: string, status: string) =>
     call<Thread>("PATCH", `/api/v1/projects/${encodeURIComponent(uid)}/threads/${encodeURIComponent(threadId)}`, {
       status,

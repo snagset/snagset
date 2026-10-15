@@ -61,7 +61,7 @@ test("the key set is stable — adding or removing one is a deliberate act", () 
     "cluster.aria", "comment.delete",
     "comment.edit", "composer.aria", "composer.body", "composer.body.placeholder",
     "composer.chars", "composer.child", "composer.discard.sure", "composer.email", "composer.email.bad",
-    "composer.member", "composer.name", "composer.parent", "composer.shot", "composer.signin", "composer.signin.blocked", "composer.signout", "cursor.at", "cursor.here", "cursor.proxy", "detail.approximate", "detail.details", "detail.filedat", "detail.hidden", "detail.hidden.show", "detail.openquery", "detail.orphaned", "detail.unavailable", "device.Desktop",
+    "composer.member", "composer.name", "composer.parent", "composer.round.closed", "composer.shot", "composer.signin", "composer.signin.blocked", "composer.signout", "cursor.at", "cursor.here", "cursor.proxy", "detail.approximate", "detail.details", "detail.filedat", "detail.hidden", "detail.hidden.show", "detail.openquery", "detail.orphaned", "detail.unavailable", "device.Desktop",
     "device.Mobile", "disclosure.ack", "disclosure.always", "disclosure.crumbs.off",
     "disclosure.crumbs.on", "disclosure.retention", "disclosure.retention.server", "disclosure.screenshot.off", "disclosure.screenshot.on", "disclosure.title",
     "dock.aria", "dock.back", "dock.back.aria", "dock.clear",

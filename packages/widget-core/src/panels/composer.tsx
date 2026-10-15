@@ -90,6 +90,9 @@ export interface ComposerProps {
     adopt(b: MemberSession): void;
     signOut(): void;
   };
+  /** The name of the round this comment will land in, given only when
+   *  the reviewer is looking at a CLOSED round and so it lands elsewhere. */
+  roundNote?: string;
 }
 
 /**
@@ -154,6 +157,7 @@ function Composer({
   initialEmail,
   crumbsOn,
   quote,
+  roundNote,
   shotsOn,
   serverHost,
   studio,
@@ -544,6 +548,7 @@ function Composer({
           and the max-height CSS line does what a button, a state and two
           catalogue entries were doing. */}
       {disclosed && quote && <blockquote class="snag-quote">{quote}</blockquote>}
+      {disclosed && roundNote && <p class="snag-member">{format("composer.round.closed", { round: roundNote })}</p>}
 
       {disclosed && (
       <textarea

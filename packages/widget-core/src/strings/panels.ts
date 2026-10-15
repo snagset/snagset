@@ -77,6 +77,10 @@ export const panelStrings = {
   "composer.signin.blocked": "Allow pop-ups for this page to sign in.",
   "composer.member": "Commenting as {name}",
   "composer.signout": "Not you? Sign out",
+  // The reviewer is looking at a closed round, which takes no new
+  // comments. Said before they type, with where the comment WILL go, rather
+  // than after it lands somewhere they were not looking.
+  "composer.round.closed": "This round is closed — your comment goes to {round}.",
   // Characters LEFT, not characters used: the number a person acts on is how
   // much room remains, and it is the one that reaches zero.
   "composer.chars": "{n} characters left",

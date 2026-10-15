@@ -16,10 +16,11 @@ import { Label } from "@/components/ui/label";
 import type { Round } from "@/lib/api";
 
 /**
- * THE ROUND, here and nowhere else — it governs the Comments list and nothing
- * else on the site. One pill, one menu: switch, or start the next, which is
- * how a round closes; the server closes the previous one in the same
- * statement, so there is no separate "close".
+ * THE ROUND, here — it governs the Comments list and nothing else on the
+ * site. One pill, one menu: switch, or start another. Rounds run side by side
+ * so starting one closes nothing; renaming, closing, archiving and
+ * deleting live in the site's Settings, under Rounds. Archived rounds are
+ * filtered out by the caller.
  */
 export function RoundMenu({
   rounds,
@@ -75,7 +76,6 @@ export function RoundMenu({
             }}
           >
             Start a new round…
-            <span className="ml-auto text-[11.5px] text-muted-foreground">closes this one</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -99,8 +99,8 @@ export function RoundMenu({
             <DialogHeader>
               <DialogTitle>Start a new round</DialogTitle>
               <DialogDescription>
-                A round is one pass of feedback. Starting the next one closes {cur?.name ?? "the current one"}; what is
-                still open there stays counted, not carried over.
+                A round is one pass of feedback, and it runs beside the others: starting one closes none of them.
+                Reviewers pick a round in the widget and their comments go to it. Close or archive rounds in Settings.
               </DialogDescription>
             </DialogHeader>
             <div className="flex flex-col gap-1.5">
@@ -119,5 +119,31 @@ export function RoundMenu({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * "Move to round…" — the filing act, for one thread (the brief) or the
+ * ticked ones (the bulk bar). Lists the rounds it may go to: open or closed,
+ * never archived, never the one it is in; the caller passes exactly those.
+ * The thread keeps its key and takes the next number in the target round.
+ */
+export function MoveToRound({ rounds, onMove, busy }: { rounds: Round[]; onMove: (n: number) => void; busy?: boolean }) {
+  if (rounds.length === 0) return null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="outline" size="sm" disabled={busy} />}>Move to round…</DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[240px]">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Move to round</DropdownMenuLabel>
+          {rounds.map((r) => (
+            <DropdownMenuItem key={r.id} onClick={() => onMove(r.number)}>
+              <span className="truncate">{r.name}</span>
+              <span className="ml-auto text-[11.5px] text-muted-foreground">{r.closed ? "closed" : "open"}</span>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

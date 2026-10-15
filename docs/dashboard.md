@@ -27,9 +27,15 @@ view is in the URL, so any view is a link you can send to a colleague: the
 round, the status chips, the page, the search, the sort, the assignee filter.
 
 **Rounds.** You see one round at a time; the menu at the top switches between
-them or starts the next. Comments do not follow you into a new round, and the
-screen keeps a line saying how many are unresolved in the rounds you are not
-looking at, so a clean board is never a lost board.
+them or starts another. Rounds run side by side — your own QA pass can stay
+open while the client's runs — and starting one closes none of the others.
+Comments do not follow you into a new round, and the screen keeps a line
+saying how many are unresolved in the rounds you are not looking at, so a
+clean board is never a lost board. A comment filed in the wrong round can be
+moved: tick it (or open it) and choose **Move to round…**. It keeps its key,
+so links to it still work, and takes the next number in the round it moves
+to. Owners and admins can move comments, into an open or a closed round but
+not an archived one.
 
 **The brief.** Open a comment and the right-hand panel is the brief: what was
 said, the element it was left on, the page, the environment, the browser, and
@@ -93,6 +99,15 @@ The name, the domain and the addresses beside it, who may comment (anyone who
 loads the page, or only people with a link), the install tag, and the **widget
 switch**: paused, the widget disappears from the site while your triage goes
 on. Deleting a site asks you to type its name.
+
+**Rounds** are managed here too, newest first, each with its number, whether
+it is open, closed or archived, and how many comments it holds. Owners and
+admins can rename a round, close or reopen it, **archive** it — out of the
+widget and the round menu, every comment kept, one click to restore — or
+**delete** it, which removes the round and every comment in it with their
+screenshots, after you type its name. The last open round cannot be closed,
+archived or deleted: new comments need somewhere to go, so open another one
+first.
 
 ## Studio
 

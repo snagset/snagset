@@ -1,0 +1,23 @@
+-- ───────────────────────────────────────
+-- A round can be ARCHIVED — D125: rounds run side by side, and a finished
+-- one is put away without being lost.
+--
+-- Until D125 a project had one open round and starting the next closed it, so
+-- the round list only ever grew and "closed" was the only way to say "done".
+-- With parallel rounds ("Internal QA" still going while "Client QA" runs) the
+-- list grows faster, and a studio needs a third state between closed and
+-- deleted: out of the widget's selector and the dashboard's round menu, its
+-- threads untouched and one click from coming back.
+--
+-- A TIMESTAMP, like `closed_at` and `deleted_at` beside it, not a status
+-- column: the three are independent facts (an archived round may be open or
+-- closed, and restoring it puts it back exactly as it was), and the dashboard
+-- shows when it happened.
+--
+-- NULLable with no default and no backfill: every existing round is simply
+-- not archived. Adding a NULL column is a catalogue change in Postgres, no
+-- table rewrite, and the rounds table is a handful of rows per site anyway.
+--
+-- Under D71, §3.3's `rounds` table gains the column in the same commit and
+-- `pnpm schema:diff:check` asserts the two agree.
+ALTER TABLE rounds ADD COLUMN archived_at timestamptz;

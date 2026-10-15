@@ -140,8 +140,8 @@ interface LinkRow {
   id: string;
   round_id: string | null;
   /** The round the link's `round_id` points at, joined in below. `null`
-   *  when `round_id` is null; never null when `round_id` is set, since a link
-   *  cannot reference a deleted round (FK). */
+   *  when `round_id` is null, and when the round is archived or deleted
+   *  both are soft, so the FK still holds and the join drops it. */
   round_number: number | null;
   permissions: string[];
   environments: string[];
@@ -390,7 +390,9 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
                rl.allow_name_override, rl.name, rl.email,
                rl.max_uses, rl.use_count, rl.expires_at, rl.revoked_at
         FROM review_links rl
-        LEFT JOIN rounds rd ON rd.id = rl.round_id
+        -- An archived or deleted round pins nothing: the link widens
+        -- to the default, as it does when the round row is gone.
+        LEFT JOIN rounds rd ON rd.id = rl.round_id AND rd.deleted_at IS NULL AND rd.archived_at IS NULL
         WHERE rl.project_id = ${project.id} AND rl.token_hash = ${sha256(identity.token)}
       `);
       if (!found) return fail(c, 401, "token_invalid", "That review link is not valid.");
@@ -520,7 +522,7 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
         // `number` alongside `id` -- the widget stores the NUMBER beside
         // the bearer and passes `?round=<number>` on `GET …/threads`; the
         // internal `rounds.id` is never a query param anywhere in 05.
-        ...(link?.round_id ? { round: { id: link.round_id, number: link.round_number } } : {}),
+        ...(link?.round_id && link.round_number ? { round: { id: link.round_id, number: link.round_number } } : {}),
         serverTime: now().toISOString(),
       },
       201,

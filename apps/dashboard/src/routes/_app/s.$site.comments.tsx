@@ -19,8 +19,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Brief } from "@/components/app/Brief";
 import { InstallTag } from "@/components/app/InstallTag";
 import { EmptyState, StatusPill } from "@/components/app/parts";
-import { RoundMenu } from "@/components/app/RoundMenu";
-import type { Reviewer, Thread } from "@/lib/api";
+import { MoveToRound, RoundMenu } from "@/components/app/RoundMenu";
+import type { Reviewer, Round, Thread } from "@/lib/api";
 import { STATUSES, STATUS_LABEL, ago, initials, isStatus, type Status } from "@/lib/labels";
 import { useMe } from "@/lib/me";
 import { q } from "@/lib/query";
@@ -30,6 +30,7 @@ import {
   useAddComment,
   useCreateIssue,
   useCreateRound,
+  useMoveThreads,
   useDeleteComment,
   useDeleteThread,
   useEditComment,
@@ -63,7 +64,7 @@ export const Route = createFileRoute("/_app/s/$site/comments")({
   loaderDeps: ({ search }) => ({ round: search.round, page: search.page, q: search.q }),
   loader: async ({ context, deps }) => {
     const rounds = await context.queryClient.ensureQueryData(q.rounds(context.site.uid));
-    const round = deps.round ?? rounds.data[0]?.number;
+    const round = deps.round ?? landing(rounds.data);
     void context.queryClient.prefetchQuery(
       threadsQuery(context.site.uid, {
         ...(round !== undefined ? { round } : {}),
@@ -75,6 +76,16 @@ export const Route = createFileRoute("/_app/s/$site/comments")({
   },
   component: Comments,
 });
+
+/**
+ * The round a fresh visit lands in: the newest OPEN, unarchived one — where
+ * the widget's reviewers are and where new comments go — else the
+ * newest unarchived, else the newest of all.
+ */
+function landing(rounds: Round[]): number | undefined {
+  const live = rounds.filter((r) => !r.archived);
+  return (live.find((r) => !r.closed) ?? live[0] ?? rounds[0])?.number;
+}
 
 const DOT: Record<Status, string> = {
   open: "bg-status-open",
@@ -95,7 +106,10 @@ function Comments() {
   const trackers = useQuery(q.siteIntegrations(uid));
   const people = pool.data?.data ?? [];
   const myId = people.find((r) => r.isMe)?.id;
-  const activeRound = s.round ?? rounds.data?.data[0]?.number;
+  const activeRound = s.round ?? (rounds.data ? landing(rounds.data.data) : undefined);
+  // Archived rounds are put away: out of the menu and the banners,
+  // unless it is the one in the address bar.
+  const menuRounds = (rounds.data?.data ?? []).filter((r) => !r.archived || r.number === activeRound);
   const filters = useMemo(
     () => ({
       ...(activeRound !== undefined ? { round: activeRound } : {}),
@@ -112,6 +126,7 @@ function Comments() {
   const addPerson = useAddAssignee(uid);
   const createIssue = useCreateIssue(uid, key);
   const createRound = useCreateRound(uid);
+  const moveThreads = useMoveThreads(uid);
   const editComment = useEditComment(key);
   const deleteComment = useDeleteComment(key);
   const deleteThread = useDeleteThread(uid, key);
@@ -149,7 +164,21 @@ function Comments() {
   }, [visible]);
   const selected = s.thread ? rows.find((t) => t.key === s.thread) ?? null : null;
   const filtered = statusSet.size > 0 || !!s.page || !!s.q || !!s.assignee;
-  const others = (rounds.data?.data ?? []).filter((r) => r.number !== activeRound && r.unresolved > 0);
+  const others = menuRounds.filter((r) => r.number !== activeRound && r.unresolved > 0);
+  // Where a comment may be filed — open or closed, never archived, never
+  // the round on screen. Owners and admins only; the server says the same.
+  const canMove = me.user.role === "owner" || me.user.role === "admin";
+  const moveTargets = canMove ? menuRounds.filter((r) => !r.archived && r.number !== activeRound) : [];
+  const moveTo = (ids: string[], round: number) =>
+    moveThreads.mutate(
+      { ids, round },
+      {
+        onSuccess: () => {
+          setPicked(new Set());
+          if (s.thread && ids.includes(selected?.id ?? "")) go({ thread: undefined });
+        },
+      },
+    );
 
   const toggleStatus = (st: string) => {
     const next = new Set(statusSet);
@@ -216,15 +245,16 @@ function Comments() {
                 {STATUS_LABEL[st]}
               </Button>
             ))}
+            <MoveToRound rounds={moveTargets} busy={moveThreads.isPending} onMove={(n) => moveTo([...picked], n)} />
             <Button variant="ghost" size="sm" onClick={() => setPicked(new Set())}>
               Clear
             </Button>
           </>
         ) : (
           <>
-            {rounds.data && rounds.data.data.length > 0 && activeRound !== undefined && (
+            {menuRounds.length > 0 && activeRound !== undefined && (
               <RoundMenu
-                rounds={rounds.data.data}
+                rounds={menuRounds}
                 active={activeRound}
                 onPick={(n) => go({ round: n, thread: undefined })}
                 onStart={(name) =>
@@ -373,7 +403,11 @@ function Comments() {
             ))}
         </div>
         {selected && (
-          <div className="min-h-0 overflow-hidden bg-card">
+          // A COLUMN, so the brief below is handed this cell's height and its
+          // own body scrolls. As a plain block the brief grew to its full
+          // length and overflow-hidden cut the bottom off — the screenshot,
+          // the element and the breadcrumbs could not be reached.
+          <div className="flex min-h-0 flex-col overflow-hidden bg-card">
             <div className="lg:hidden">
               <Button variant="ghost" size="sm" className="m-2" onClick={() => go({ thread: undefined })}>
                 <ArrowLeftIcon />
@@ -407,6 +441,9 @@ function Comments() {
                       go({ thread: undefined });
                     },
                   }
+                : {})}
+              {...(moveTargets.length
+                ? { move: { rounds: moveTargets, busy: moveThreads.isPending, onMove: (n: number) => moveTo([selected.id], n) } }
                 : {})}
               onClose={() => go({ thread: undefined })}
             />

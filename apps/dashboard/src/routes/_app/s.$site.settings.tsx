@@ -9,6 +9,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { CopyButton } from "@/components/app/CopyButton";
 import { InstallTag } from "@/components/app/InstallTag";
+import { RoundsSettings } from "@/components/app/RoundsSettings";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader, SettingsRow } from "@/components/app/parts";
 import { SaveState } from "@/components/app/SaveState";
@@ -18,7 +19,7 @@ import { q } from "@/lib/query";
 import { cn } from "@/lib/utils";
 
 /**
- * Site settings — three rows: the site, the widget, the danger. Every
+ * Site settings — the site, the widget, its rounds, the danger. Every
  * control saves on its own, optimistically, so the one indicator sits by the
  * title where you are looking. The domain rule and the widget switch arrive
  * until then the addresses are the allow-list the
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_app/s/$site/settings")({
   loader: ({ context }) => {
     void context.queryClient.prefetchQuery(q.origins(context.site.uid));
+    void context.queryClient.prefetchQuery(q.rounds(context.site.uid));
     return { crumb: "Settings" };
   },
   component: SiteSettings,
@@ -123,6 +125,8 @@ function SiteSettings() {
           </p>
         </div>
       </SettingsRow>
+
+      <RoundsSettings uid={uid} />
 
       <DangerRow uid={uid} name={site.name} />
     </div>

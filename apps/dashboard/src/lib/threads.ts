@@ -196,7 +196,7 @@ export function useDeleteThread(uid: string, key: ListKey) {
   });
 }
 
-/** Opens the next round; the server closes the previous one in the same statement. */
+/** Opens the next round. The others stay as they are — rounds run side by side. */
 export function useCreateRound(uid: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -205,6 +205,49 @@ export function useCreateRound(uid: string) {
       void qc.invalidateQueries({ queryKey: q.rounds(uid).queryKey });
       void qc.invalidateQueries({ queryKey: ["threads", uid] });
       void qc.invalidateQueries({ queryKey: q.me().queryKey });
+    },
+    onError: (err) => toast.error(reason(err)),
+  });
+}
+
+/**
+ * Rename, close, reopen, archive or restore. Waits rather than moving
+ * the cache first: the server may refuse the last open round, and a list that
+ * flips and flips back reads as a glitch, not as a refusal.
+ */
+export function useEditRound(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, ...patch }: { id: string; name?: string; closed?: boolean; archived?: boolean }) =>
+      api.editRound(id, patch),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: q.rounds(uid).queryKey }),
+    onError: (err) => toast.error(reason(err)),
+  });
+}
+
+/** The round and its threads. Waits; the dialog stays locked until it lands. */
+export function useDeleteRound(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, confirm }: { id: string; confirm: string }) => api.deleteRound(id, confirm),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: q.rounds(uid).queryKey });
+      void qc.invalidateQueries({ queryKey: ["threads", uid] });
+      void qc.invalidateQueries({ queryKey: q.me().queryKey });
+    },
+    onError: (err) => toast.error(reason(err)),
+  });
+}
+
+/** Move threads to another round. Waits: the rows leave this list once the server has them elsewhere. */
+export function useMoveThreads(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, round }: { ids: string[]; round: number }) => api.moveThreads(uid, ids, round),
+    onSuccess: (r) => {
+      void qc.invalidateQueries({ queryKey: ["threads", uid] });
+      void qc.invalidateQueries({ queryKey: q.rounds(uid).queryKey });
+      toast.success(r.moved === 1 ? "Moved 1 comment" : `Moved ${r.moved} comments`);
     },
     onError: (err) => toast.error(reason(err)),
   });

@@ -763,6 +763,13 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
       pendingShot = shotAbort = null;
       done();
     };
+    // Looking at a CLOSED round, which takes no new comments. The
+    // composer says where this one goes instead — the newest open round, the
+    // first open one in the config's newest-first list — and the send moves
+    // the view there, so the comment does not vanish from the list it was
+    // posted from.
+    const viewing = roundInfo?.find((r) => r.number === storage.getRound?.());
+    const landing = viewing?.closed ? roundInfo!.find((r) => !r.closed) : undefined;
     const props: ComposerProps = {
       at: point,
       label,
@@ -808,7 +815,8 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
       },
       onSend: (text, author, email) => {
         done();
-        void add(target, point, context, text, author, email, textAnchor);
+        if (landing) storage.setRound!(landing.number);
+        void add(target, point, context, text, author, email, textAnchor).then(() => landing && refresh());
       },
       // ▲/▼ — the [ / ] primitive's touch face. The pick is
       // re-aimed BEFORE send, so the anchor derives from where it lands.
@@ -850,6 +858,7 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
       // The quoted words above the textarea, so the reviewer
       // can see what the comment will hang on.
       ...(textAnchor?.text?.exact ? { quote: textAnchor.text.exact } : {}),
+      ...(landing ? { roundNote: landing.name } : {}),
     };
     composer = mod.openComposer(root, props, chromeEl);
     syncToolbarHidden();

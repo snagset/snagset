@@ -33,7 +33,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { SectionTitle, StatusPill } from "./parts";
 import { param } from "@snagset/types/names";
-import { ApiFailure, REF_KIND, TRACKER_NAME, type Assignee, type Comment, type Reviewer, type Thread, type Tracker } from "@/lib/api";
+import { ApiFailure, REF_KIND, TRACKER_NAME, type Assignee, type Comment, type Reviewer, type Round, type Thread, type Tracker } from "@/lib/api";
+import { MoveToRound } from "@/components/app/RoundMenu";
 import { briefMarkdown } from "@/lib/brief";
 import { canEditComment } from "@/lib/merge";
 import { STATUSES, STATUS_LABEL, ago, initials, type Status } from "@/lib/labels";
@@ -62,6 +63,7 @@ export function Brief({
   onEditComment,
   onDeleteComment,
   onDeleteThread,
+  move,
 }: {
   thread: Thread;
   site: { name: string; origin?: string };
@@ -86,6 +88,8 @@ export function Brief({
   onEditComment?: (commentId: string, body: string) => Promise<unknown>;
   onDeleteComment?: (commentId: string) => Promise<unknown>;
   onDeleteThread?: () => Promise<unknown>;
+  /** The rounds this thread may be moved to, and the move. Absent ⇒ not drawn (a member or viewer). */
+  move?: { rounds: Round[]; onMove: (round: number) => void; busy: boolean };
 }) {
   const anchor = (thread.anchor ?? {}) as Record<string, any>;
   const ctx = (thread.context ?? {}) as Record<string, any>;
@@ -109,7 +113,7 @@ export function Brief({
   };
 
   return (
-    <article className="flex min-h-0 flex-col" aria-label={`${thread.key} — ${label || "a comment"}`}>
+    <article className="flex min-h-0 flex-1 flex-col" aria-label={`${thread.key} — ${label || "a comment"}`}>
       <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-4 py-2.5">
         <span className="font-mono text-[12px] text-muted-foreground">{thread.key}</span>
         <StatusMenu status={thread.status} onStatus={onStatus} />
@@ -141,6 +145,7 @@ export function Brief({
           );
         })}
         <div className="flex-1" />
+        {move && <MoveToRound rounds={move.rounds} onMove={move.onMove} busy={move.busy} />}
         <Button variant="ghost" size="sm" onClick={copy}>
           <CopyIcon />
           Copy as brief

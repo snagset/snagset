@@ -259,6 +259,9 @@ export function createHttpAdapter(
   // a later refresh cannot accidentally re-present it.
   let linkToken = options.reviewToken;
   let session: StoredSession | null = readSession(uid);
+  /** The config's rounds, so a new thread is only sent into the round
+   *  being viewed when that round still takes comments. */
+  let rounds: { number: number; closed: boolean }[] = [];
 
   /**
    * SILENT member sign-in, for a client page on the dashboard's own
@@ -445,8 +448,11 @@ export function createHttpAdapter(
     // DIFFERENT, unpinned link in the same tab before the first session
     // expires, and the stale round from the old `sessionStorage` entry
     // silently pinned the new, supposedly-unpinned reviewer too. Only a
-    // refresh (no `identity` on the request) may fall back to the old value.
-    const round = b.round?.number ?? (refreshing ? session?.round : undefined);
+    // refresh (no `identity` on the request) may fall back to the old value
+    // — and so may a RE-IDENTIFY, the same reviewer telling us their name:
+    // without it, typing a name in the composer reset the round being viewed
+    // and the comment went to the default round instead.
+    const round = b.round?.number ?? (refreshing || reidentify ? session?.round : undefined);
 
     session = {
       token: b.sessionToken,
@@ -641,6 +647,7 @@ export function createHttpAdapter(
       (this.capabilities as { attachments: "direct" | "none" }).attachments = cfg.features.screenshots
         ? "direct"
         : "none";
+      rounds = cfg.rounds ?? [];
       return {
         uid: ctx.uid,
         env: ctx.env,
@@ -844,7 +851,13 @@ export function createHttpAdapter(
     },
 
     async createThread(input: CreateThreadRequest): Promise<Thread> {
-      const w = await call<Wire>("/threads", {
+      // The comment goes to the round being VIEWED, when that round is
+      // open. No choice, or a closed one, sends none and the server picks
+      // (the link's round, else the newest open) — the runtime has already
+      // said so in the composer and moved the view there.
+      const viewed = session?.round;
+      const round = rounds.some((r) => r.number === viewed && !r.closed) ? viewed : undefined;
+      const post = (round?: number) => call<Wire>("/threads", {
         method: "POST",
         body: JSON.stringify({
           id: input.id,
@@ -857,7 +870,7 @@ export function createHttpAdapter(
           // for an environment nobody created. No env configured ⇒ no scope ⇒
           // the server uses the project's default, which is what `is_default`
           // is for.
-          ...(env ? { scope: { environment: env } } : {}),
+          ...(env || round ? { scope: { ...(env ? { environment: env } : {}), ...(round ? { round } : {}) } } : {}),
           // No holder secret on the wire any more: the BEARER identifies the
           // author (its `sub` is the reviewer), so a body field claiming an
           // identity would be a second, weaker answer to the same question.
@@ -871,6 +884,12 @@ export function createHttpAdapter(
             ? { attachments: input.attachments.map((a) => a.id) }
             : {}),
         }),
+      });
+      // Closed or archived since this page read the config: the comment is
+      // not lost over it, it goes where the server would put it anyway.
+      const w = await post(round).catch((e: unknown) => {
+        if (round && e instanceof HttpAdapterError && e.code.startsWith("round_")) return post();
+        throw e;
       });
       return toSnag(w, env, base);
     },

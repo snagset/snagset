@@ -244,10 +244,12 @@ export function threadRoutes(
     // T10/: the round HISTORY rides the config the widget already fetches
     // at mount, so the dock's selector costs no extra request. Behind the
     // origin split with `keyPrefix`: the least sensitive PRIVATE things
-    // on the project, which is not the same as public.
+    // on the project, which is not the same as public. An ARCHIVED round is
+    // left out: the studio put it away, and the selector is where it
+    // would otherwise come back for every reviewer.
     const rounds = await inOrg(sql, p.org_id, (tx) => tx<{ number: number; name: string; closed: boolean }[]>`
       SELECT number, name, closed_at IS NOT NULL AS closed
-      FROM rounds WHERE project_id = ${p.id} AND deleted_at IS NULL
+      FROM rounds WHERE project_id = ${p.id} AND deleted_at IS NULL AND archived_at IS NULL
       ORDER BY number DESC
     `);
     return c.json({
@@ -414,6 +416,29 @@ export function threadRoutes(
      * explanation.
      */
     const rows = await inOrg(sql, p.org_id, async (tx) => {
+      // Absent round query param: an OWNER still sees every round
+      // (unchanged), but a non-owner reader defaults to the latest OPEN
+      // round, so a fresh page load is -clean rather than showing a round
+      // that closed weeks ago. Not an archived or deleted one either:
+      // the same round a new thread would land in. The correlated subquery is
+      // cheap — one project's round table is a handful of rows.
+      //
+      // ON A POLL the predicate moves into `visible`, like privacy does: a
+      // thread the studio MOVED to another round has to come back as a
+      // tombstone for the list it left, and a WHERE clause would only make it
+      // vanish from the delta, so the old round's list kept showing it.
+      const inRound = key
+        ? null
+        : requestedRound
+          ? tx`rd.number = ${requestedRound}`
+          : asStudio
+            ? null
+            : tx`rd.number = (
+                SELECT number FROM rounds
+                WHERE project_id = ${p.id} AND closed_at IS NULL
+                  AND deleted_at IS NULL AND archived_at IS NULL
+                ORDER BY number DESC LIMIT 1
+              )`;
       return tx<Record<string, unknown>[]>`
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
                t.created_at, t.updated_at, t.resolved_at, t.comment_count_public,
@@ -441,7 +466,8 @@ export function threadRoutes(
                -- VISIBLE, computed rather than filtered. See the note above
                -- the query: a thread that becomes private must be TOMBSTONED,
                -- and a WHERE clause can only make it vanish.
-               (t.deleted_at IS NULL AND ${asOwner ? tx`true` : tx`t.private = false`}) AS visible
+               (t.deleted_at IS NULL AND ${asOwner ? tx`true` : tx`t.private = false`}
+                AND ${since && inRound ? inRound : tx`true`}) AS visible
         FROM threads t
         JOIN reviewers r ON r.id = t.created_by
         -- The assignee, when there is one (05 section 6.4b). LEFT: most
@@ -484,25 +510,9 @@ export function threadRoutes(
                 ? tx`AND t.assignee_id IS NULL`
                 : tx`AND t.assignee_id = ${assigneeFilter}::uuid`
           }
-          -- Absent round query param: an OWNER still sees every round
-          -- (unchanged), but a non-owner reader defaults to the latest OPEN
-          -- round, so a fresh page load is -clean rather than showing a
-          -- round that closed weeks ago. The ORDER BY number DESC LIMIT 1
-          -- correlated subquery is cheap here -- one project's round table
-          -- is a handful of rows, never a scan of threads.
-          ${
-            key
-              ? tx``
-              : requestedRound
-                ? tx`AND rd.number = ${requestedRound}`
-                : asStudio
-                  ? tx``
-                : tx`AND rd.number = (
-                    SELECT number FROM rounds
-                    WHERE project_id = ${p.id} AND closed_at IS NULL
-                    ORDER BY number DESC LIMIT 1
-                  )`
-          }
+          -- The round, from inRound above: here on a full list, in the
+          -- visible column on a poll.
+          ${inRound && !since ? tx`AND ${inRound}` : tx``}
           ${
             q && !key
               ? tx`AND (t.key ILIKE ${"%" + q + "%"}
@@ -573,6 +583,84 @@ export function threadRoutes(
   });
 
   /**
+   * Move threads to another round, the studio's filing act, and the
+   * one exception to the "a thread never moves": automatic placement never
+   * moves a thread; only this explicit move does. Owner or admin, from the
+   * dashboard (cookie and CSRF pair, checked inline because the bearer
+   * middleware owns this path for the widget).
+   *
+   * `{ ids: ["thr_…"], round: <number> }`. The target may be open or closed
+   * — filing a stray comment into a finished round is a filing decision — but
+   * not archived or deleted. One transaction: the target round's row is
+   * locked, its `thread_seq` advanced by the number moving, and each thread
+   * takes the next per-round number in creation order. The old round keeps
+   * its gap (a number quoted in an email is never handed to another thread)
+   * and the project-wide key is untouched, so every permalink still works.
+   * `version` moves, so every open dashboard's poll drops the thread from
+   * the round it left (the list's visible column) and shows it in the new one.
+   * Threads already in the target, deleted, or not in this site are skipped.
+   * No `events` row: status and assignee changes write none either.
+   */
+  app.post("/api/v1/projects/:uid/threads/move", async (c) => {
+    const p = await project(c.req.param("uid"));
+    if (!p) return fail(c, 404, "project_not_found", "No project with that uid.");
+    const owner = c.get("owner");
+    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    if (owner.orgId !== p.org_id || (owner.role !== "owner" && owner.role !== "admin")) {
+      return fail(c, 403, "forbidden", "Only an owner or an admin can move comments between rounds.");
+    }
+    if (!csrfOk(c)) {
+      return fail(c, 403, "csrf_failed", "That request could not be verified. Reload the dashboard and try again.");
+    }
+    const body = (await c.req.json().catch(() => null)) as { ids?: unknown; round?: unknown } | null;
+    const round = body?.round;
+    const ids = Array.isArray(body?.ids) ? body.ids.map((w) => rowId(w, ID_PREFIX.thread)) : [];
+    if (!ids.length || ids.length > 200 || ids.some((x) => !x)) {
+      return fail(c, 400, "validation_failed", "ids must be 1 to 200 thread ids (thr_…).");
+    }
+    if (!(typeof round === "number" && Number.isInteger(round) && round > 0)) {
+      return fail(c, 400, "validation_failed", "round must be a round number (1, 2, …).");
+    }
+
+    const out = await inOrg(sql, p.org_id, async (tx) => {
+      const [target] = await tx<{ id: string; archived: boolean }[]>`
+        SELECT id, archived_at IS NOT NULL AS archived FROM rounds
+        WHERE project_id = ${p.id}::uuid AND number = ${round}::int AND deleted_at IS NULL
+        FOR UPDATE
+      `;
+      if (!target) return "missing" as const;
+      if (target.archived) return "archived" as const;
+      const moving = await tx<{ id: string }[]>`
+        SELECT id FROM threads
+        WHERE id = ANY(${ids as string[]}::uuid[]) AND project_id = ${p.id}::uuid
+          AND deleted_at IS NULL AND round_id <> ${target.id}::uuid
+        ORDER BY created_at, id
+        FOR UPDATE
+      `;
+      if (!moving.length) return 0;
+      const [seq] = await tx<{ last: number }[]>`
+        UPDATE rounds SET thread_seq = thread_seq + ${moving.length}::int, updated_at = now()
+        WHERE id = ${target.id}::uuid
+        RETURNING thread_seq AS last
+      `;
+      const first = seq!.last - moving.length;
+      await tx`
+        UPDATE threads t
+           SET round_id = ${target.id}::uuid, round_number = ${first}::int + o.n::int,
+               version = t.version + 1, updated_at = now()
+          FROM unnest(${moving.map((m) => m.id)}::uuid[]) WITH ORDINALITY AS o(id, n)
+         WHERE t.id = o.id
+      `;
+      return moving.length;
+    });
+    if (out === "missing") return fail(c, 404, "round_not_found", `This site has no round ${round}.`);
+    if (out === "archived") {
+      return fail(c, 409, "round_archived", "That round is archived. Restore it in Settings to move comments into it.");
+    }
+    return c.json({ moved: out, round });
+  });
+
+  /**
    * Create. The whole thing is one transaction because a thread
    * without its first comment is not a snag, it is a pin nobody can read.
    */
@@ -603,6 +691,17 @@ export function threadRoutes(
     // the host put one on the script tag, and inventing one here would put a
     // comment in an environment the dashboard is not looking at.
     const envKey = typeof body.scope?.environment === "string" ? body.scope.environment : null;
+
+    // The round the reviewer is LOOKING AT, by number (the only round
+    // identity the widget holds). Rounds run side by side, so "the newest
+    // open one" stopped being the right answer the day a studio kept its own
+    // QA round going while the client's ran: a comment left while viewing
+    // Internal QA belongs to Internal QA.
+    const askedRound = body.scope?.round;
+    if (askedRound !== undefined && askedRound !== null && !(Number.isInteger(askedRound) && askedRound > 0)) {
+      return fail(c, 400, "validation_failed", "scope.round must be a round number (1, 2, …).");
+    }
+    const roundNo: number | null = typeof askedRound === "number" ? askedRound : null;
 
     // A client-minted id that is not a UUID is a bug in the client, not
     // something to paper over with a server-minted one: the widget's optimistic
@@ -653,19 +752,50 @@ export function threadRoutes(
          * exactly once, to completion, and the insert that reads pseq/rseq
          * cannot begin before they have produced their rows.
          */
-        const [ctx] = await tx<{ environment_id: string | null; round_id: string | null }[]>`
+        /*
+         * WHICH ROUND, in this order:
+         *   1. the one asked for, when it is open and not archived -- and a
+         *      409 when it is not, rather than a silent move elsewhere: the
+         *      reviewer chose it, and a comment that lands somewhere else
+         *      without a word is the bug parallel rounds exist to remove;
+         *   2. else the review link's pinned round, when it is open;
+         *   3. Else the newest open, unarchived round -- the original rule.
+         * Still the same one statement: the environment and both candidates
+         * come back together, and the choice is made below.
+         */
+        const [ctx] = await tx<{
+          environment_id: string | null;
+          asked_id: string | null;
+          asked_open: boolean | null;
+          round_id: string | null;
+        }[]>`
           SELECT
             (SELECT id FROM environments
               WHERE project_id = ${p.id} AND deleted_at IS NULL
                 AND ${envKey ? tx`key = ${envKey}` : tx`is_default`}
               LIMIT 1) AS environment_id,
-            r.id AS round_id
+            a.id AS asked_id,
+            (a.closed_at IS NULL AND a.archived_at IS NULL) AS asked_open,
+            COALESCE(
+              ${
+                session.lnk
+                  ? tx`(SELECT rd.id FROM review_links rl JOIN rounds rd ON rd.id = rl.round_id
+                         WHERE rl.id = ${session.lnk}::uuid AND rd.project_id = ${p.id}
+                           AND rd.deleted_at IS NULL AND rd.archived_at IS NULL AND rd.closed_at IS NULL)`
+                  : tx`NULL::uuid`
+              },
+              r.id
+            ) AS round_id
           FROM (SELECT 1) one
           LEFT JOIN LATERAL (
             SELECT id FROM rounds
-            WHERE project_id = ${p.id} AND deleted_at IS NULL AND closed_at IS NULL
+            WHERE project_id = ${p.id} AND deleted_at IS NULL AND closed_at IS NULL AND archived_at IS NULL
             ORDER BY number DESC LIMIT 1
           ) r ON true
+          LEFT JOIN LATERAL (
+            SELECT id, closed_at, archived_at FROM rounds
+            WHERE project_id = ${p.id} AND deleted_at IS NULL AND number = ${roundNo ?? 0}::int
+          ) a ON true
         `;
         // Kept as its own statement rather than folded into the write below,
         // because these two are the only failures a caller can act on and
@@ -680,9 +810,20 @@ export function threadRoutes(
               : "This project has no default environment.",
           );
         }
-        // The active round: highest number, not closed. — a thread belongs
-        // to whichever round was active when it was created, and never moves.
-        if (!ctx.round_id) throw new HttpError(409, "no_active_round", "This project has no open round.");
+        // Still holds whichever round is chosen: a thread belongs to the
+        // round it was created in, and never moves.
+        if (roundNo !== null && !ctx.asked_id) {
+          throw new HttpError(409, "round_not_found", `This site has no round ${roundNo}. Reload to see its rounds.`);
+        }
+        if (roundNo !== null && !ctx.asked_open) {
+          throw new HttpError(
+            409,
+            "round_closed",
+            `Round ${roundNo} is closed, so it takes no new comments. Pick an open round, or leave the round out.`,
+          );
+        }
+        const roundId = roundNo !== null ? ctx.asked_id : ctx.round_id;
+        if (!roundId) throw new HttpError(409, "no_active_round", "This project has no open round.");
 
         const counted = commentBody === null ? 0 : 1;
         const [row] = await tx<Record<string, unknown>[]>`
@@ -693,7 +834,7 @@ export function threadRoutes(
           ),
           rseq AS (
             UPDATE rounds SET thread_seq = thread_seq + 1
-            WHERE id = ${ctx.round_id}::uuid
+            WHERE id = ${roundId}::uuid
             RETURNING thread_seq
           ),
           ins AS (
@@ -702,7 +843,7 @@ export function threadRoutes(
                                  comment_count, comment_count_public)
             SELECT ${threadId}::uuid, ${p.org_id}::uuid, ${p.id}::uuid,
                    ${p.key_prefix}::text || '-' || pseq.thread_seq::text,
-                   ${ctx.environment_id}::uuid, ${ctx.round_id}::uuid, rseq.thread_seq,
+                   ${ctx.environment_id}::uuid, ${roundId}::uuid, rseq.thread_seq,
                    ${tx.json(body.anchor)}::jsonb, ${tx.json(body.context)}::jsonb,
                    ${reviewerId}::uuid, ${body.anchorState ?? "anchored"}::snag_anchor_state,
                    ${counted}::int, ${counted}::int
@@ -994,17 +1135,19 @@ export function threadRoutes(
 
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
 
-    // A thread belongs to exactly one round and NEVER moves. Refused
-    // explicitly rather than ignored, because a caller that sends `round` and
-    // gets a 200 will believe it moved — and the whole model rests on the fact
-    // that it did not. The `field_not_permitted` is the registered code.
+    // A thread never moves BY ACCIDENT. Refused explicitly rather than
+    // ignored, because a caller that sends `round` and gets a 200 will believe
+    // it moved. Moving is a studio act with its own route (the
+    // move below), which renumbers inside the target round; a PATCH field
+    // would be a second, quieter way to do it. The `field_not_permitted`
+    // is the registered code.
     for (const field of ["round", "roundId", "roundNumber"]) {
       if (body && field in body) {
         return fail(
           c,
           422,
           "field_not_permitted",
-          "A comment stays in the round it was left in. Rounds are periods of time, not folders.",
+          "A comment's round is not changed here. The studio moves comments between rounds from the dashboard.",
           { field },
         );
       }
@@ -1568,12 +1711,7 @@ export function threadRoutes(
     if (!threadRow) return fail(c, 404, "thread_not_found", "No such thread in this project.");
 
     const found = await inOrg(sql, p.org_id, async (tx) => {
-      const [gone] = await tx<{ id: string }[]>`
-        UPDATE threads
-           SET deleted_at = now(), version = version + 1, updated_at = now()
-         WHERE id = ${threadRow}::uuid AND project_id = ${p.id}::uuid AND deleted_at IS NULL
-        RETURNING id
-      `;
+      const gone = await softDeleteThreads(tx, p.id, { thread: threadRow }, "the thread was deleted");
       if (!gone) {
         // Already deleted, or never here. Only the second is an error.
         const [was] = await tx<{ id: string }[]>`
@@ -1581,19 +1719,6 @@ export function threadRoutes(
         `;
         return !!was;
       }
-      // The thread's own pictures and any bound to its comments:
-      // section A6 hangs an attachment off exactly one of the two.
-      await tx`
-        UPDATE attachments SET deleted_at = now()
-         WHERE deleted_at IS NULL
-           AND (thread_id = ${threadRow}::uuid
-                OR comment_id IN (SELECT id FROM comments WHERE thread_id = ${threadRow}::uuid))
-      `;
-      await tx`
-        UPDATE outbox
-           SET status = 'dropped', last_error = 'the thread was deleted', completed_at = now()
-         WHERE thread_id = ${threadRow}::uuid AND status = 'pending'
-      `;
       return true;
     });
     if (!found) return fail(c, 404, "thread_not_found", "No such thread in this project.");
@@ -1601,6 +1726,49 @@ export function threadRoutes(
   });
 
   return app;
+}
+
+/**
+ * The thread DELETE's work, for one thread or for every live thread in a
+ * round (the round delete) — one copy, so a round's threads go exactly the
+ * way a single thread does and "what else goes with it" (the route's comment
+ * above) is answered in one place. Inside the caller's transaction, which has
+ * already set `app.org_id`. Returns how many threads it marked.
+ *
+ * `version` and `updated_at` move so a `?since=` poll tombstones each one;
+ * attachments on the thread or its comments are marked; pending outbox rows
+ * are dropped with `reason` in `last_error`. Comments are left alone, for the
+ * reason given above.
+ */
+export async function softDeleteThreads(
+  tx: postgres.TransactionSql,
+  projectId: string,
+  which: { thread: string } | { round: string },
+  reason: string,
+): Promise<number> {
+  const gone = await tx<{ id: string }[]>`
+    UPDATE threads
+       SET deleted_at = now(), version = version + 1, updated_at = now()
+     WHERE project_id = ${projectId}::uuid AND deleted_at IS NULL
+       AND ${"thread" in which ? tx`id = ${which.thread}::uuid` : tx`round_id = ${which.round}::uuid`}
+    RETURNING id
+  `;
+  if (!gone.length) return 0;
+  const ids = gone.map((g) => g.id);
+  // The thread's own pictures and any bound to its comments:
+  // section A6 hangs an attachment off exactly one of the two.
+  await tx`
+    UPDATE attachments SET deleted_at = now()
+     WHERE deleted_at IS NULL
+       AND (thread_id = ANY(${ids}::uuid[])
+            OR comment_id IN (SELECT id FROM comments WHERE thread_id = ANY(${ids}::uuid[])))
+  `;
+  await tx`
+    UPDATE outbox
+       SET status = 'dropped', last_error = ${reason}, completed_at = now()
+     WHERE thread_id = ANY(${ids}::uuid[]) AND status = 'pending'
+  `;
+  return ids.length;
 }
 
 /**
