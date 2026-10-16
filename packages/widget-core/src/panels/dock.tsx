@@ -45,6 +45,11 @@ export interface DockProps {
   /** The WHOLE round, every page. The "this page only" is a checkbox
    *  that NARROWS this (v0.1) — page scope is the exception, not the default. */
   snags: Snag[];
+  /** The round in view has not answered yet. With nothing to show it draws a
+   *  skeleton; with a cached copy, a progress line over it. Never "No
+   *  comments yet" — that sentence is a fact about the round, and until the
+   *  list arrives nobody knows it. */
+  loading?: boolean;
   /** The page being viewed: the group the list SCROLLS to on open, and the one
    *  whose rows lift their pins on hover (the others have no pin to lift). */
   route: string;
@@ -881,15 +886,16 @@ function FilterBar({
                   {format("filter.pageonly")}
                 </label>
               </div>
-              {/* Clear all belongs to the ROUND; it keeps its two-step arm. */}
-              <div class="snag-dk-menugroup snag-dk-menugroup-last">
+              {/* Clear all belongs to the ROUND; it keeps its two-step arm.
+                  An empty round has nothing for it to clear. */}
+              {round.length > 0 && <div class="snag-dk-menugroup snag-dk-menugroup-last">
                 <Danger
                   label={format("dock.clear")}
                   title={format("dock.clear.aria")}
                   cls="snag-dk-link snag-dk-clear"
                   onConfirm={onClearAll}
                 />
-              </div>
+              </div>}
             </div>
           )}
         </span>
@@ -915,6 +921,7 @@ function List({
   hiddenNote,
   onHiddenShow,
   seenAt,
+  loading,
 }: DockProps & { groups: Group[]; hiddenNote: string | null; onHiddenShow: (id: string) => void }) {
   // Numbering base = the UNFILTERED round (pin 3 is still "3" when
   // 1 and 2 are hidden) — never the filtered view.
@@ -959,43 +966,65 @@ function List({
 
   return (
     <>
-      {snags.length > 0 && (
-        <FilterBar
-          round={snags}
-          filter={filter}
-          onFilter={onFilter}
-          onClearAll={onClearAll}
-          {...(seenAt === undefined ? {} : { seenAt })}
-          trailing={
-            /* ONE control whose label is its state, not three,
-               at the end of the Sort/Filter row (it had a full-width bar of its
-               own; the row had the room). It appears only when there is unseen
-               work, or while it is the thing doing the narrowing (otherwise
-               turning it on would remove the only way to turn it off). It
-               narrows the LIST only: asserts the pins stay
-               byte-identical through it. */
-            seenAt && filter.newOnly && unseen > 0 && onMarkAllRead ? (
-              // Looking at the new ones: the way out is to clear them, as in
-              // Pastel — the count goes, and the full list comes back.
-              <button type="button" class="snag-dk-link snag-dk-newpill" onClick={onMarkAllRead}>
-                {format("filter.new.markread")}
-              </button>
-            ) : seenAt && (unseen > 0 || filter.newOnly) ? (
-              <button
-                type="button"
-                class="snag-dk-link snag-dk-newpill"
-                aria-pressed={filter.newOnly}
-                onClick={() => onFilter({ ...filter, newOnly: !filter.newOnly })}
-              >
-                {filter.newOnly
-                  ? format(unseen === 0 ? "filter.new.none" : "filter.new.on")
-                  : format("filter.new", { n: count(unseen) })}
-              </button>
-            ) : null
-          }
-        />
-      )}
-      {snags.length === 0 ? (
+      {/* ALWAYS drawn, an empty round included: search over 0, four chips at
+          0, Sort and Filter. Loading, empty and populated share one layout,
+          so the panel does not jump between them — the bar dropping out on
+          an empty round read as a different, broken panel. */}
+      <FilterBar
+        round={snags}
+        filter={filter}
+        onFilter={onFilter}
+        onClearAll={onClearAll}
+        {...(seenAt === undefined ? {} : { seenAt })}
+        trailing={
+          /* ONE control whose label is its state, not three,
+             at the end of the Sort/Filter row (it had a full-width bar of its
+             own; the row had the room). It appears only when there is unseen
+             work, or while it is the thing doing the narrowing (otherwise
+             turning it on would remove the only way to turn it off). It
+             narrows the LIST only: asserts the pins stay
+             byte-identical through it. */
+          seenAt && filter.newOnly && unseen > 0 && onMarkAllRead ? (
+            // Looking at the new ones: the way out is to clear them, as in
+            // Pastel — the count goes, and the full list comes back.
+            <button type="button" class="snag-dk-link snag-dk-newpill" onClick={onMarkAllRead}>
+              {format("filter.new.markread")}
+            </button>
+          ) : seenAt && (unseen > 0 || filter.newOnly) ? (
+            <button
+              type="button"
+              class="snag-dk-link snag-dk-newpill"
+              aria-pressed={filter.newOnly}
+              onClick={() => onFilter({ ...filter, newOnly: !filter.newOnly })}
+            >
+              {filter.newOnly
+                ? format(unseen === 0 ? "filter.new.none" : "filter.new.on")
+                : format("filter.new", { n: count(unseen) })}
+            </button>
+          ) : null
+        }
+      />
+      {/* A cached copy is on screen and the round is being re-read: a thin
+          indeterminate line, so the rows read as "as of last time". */}
+      {loading && snags.length > 0 && <div class="snag-dk-progress" aria-hidden="true" />}
+      {loading && snags.length === 0 ? (
+        // Nothing cached and nothing back yet: rows shaped like rows. The
+        // words are for a screen reader; the blocks say it to everyone else.
+        <div class="snag-dk-scroll" role="status">
+          <span class="snag-dk-sr">{format("dock.loading")}</span>
+          <ul class="snag-dk-list snag-dk-skel" aria-busy="true">
+            {[0, 1, 2, 3].map((i) => (
+              <li key={i} aria-hidden="true">
+                <i />
+                <span>
+                  <i />
+                  <i />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : snags.length === 0 ? (
         <div class="snag-dk-empty">
           <p>{format("dock.empty")}</p>
         </div>
@@ -2267,6 +2296,23 @@ const CSS = `
 .snag-dk-dim{color:${t.muted}}
 .snag-dk-moved{color:${t.anchorOrphan};font-weight:600}
 .snag-dk-replies{background:${t.surface};border-radius:999px;padding:1px 7px;font-size:11px;flex:0 0 auto}
+/* Loading. The skeleton row is a real row's box — dot slot, number, two lines
+   — so the list arriving swaps contents, not layout. A pulse, not a sweep:
+   cheaper, and calmer on a client's page. Reduced motion keeps the blocks
+   and drops the animation outright — wants getAnimations() EMPTY, and
+   a 0ms animation is still one, so the token alone is not enough here. */
+@keyframes snag-dk-pulse{50%{opacity:.45}}
+.snag-dk-skel li{display:flex;gap:10px;padding:11px 14px 11px 31px;border-bottom:1px solid ${t.border}}
+.snag-dk-skel span{flex:1;display:grid;gap:6px}
+.snag-dk-skel i{display:block;height:9px;border-radius:4px;background:${t.sunken};animation:snag-dk-pulse 1.2s ease-in-out infinite}
+.snag-dk-skel li>i{flex:0 0 22px;height:22px;border-radius:50% 50% 50% 2px}
+.snag-dk-skel span i:last-child{width:45%}
+.snag-dk-progress{height:2px;flex:0 0 auto;margin-block-end:-2px;position:relative;z-index:2;
+  background:linear-gradient(90deg,transparent,${t.accent},transparent) 0 0/40% 100% no-repeat;
+  animation:snag-dk-slide 1s linear infinite}
+@keyframes snag-dk-slide{from{background-position:-70% 0}to{background-position:170% 0}}
+@media (prefers-reduced-motion:reduce){.snag-dk-skel i,.snag-dk-progress{animation:none}.snag-dk-progress{background:${t.accent}}}
+.snag-dk-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .snag-dk-empty{padding:28px 16px;text-align:center;flex:1 1 auto}
 .snag-dk-empty p{margin:0 0 4px}
 .snag-dk-notice{margin:0;padding:11px 14px;font-size:12px;color:${t.muted};

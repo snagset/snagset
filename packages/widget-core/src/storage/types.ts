@@ -488,6 +488,12 @@ export interface StorageAdapter {
   signOut?(): void;
   getRound?(): number | null;
   setRound?(round: number): void;
+  /**
+   * The last list this browser was shown for the round in view, or null —
+   * painted while `listThreads` revalidates (storage/listcache.ts). Absent
+   * on the local adapter, whose list is already in this browser.
+   */
+  cached?(): Snag[] | null;
   listAssignees?(q?: string): Promise<Reviewer[]>;
   /**
    * Anchor outcome reporting. Present only where `capabilities

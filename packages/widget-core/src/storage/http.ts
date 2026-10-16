@@ -1,5 +1,6 @@
 import { HTTP_HEADER, NPM_PACKAGE, SCHEMA_VERSION, storageKey } from "@snagset/types/names";
 import { holderId, holderSecretOrUndefined, readIdentity, rememberHolder, rememberHolderId } from "./identity.ts";
+import { dropList, readList, writeList, type ListClass } from "./listcache.ts";
 import { clearSession, isFinished, needsRefresh, readSession, writeSession, type StoredSession } from "./session.ts";
 import type {
   AnchorReport,
@@ -259,6 +260,21 @@ export function createHttpAdapter(
   // a later refresh cannot accidentally re-present it.
   let linkToken = options.reviewToken;
   let session: StoredSession | null = readSession(uid);
+  /**
+   * The list cache's coordinates (listcache.ts). The CLASS is what a list is
+   * read with — a member sees studio-private threads, so a member's copy
+   * lives apart from a guest's — and the SLOT is the env and round it was
+   * read for, `session.round` being the same field `listThreads` sends.
+   */
+  const cls = (): ListClass => (session?.member ? "member" : "guest");
+  const slot = (): string => `${env ?? ""}:${session?.round ?? ""}`;
+  /** Every session ending goes through here, and takes both cached lists with
+   *  it: a list must never outlive the credential that read it. */
+  const end = (): void => {
+    clearSession(uid);
+    dropList(uid, "member");
+    dropList(uid, "guest");
+  };
   /** The config's rounds, so a new thread is only sent into the round
    *  being viewed when that round still takes comments. */
   let rounds: { number: number; closed: boolean }[] = [];
@@ -336,6 +352,9 @@ export function createHttpAdapter(
 
   /** A member's session, from the popup or the silent path — stored as any other. */
   function adopt(b: MemberSession): void {
+    // An identity switch: whatever member list is cached was read by whoever
+    // held this browser before.
+    dropList(uid, "member");
     session = {
       token: b.sessionToken,
       expiresAt: Date.parse(b.expiresAt),
@@ -413,7 +432,7 @@ export function createHttpAdapter(
       const body = (await res.json().catch(() => null)) as { error?: { code: string } } | null;
       const code = body?.error?.code ?? "unauthorized";
       const wasMember = refreshing && !!session?.member;
-      clearSession(uid);
+      end();
       session = null;
       // A member's refresh refused (the cap, an expired token) is
       // renewed from the dashboard cookie when the page is on its site —
@@ -457,6 +476,9 @@ export function createHttpAdapter(
     // reviewer has since told us their name. A REFRESH presents no identity
     // and must not clobber it.
     const name = identity ? identity.name : session?.name;
+    // Somebody else now — a different link opened in this tab. What the last
+    // reviewer was shown is not this one's to see, even for a moment.
+    if (session && b.reviewer && b.reviewer.id !== session.reviewerId) end();
 
     session = {
       token: b.sessionToken,
@@ -495,7 +517,7 @@ export function createHttpAdapter(
   async function revalidate(): Promise<void> {
     if (!session) return;
     if (isFinished(session)) {
-      clearSession(uid);
+      end();
       session = null;
       // A member at the cap is renewed silently where it can be.
       if (!(await silent())) options.onSessionEnded?.("expired");
@@ -542,7 +564,7 @@ export function createHttpAdapter(
     // a guest — only when no member is held already.
     await (firstSilent ??= session?.member ? Promise.resolve() : silent());
     if (session && isFinished(session)) {
-      clearSession(uid);
+      end();
       session = null;
       // …and a member whose session reached the cap is renewed the same way.
       if (!(await silent())) {
@@ -607,7 +629,7 @@ export function createHttpAdapter(
       // retry so a genuinely dead session fails instead of looping.
       if (res.status === 401 && !retried && code !== "session_revoked") {
         const wasMember = !!session?.member;
-        clearSession(uid);
+        end();
         session = null;
         // A member's lapsed token is renewed as a member, not as a guest.
         if (wasMember) await silent();
@@ -735,7 +757,7 @@ export function createHttpAdapter(
      *  no server row to revoke, and the next request exchanges as the guest
      *  this browser already was (its holder secret is untouched). */
     signOut(): void {
-      clearSession(uid);
+      end();
       session = null;
       // And not silently signed back in on the next page. Kept for the
       // browser until the popup is used again.
@@ -744,6 +766,21 @@ export function createHttpAdapter(
       } catch {
         /* see readSession */
       }
+    },
+    // A session past its cap is about to be ended, and a member's may come
+    // back a guest's — so it reads as "nothing cached" rather than painting
+    // a list its holder may no longer see.
+    //
+    // An explicit pick of the round the server was ALREADY serving by default
+    // (the newest open one, as the dock's selector assumes) falls back to the
+    // copy read under no round at all — the same list under two names.
+    cached(): Snag[] | null {
+      if (session && isFinished(session)) return null;
+      const c = cls();
+      return (
+        readList(uid, c, slot()) ??
+        (session?.round === rounds.find((r) => !r.closed)?.number ? readList(uid, c, `${env ?? ""}:`) : null)
+      );
     },
     getRound(): number | null {
       return session?.round ?? readSession(uid)?.round ?? null;
@@ -851,11 +888,26 @@ export function createHttpAdapter(
       type List = { data: Wire[]; nextCursor: string | null; serverTime: string };
       const path = `/threads?${params}`;
       const authed = () => call<List>(path);
-      const list = bare
-        ? await fetch(root + path, { credentials: "omit" }).then((r) => (r.ok ? (r.json() as Promise<List>) : authed()), authed)
-        : await authed();
+      // Where this list is cached, decided NOW, with the credential it is
+      // about to be read with — not when it lands.
+      const c = cls();
+      const at = slot();
+      const list = await (bare
+        ? fetch(root + path, { credentials: "omit" }).then((r) => (r.ok ? (r.json() as Promise<List>) : authed()), authed)
+        : authed()
+      ).catch((e: unknown) => {
+        // Refused (401, 403, `link_required`): what this browser cached is no
+        // longer this reviewer's to see. A network failure keeps it.
+        if (e instanceof HttpAdapterError && (e.status === 401 || e.status === 403)) dropList(uid, c);
+        throw e;
+      });
+      const data = list.data.map((w) => toSnag(w, env, base));
+      // A member's list is only written while they are still the member: a
+      // sign-out that landed mid-flight dropped the cache, and this must not
+      // put it back. A guest's list is safe in the guest's store either way.
+      if (c === "guest" || session?.member) writeList(uid, c, at, data);
       return {
-        data: list.data.map((w) => toSnag(w, env, base)),
+        data,
         ...(list.nextCursor ? { nextCursor: list.nextCursor } : {}),
         deleted: [],
         serverTime: list.serverTime,

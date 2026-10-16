@@ -296,6 +296,17 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
   }).catch(() => {});
   let all: Snag[] = []; // every route
   let visible: Snag[] = []; // this route only
+  /**
+   * The round in view has not answered yet — from activation, and again from
+   * each round switch, until that round's list settles either way. The dock
+   * draws it as a skeleton or a progress line, never as "No comments yet":
+   * an empty state shown before the list arrived read, on a live client
+   * site, as an empty round.
+   */
+  let loading = true;
+  /** Bumped by a round switch, so a list for the round just LEFT — still in
+   *  flight — cannot land under the new round's name. */
+  let listGen = 0;
 
   /**
    * Can anything we write actually be read back? (F-01)
@@ -1041,6 +1052,7 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
       // Ordering is the dock's, because it groups by page and the design requires
       // prev/next to walk exactly the order the list is showing.
       snags: all,
+      loading,
       route: routeOf(doc),
       openId,
       seenAt: seen.map(),
@@ -1094,6 +1106,12 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
               storage.getRound?.() ?? roundInfo.find((r) => !r.closed)?.number ?? roundInfo[0]!.number,
             onRound: (n: number) => {
               storage.setRound!(n);
+              // The new round's cached copy, or nothing — never the old
+              // round's rows under the new round's name.
+              listGen++;
+              loading = true;
+              all = storage.cached?.() ?? [];
+              paint();
               void refresh();
             },
           }
@@ -1527,9 +1545,28 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
   }
 
   async function refresh(): Promise<Snag[]> {
-    const { data } = await storage.listThreads();
+    const gen = listGen;
+    let data: Snag[];
+    try {
+      ({ data } = await storage.listThreads());
+    } catch (e) {
+      // A failed list ENDS the loading state — a skeleton that never resolves
+      // is a worse lie than an empty list. Refused (401/403): the adapter has
+      // dropped its cache, and the copy on screen goes with it.
+      if (gen === listGen) {
+        loading = false;
+        const st = (e as { status?: number }).status;
+        if (st === 401 || st === 403) all = [];
+        paint();
+      }
+      throw e;
+    }
+    // The round changed while this was in flight: its answer is for a round
+    // nobody is looking at any more.
+    if (gen !== listGen) return visible;
+    loading = false;
     all = data;
-    paint(); // re-anchors into `all` as it renders
+    paint(); // re-anchors into `all` as it renders — cached or fresh, one path
     // and the only v0 window onto cascade quality: one event per pin
     // per REAL resolution pass — load and navigation, not every repaint.
     const settled = pins.settled();
@@ -2334,6 +2371,14 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
    * another machine — the design is explicit that the reviewer lands on the LIST and
    * never on a blank dock, so the dock still opens.
    */
+  // Stale-while-revalidate: the last list this browser was shown for this
+  // round paints NOW, pins included, through the same `paint()` the network
+  // answer will go through a moment later. `loading` stays true until then.
+  const cached = storage.cached?.();
+  if (cached) {
+    all = cached;
+    paint();
+  }
   void refresh().then(async (here) => {
     const id = takeHandoff(win);
     if (!id) {

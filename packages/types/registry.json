@@ -147,6 +147,7 @@
       "threads": "threads:{uid}:{env}",
       "seen": "seen:{uid}:{env}",
       "counts": "counts:{origin}",
+      "list": "list:{uid}:{cls}",
       "draft": "draft:{route}:{draftId}",
       "outbox": "outbox:{uid}",
       "mode": "mode",

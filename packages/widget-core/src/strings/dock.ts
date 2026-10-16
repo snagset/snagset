@@ -86,6 +86,9 @@ export const dockStrings = {
   "dock.empty.filter": "Nothing matches that filter.",
   "dock.empty.orphans": "Every comment here lost its element \u2014 but what each one pointed at is still recorded.",
   "dock.empty.page": "Nothing on this page. {n} comments on {m} other pages.",
+  // Spoken while the round's list is on its way — the skeleton says it to
+  // everyone else. Never the empty state: that is a fact nobody knows yet.
+  "dock.loading": "Loading comments…",
   "dock.row.empty": "(no comment)",
   "dock.replies": "{n} replies",
   "dock.goto": "Go to {route}",

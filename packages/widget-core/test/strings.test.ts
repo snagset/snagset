@@ -66,7 +66,7 @@ test("the key set is stable — adding or removing one is a deliberate act", () 
     "disclosure.crumbs.on", "disclosure.retention", "disclosure.retention.server", "disclosure.screenshot.off", "disclosure.screenshot.on", "disclosure.title",
     "dock.aria", "dock.back", "dock.back.aria", "dock.clear",
     "dock.clear.aria", "dock.close", "dock.cluster", "dock.cluster.clear", "dock.empty", "dock.empty.filter", "dock.empty.orphans", "dock.empty.page", "dock.goto",
-    "dock.hiddenrow", "dock.hiddenrow.show", "dock.next", "dock.position", "dock.prev", "dock.replies",
+    "dock.hiddenrow", "dock.hiddenrow.show", "dock.loading", "dock.next", "dock.position", "dock.prev", "dock.replies",
     "dock.row.empty", "dock.title.detail", "dock.title.list", "dock.unread", "error.capture",
     "error.linkrevoked", "error.nostorage", "error.origin", "error.panels", "error.panels.add", "error.quota",
     "error.sendfailed", "error.sessionended", "export.button", "export.by",
@@ -167,6 +167,13 @@ test("dates shown to a person are formatted; an unparseable one is passed throug
 
 test("the empty state matches the normative copy", () => {
   assert.equal(format("dock.empty"), "No comments yet. Press +, then click anything on the page.");
+});
+
+test("the loading copy is its own sentence, never the empty state's", () => {
+  // Shown while the round's list is on its way; "No comments yet" in that
+  // window read on a live client site as an empty round.
+  assert.equal(format("dock.loading"), "Loading comments…");
+  assert.notEqual(format("dock.loading"), format("dock.empty"));
 });
 
 test("no error string blames the reviewer, and each says what to do next", () => {
