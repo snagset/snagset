@@ -410,6 +410,28 @@ test("silent: the cookie, same-site Fetch Metadata and a same-site permitted ori
   assert.equal((await silent(OUR_HOST, { origin: SAME_SITE_PAGE, site: "same-site", as: { cookie: owner.cookie } }, "{nope")).status, 201);
 });
 
+test("the preflight allows every method the widget sends — DELETE included", { skip }, async () => {
+  // Found on a real deployment: the widget's own-comment and own-snag deletes
+  // were blocked by the browser, because the preflight never listed DELETE.
+  // The browser suites serve page and API from one origin, so only a test
+  // like this — a foreign Origin and a real preflight — can see it.
+  for (const [path, method] of [
+    ["/threads/thr_00000000-0000-0000-0000-000000000000", "DELETE"],
+    ["/comments/cmt_00000000-0000-0000-0000-000000000000", "DELETE"],
+    ["/threads/thr_00000000-0000-0000-0000-000000000000", "PATCH"],
+    ["/threads", "POST"],
+    ["/threads", "GET"],
+  ] as const) {
+    const pre = await app.request(`https://${OUR_HOST}/api/v1/projects/${uid}${path}`, {
+      method: "OPTIONS",
+      headers: { Origin: SAME_SITE_PAGE, "Access-Control-Request-Method": method, "Access-Control-Request-Headers": "authorization,content-type" },
+    });
+    assert.equal(pre.headers.get("Access-Control-Allow-Origin"), SAME_SITE_PAGE, `${method} ${path}`);
+    const allowed = (pre.headers.get("Access-Control-Allow-Methods") ?? "").split(",").map((m) => m.trim());
+    assert.ok(allowed.includes(method), `${method} ${path}: preflight allows ${allowed.join(",")}`);
+  }
+});
+
 test("silent: the preflight answers with credentials for this route only", { skip }, async () => {
   const pre = await app.request(`https://${OUR_HOST}/api/v1/projects/${uid}/sessions/member/silent`, {
     method: "OPTIONS",

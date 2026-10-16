@@ -198,7 +198,11 @@ export function corsForProjects(
           // same lesson one layer up. Generated from the registry so a new
           // header cannot be added to a request without appearing here.
           c.header("Access-Control-Allow-Headers", ALLOWED_REQUEST_HEADERS);
-          c.header("Access-Control-Allow-Methods", "GET,POST,PATCH,OPTIONS");
+          // DELETE too: a reviewer deletes their own comment and their own
+          // unanswered snag from the widget. Left out, the browser blocked
+          // both on every real deployment — the suites serve the widget and
+          // the stubbed API from one origin, so no preflight ever ran there.
+          c.header("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS");
           c.header("Access-Control-Max-Age", "600");
           /**
            * The ONE credentialed route. The silent member sign-in is

@@ -67,7 +67,7 @@ test("the major alias resolves, and is NOT cached forever", async () => {
   // catch-all, and returned HTML with a 200.
   const res = await get("/widget/v1/snag.js");
   assert.match(res.headers.get("content-type") ?? "", /text\/javascript/);
-  assert.equal(res.headers.get("cache-control"), "public, max-age=300");
+  assert.equal(res.headers.get("cache-control"), "public, max-age=300, s-maxage=300");
 });
 
 test("the exact-version path IS cached forever — that is what SRI is taken against", async () => {

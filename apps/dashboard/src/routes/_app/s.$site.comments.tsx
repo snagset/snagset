@@ -62,16 +62,33 @@ type Search = z.infer<typeof search>;
 export const Route = createFileRoute("/_app/s/$site/comments")({
   validateSearch: search,
   loaderDeps: ({ search }) => ({ round: search.round, page: search.page, q: search.q }),
+  /**
+   * Everything the screen reads, asked for AT ONCE. The list waited for the
+   * rounds (to know which round to ask for), and the pool, the trackers and
+   * the addresses waited for the component to mount — three requests in
+   * series where one round trip does. The round is the URL's, else the one `/me` already
+   * named (`landingRound`); the rounds still decide, and on the rare load
+   * where they disagree (a round started elsewhere a moment ago) the right
+   * list is asked for once they arrive.
+   */
   loader: async ({ context, deps }) => {
-    const rounds = await context.queryClient.ensureQueryData(q.rounds(context.site.uid));
+    const { queryClient: qc, site } = context;
+    const list = (round: number | undefined) =>
+      void qc.prefetchQuery(
+        threadsQuery(site.uid, {
+          ...(round !== undefined ? { round } : {}),
+          ...(deps.page ? { route: deps.page } : {}),
+          ...(deps.q ? { q: deps.q } : {}),
+        }),
+      );
+    void qc.prefetchQuery(q.assignees(site.uid));
+    void qc.prefetchQuery(q.siteIntegrations(site.uid));
+    void qc.prefetchQuery(q.origins(site.uid));
+    const early = deps.round ?? site.landingRound ?? undefined;
+    if (early !== undefined) list(early);
+    const rounds = await qc.ensureQueryData(q.rounds(site.uid));
     const round = deps.round ?? landing(rounds.data);
-    void context.queryClient.prefetchQuery(
-      threadsQuery(context.site.uid, {
-        ...(round !== undefined ? { round } : {}),
-        ...(deps.page ? { route: deps.page } : {}),
-        ...(deps.q ? { q: deps.q } : {}),
-      }),
-    );
+    if (early === undefined || round !== early) list(round);
     return { crumb: "Comments" };
   },
   component: Comments,

@@ -264,6 +264,15 @@ test("the last open round cannot be closed, archived or deleted", { skip }, asyn
   }
   // A closed or archived round is not "the last open one", so those still go.
   assert.equal((await patch(owner, 3, { name: "Client QA" })).status, 200);
+  // `/me` names the round Comments lands on, by the dashboard's rule: the
+  // newest OPEN, unarchived one — 2 here, though 3 (closed) and 4 (archived)
+  // are newer. It lets the list be asked for beside the rounds, not after.
+  const me = (await (await app.request("/api/v1/me", { headers: as(owner) })).json()) as {
+    projects: { uid: string; landingRound: number | null; addressed: boolean }[];
+  };
+  const site = me.projects.find((p) => p.uid === uid)!;
+  assert.equal(site.landingRound, 2);
+  assert.equal(site.addressed, false, "no domain and no address: the first run's cue");
   // Put things back for the delete test: 3 and 4 open again.
   assert.equal((await patch(owner, 3, { closed: false })).status, 200);
   assert.equal((await patch(owner, 4, { archived: false })).status, 200);

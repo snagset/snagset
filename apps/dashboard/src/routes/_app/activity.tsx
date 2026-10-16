@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { infiniteQueryOptions, useInfiniteQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { PageHeader, StatusPill } from "@/components/app/parts";
@@ -27,9 +27,26 @@ const search = z.object({
   site: z.string().optional(),
 });
 
+/** The feed for one filter — the loader starts it, the screen reads it. */
+const feedQuery = (status: string, site: string | undefined) =>
+  infiniteQueryOptions({
+    queryKey: ["activity", status, site ?? null] as const,
+    queryFn: ({ pageParam }) => api.activity({ status, ...(site ? { site } : {}), ...(pageParam ? { cursor: pageParam } : {}) }),
+    initialPageParam: "" as string,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    // A feed is stale the moment someone comments; refetch when the tab
+    // comes back rather than on a timer nobody asked for.
+    refetchOnWindowFocus: true,
+  });
+
 export const Route = createFileRoute("/_app/activity")({
   validateSearch: search,
-  loader: () => ({ crumb: "Activity" }),
+  loaderDeps: ({ search }) => ({ status: search.status ?? "unresolved", site: search.site }),
+  // Started here, beside the screen's own code arriving, rather than after it.
+  loader: ({ context, deps }) => {
+    void context.queryClient.prefetchInfiniteQuery(feedQuery(deps.status, deps.site));
+    return { crumb: "Activity" };
+  },
   component: Activity,
 });
 
@@ -57,15 +74,7 @@ function Activity() {
   const go = (patch: { status?: string; site?: string | undefined }) =>
     void navigate({ search: (s) => ({ ...s, ...patch }), replace: true });
 
-  const feed = useInfiniteQuery({
-    queryKey: ["activity", status, site ?? null] as const,
-    queryFn: ({ pageParam }) => api.activity({ status, ...(site ? { site } : {}), ...(pageParam ? { cursor: pageParam } : {}) }),
-    initialPageParam: "" as string,
-    getNextPageParam: (last) => last.nextCursor ?? undefined,
-    // A feed is stale the moment someone comments; refetch when the tab
-    // comes back rather than on a timer nobody asked for.
-    refetchOnWindowFocus: true,
-  });
+  const feed = useInfiniteQuery(feedQuery(status, site));
 
   const rows = feed.data?.pages.flatMap((p) => p.data) ?? [];
   const days: { day: string; rows: ActivityRow[] }[] = [];

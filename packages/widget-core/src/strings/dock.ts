@@ -40,7 +40,6 @@ export const dockStrings = {
   "round.label": "Round",
   "round.closed": "(closed)",
   "filter.status": "Status",
-  "filter.clear": "Clear",
   "filter.selectall": "Select all",
   "sort.button": "Sort",
   "sort.newest": "Newest first",

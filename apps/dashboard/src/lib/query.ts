@@ -33,8 +33,15 @@ export const queryClient = new QueryClient({
 export const q = {
   me: () => queryOptions({ queryKey: ["me"] as const, queryFn: api.me }),
   /** Whether anyone has claimed this instance. Asked once per page load —
-   *  it changes exactly once in an instance's life. */
-  claimed: () => queryOptions({ queryKey: ["claimed"] as const, queryFn: api.claimed, staleTime: Infinity }),
+   *  it changes exactly once in an instance's life. Read off `setupState`,
+   *  which is the same request: the gate and the sign-in form each asked it
+   *  under its own key, so a signed-out load sent `/api/v1/setup` twice. */
+  claimed: () =>
+    queryOptions({
+      queryKey: ["claimed"] as const,
+      queryFn: () => queryClient.fetchQuery(q.setupState()).then((s) => s.claimed),
+      staleTime: Infinity,
+    }),
   /** Claimed, and whether sign-up is open — the front door's two facts. */
   setupState: () => queryOptions({ queryKey: ["setup-state"] as const, queryFn: api.setupState, staleTime: Infinity }),
   meta: () => queryOptions({ queryKey: ["meta"] as const, queryFn: api.meta, staleTime: Infinity }),

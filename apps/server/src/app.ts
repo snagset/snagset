@@ -843,10 +843,15 @@ export function createApp(deps: Deps): Hono<Env> {
     if (!existsSync(file)) return next();
     const ext = file.slice(file.lastIndexOf("."));
     c.header("Content-Type", MIME[ext] ?? "application/octet-stream");
-    // Hashed filenames are immutable; the shell must never be.
+    // Hashed filenames are immutable; the shell must never be. `s-maxage`
+    // because a browser's `max-age` says nothing to a shared cache: on Vercel
+    // every path is the function, so each chunk of a screen this browser had
+    // not opened yet crossed to the function's region — Seoul to London,
+    // ~0.3 s for every wave of imports. With it the edge nearest the studio
+    // answers (and a deploy starts that cache afresh).
     c.header(
       "Cache-Control",
-      file.includes("/assets/") ? "public, max-age=31536000, immutable" : "no-cache",
+      file.includes("/assets/") ? "public, max-age=31536000, s-maxage=31536000, immutable" : "no-cache",
     );
     return c.body(readFileSync(file));
   });

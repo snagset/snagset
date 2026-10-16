@@ -21,10 +21,20 @@ export const Route = createFileRoute("/_app")({
       rememberAuth("in");
       // A studio whose one site has no address yet is a fresh claim: the first
       // run (/welcome) names it and gives it its address before anything else.
+      //
+      // `/me` says so itself (`addressed`); asking `/origins` here put a
+      // second request IN SERIES in front of every screen of a one-site
+      // studio — the usual studio. Only a server older than the field is asked.
       if (me.projects.length === 1) {
         const site = me.projects[0]!;
-        const o = await context.queryClient.ensureQueryData(q.origins(site.uid)).catch(() => null);
-        if (o && o.origins.length === 0 && !o.domain) throw redirect({ to: "/welcome" });
+        const bare =
+          site.addressed !== undefined
+            ? !site.addressed
+            : await context.queryClient
+                .ensureQueryData(q.origins(site.uid))
+                .then((o) => o.origins.length === 0 && !o.domain)
+                .catch(() => false);
+        if (bare) throw redirect({ to: "/welcome" });
       }
       return { me };
     } catch (err) {

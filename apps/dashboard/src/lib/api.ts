@@ -127,6 +127,10 @@ export interface Me {
     previewUrl: string | null;
     /** When a snag on this site last moved. Null when none ever has. */
     lastActivityAt: string | null;
+    /** A domain or an exact address is set — false is the first run's cue. Optional: an older server omits it. */
+    addressed?: boolean;
+    /** The round Comments opens on (newest open, unarchived), null with none. Optional: an older server omits it. */
+    landingRound?: number | null;
   }[];
 }
 
@@ -345,13 +349,12 @@ export const api = {
   me: () => call<Me>("GET", "/api/v1/me"),
 
   /**
-   * Has anyone claimed this instance? Public by necessity — the shell cannot
-   * know whether to draw setup or sign-in without asking, and an unclaimed
-   * instance showing a sign-in form for an account that does not exist is the
-   * dead end this replaces.
+   * Has anyone claimed this instance, and may a stranger make a studio here
+   * ? Public by necessity — the shell cannot know whether to draw
+   * setup or sign-in without asking, and an unclaimed instance showing a
+   * sign-in form for an account that does not exist is the dead end this
+   * replaces.
    */
-  claimed: () => call<{ claimed: boolean }>("GET", "/api/v1/setup").then((r) => r.claimed),
-  /** Both answers of the same public question: claimed, and whether a stranger may make a studio here. */
   setupState: () => call<{ claimed: boolean; signup: boolean }>("GET", "/api/v1/setup"),
   /** A stranger's studio. The response sets the session cookies, like the claim. */
   register: (input: { email: string; password: string; name?: string; orgName?: string }) =>

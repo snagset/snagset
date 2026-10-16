@@ -305,10 +305,10 @@
         "$comment": "3 -> 5 at. Draft 4's 3 KB priced 'matchQuote and approx-string-match, the chunk's entire contents' \u2014 before the decision made chunks self-contained. The chunk now carries its own TextIndex copy (the collapse machine + build, ~0.9 KB, one SOURCE file shared with snag.text.js) and the pass-budget engine; the scorers are INJECTED from anchor-ext (which is loaded by construction before fuzzy ever escalates) rather than bundled, which is what keeps this at 5 and not 6.5. Lazy, fetched only after the resident and extended steps BOTH missed on a record with a searchable quote \u2014 a session with no orphaned text pins never downloads it."
       },
       "dock": {
-        "budgetKb": 22,
+        "budgetKb": 23,
         "lazy": true,
         "built": true,
-        "$comment": "The funded lever, taken at. The dock opens on demand, so its bytes left the activation envelope. SELF-CONTAINED \u2014 it bundles its own Preact copy (16.2 KB gz measured standalone, exactly the prediction), because cross-chunk imports died of module-map poisoning; lazy bytes cost the envelope nothing, which is the whole argument. Raised 21 -> 22 at 0.1.15: the reply box asks who is writing as the composer does, so the sign-in popup and the identity reader ride along here too."
+        "$comment": "The funded lever, taken at. The dock opens on demand, so its bytes left the activation envelope. SELF-CONTAINED \u2014 it bundles its own Preact copy (16.2 KB gz measured standalone, exactly the prediction), because cross-chunk imports died of module-map poisoning; lazy bytes cost the envelope nothing, which is the whole argument. Raised 21 -> 22 at 0.1.15: the reply box asks who is writing as the composer does, so the sign-in popup and the identity reader ride along here too. Raised 22 -> 23 at 0.1.21: the list header carries the round as its title, always-visible status chips with counts, and sort/filter on one row."
       },
       "text": {
         "budgetKb": 6,

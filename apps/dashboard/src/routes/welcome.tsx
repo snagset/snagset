@@ -39,10 +39,15 @@ export const Route = createFileRoute("/welcome")({
     }
     const site = me.projects.length === 1 ? me.projects[0]! : null;
     if (!site) throw redirect({ to: "/sites" });
-    const where = await context.queryClient
-      .ensureQueryData(q.origins(site.uid))
-      .catch(() => ({ domain: null as string | null, origins: [] as string[] }));
-    if (where.origins.length > 0 || where.domain) throw redirect({ to: "/sites" });
+    // The same answer the gate in `_app` reads, from the same place — two
+    // sources could disagree and bounce a visit between here and Sites.
+    const addressed =
+      site.addressed ??
+      (await context.queryClient
+        .ensureQueryData(q.origins(site.uid))
+        .then((where) => where.origins.length > 0 || !!where.domain)
+        .catch(() => false));
+    if (addressed) throw redirect({ to: "/sites" });
     return { me, site };
   },
   pendingComponent: () => <Waiting what="Loading your studio" />,
@@ -71,8 +76,12 @@ function Welcome() {
       await api.deleteSite(site.uid);
       // Fetched, not merely invalidated: the layout's gate reads /me through
       // the cache and would still see the one unnamed site, and send us back
-      // here. The site's own queries go too — there is no site.
+      // here. Marked stale first, or `fetchQuery` hands back that same cached
+      // answer — which went unnoticed while the gate asked /origins as well,
+      // and the deleted site's 404 there happened to let us through. The
+      // site's own queries go too — there is no site.
       qc.removeQueries({ queryKey: ["origins", site.uid] });
+      await qc.invalidateQueries({ queryKey: q.me().queryKey });
       await qc.fetchQuery(q.me());
       void navigate({ to: "/sites", replace: true });
     } catch (e) {

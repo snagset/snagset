@@ -453,6 +453,10 @@ export function createHttpAdapter(
     // without it, typing a name in the composer reset the round being viewed
     // and the comment went to the default round instead.
     const round = b.round?.number ?? (refreshing || reidentify ? session?.round : undefined);
+    // What this session was minted with, so `authorize()` can tell when the
+    // reviewer has since told us their name. A REFRESH presents no identity
+    // and must not clobber it.
+    const name = identity ? identity.name : session?.name;
 
     session = {
       token: b.sessionToken,
@@ -465,12 +469,9 @@ export function createHttpAdapter(
       // an identity (a guest, a link) is somebody else, so it does not.
       ...(refreshing && session?.member ? { member: session.member } : {}),
       ...(refreshing && session?.member && session.moderator ? { moderator: true } : {}),
+      ...(name ? { name } : {}),
     };
     writeSession(uid, session);
-    // What this session was minted with, so `authorize()` can tell when the
-    // reviewer has since told us their name. A REFRESH presents no identity
-    // and must not clobber it.
-    if (identity) exchangedName = identity.name ?? null;
     options.onSessionStarted?.();
     return session;
   }
@@ -508,7 +509,8 @@ export function createHttpAdapter(
 
   /** The bearer for the next call, refreshing silently if it is due. */
   /**
-   * The name the CURRENT session was minted with.
+   * The name the CURRENT session was minted with — `session.name`, kept on the
+   * stored session so a reload remembers it, and compared in `authorize()`.
    *
    * ── WHY THIS EXISTS ──
    *
@@ -527,8 +529,13 @@ export function createHttpAdapter(
    * same `holderId`/`holderSecret` with a typed name UPDATES the existing
    * reviewer row (sessions.ts). Nothing needed to change there. What
    * was missing was anything asking it to.
+   *
+   * And ONE exchange at a time, shared. `init()` and the first list run
+   * concurrently, both found no session, and each exchanged: two
+   * `POST …/sessions` on every first load, measured, one of them wasted and
+   * racing the other to write the session.
    */
-  let exchangedName: string | null = null;
+  let exchanging: Promise<unknown> | null = null;
 
   async function authorize(): Promise<string | null> {
     // The page load's one silent attempt, before anything exchanges as
@@ -537,7 +544,6 @@ export function createHttpAdapter(
     if (session && isFinished(session)) {
       clearSession(uid);
       session = null;
-      exchangedName = null;
       // …and a member whose session reached the cap is renewed the same way.
       if (!(await silent())) {
         options.onSessionEnded?.("expired");
@@ -555,11 +561,11 @@ export function createHttpAdapter(
     const stored = readIdentity().name || null;
     // Never for a studio member: their name is the account's, and the
     // re-exchange this triggers is a GUEST one that would sign them out.
-    const nameChanged = session !== null && !session.member && stored !== null && stored !== exchangedName;
+    const nameChanged = session !== null && !session.member && stored !== null && stored !== (session.name ?? null);
 
     if (!session || needsRefresh(session) || linkToken || nameChanged) {
       try {
-        await exchange(nameChanged);
+        await (exchanging ??= exchange(nameChanged).finally(() => (exchanging = null)));
       } catch (e) {
         // A failed exchange must not take down a READ. The call proceeds
         // unauthenticated and the server decides.
@@ -634,12 +640,25 @@ export function createHttpAdapter(
     },
 
     async init(ctx: AdapterContext): Promise<ProjectConfig> {
-      const cfg = await call<{
+      /**
+       * PUBLIC, so asked WITHOUT the session and beside it rather than after
+       * it. Through `call()` this waited for the exchange, then carried a
+       * bearer — and the `Authorization` header made it a preflighted request
+       * the browser cache could not answer. Bare, it is the very request the
+       * stub just made (`max-age=60`), so it usually costs nothing, and the
+       * exchange the first list needs starts now instead of after it.
+       */
+      void authorize().catch(() => {});
+      const res = await fetch(`${root}/config`).catch((e: Error) => {
+        throw new HttpAdapterError(0, "network_error", e.message);
+      });
+      if (!res.ok) throw new HttpAdapterError(res.status, "http_error", `The server answered ${res.status}.`);
+      const cfg = (await res.json()) as {
         features: { screenshots: boolean; uploads: boolean };
         rounds?: { number: number; name: string; closed: boolean }[];
         writable?: boolean;
         reason?: string;
-      }>("/config");
+      };
       // A9b: the widget NEVER probes storage. It reads this flag and renders
       // accordingly, so a deployment with no bucket hides the screenshot
       // control rather than offering one whose upload would fail. Mutating
@@ -718,7 +737,6 @@ export function createHttpAdapter(
     signOut(): void {
       clearSession(uid);
       session = null;
-      exchangedName = null;
       // And not silently signed back in on the next page. Kept for the
       // browser until the popup is used again.
       try {
@@ -812,7 +830,16 @@ export function createHttpAdapter(
       // for one reviewer and the `GET …/threads` that followed carried no
       // `round` at all. Awaiting here makes the second `authorize()` inside
       // `call()` the no-op it was supposed to be (session already fresh).
-      await authorize();
+      //
+      // …EXCEPT on a first visit, holding no session and presenting no link.
+      // The list reads no claim of the session (threads.ts answers it with
+      // none), so waiting for the exchange bought nothing but a round trip in
+      // series — and asked bare, with no header at all, it is a CORS simple
+      // request with no preflight either. The exchange still starts now, for
+      // the writes; anything but a 200 falls back to the authorized path.
+      const bare = !session && !linkToken;
+      if (bare) void authorize().catch(() => {});
+      else await authorize();
       const params = new URLSearchParams();
       if (env) params.set("env", env);
       if (q?.route) params.set("route", q.route);
@@ -821,9 +848,12 @@ export function createHttpAdapter(
       // default (latest open round for a non-owner reader). No UI reads or
       // sets this yet; that is T10.
       if (session?.round) params.set("round", String(session.round));
-      const list = await call<{ data: Wire[]; nextCursor: string | null; serverTime: string }>(
-        `/threads?${params}`,
-      );
+      type List = { data: Wire[]; nextCursor: string | null; serverTime: string };
+      const path = `/threads?${params}`;
+      const authed = () => call<List>(path);
+      const list = bare
+        ? await fetch(root + path, { credentials: "omit" }).then((r) => (r.ok ? (r.json() as Promise<List>) : authed()), authed)
+        : await authed();
       return {
         data: list.data.map((w) => toSnag(w, env, base)),
         ...(list.nextCursor ? { nextCursor: list.nextCursor } : {}),

@@ -659,45 +659,35 @@ const statusVar = (st: string): string =>
   (t as Record<string, string>)[`status${st[0]!.toUpperCase()}${st.slice(1)}`] ?? t.muted;
 
 /**
- * The filter bar. Search counts the round and
- * narrows the LIST only; chips carry live whole-round counts and tint with
- * their own status colour so "a chip reads as its status before it is read
- * as a word"; Sort and Filter are exclusive menus; the Filter button wears
- * `· n` for its own panel's facets. Everything here is lazy dock bytes.
+ * The filter bar, re-laid at 0.1.21. Top to
+ * bottom: search (with its glyph, so it reads as search before it is read),
+ * the four status chips ALWAYS on the face with live whole-round counts, then
+ * one row holding the two menus, Sort and Filter. The chips came back out of
+ * the menu because their counts are the board's summary — "how much is left"
+ * is the first question a reviewer asks the panel, and it was a click away.
+ * Sort and Filter are exclusive menus; the Filter button wears `· n` for its
+ * own panel's facets. Everything here is lazy dock bytes.
  */
 function FilterBar({
   round,
   filter,
   onFilter,
-  rounds,
-  activeRound,
-  onRound,
   onClearAll,
   seenAt,
+  trailing,
 }: {
   round: Snag[];
   filter: ListFilter;
   onFilter: (f: ListFilter) => void;
-  rounds?: import("../storage/types.ts").RoundInfo[];
-  activeRound?: number;
-  onRound?: (round: number) => void;
   onClearAll: () => void;
   /** Absent = no seen model; the facet is not offered rather than offered inert. */
   seenAt?: ReadonlyMap<string, number>;
+  /** The new-activity toggle, at the end of the Sort/Filter row. */
+  trailing?: VNode | null;
 }) {
-  // The round selector used to be its own bar, and its placement was
-  // load-bearing: it renders when there is MORE THAN ONE round, snags or not,
-  // because an empty round is the normal state (the clean board) and a
-  // selector that vanished with the last pin trapped the reviewer in the new
-  // round with no way back to the one holding the work.
-  //
-  // Folds it into the menu, so the MENU inherits that duty: the trigger
-  // shows whenever there is a round to switch to, and the groups inside it
-  // appear only when they have something to filter.
-  const multiRound = !!rounds && rounds.length > 1 && !!onRound;
-  const any = round.length > 0;
-  // One menu now, so the state is open-or-not rather than which-of-two.
-  const [menu, setMenu] = useState<null | "filter">(null);
+  // Two exclusive menus again (the decision had folded sort into filter). The scrim and
+  // the Escape rung are shared: whichever is open closes first.
+  const [menu, setMenu] = useState<null | "sort" | "filter">(null);
   const counts = countStatuses(round);
   // `undefined` DELETES the facet (exactOptionalPropertyTypes: an absent key
   // and an undefined-valued one are different objects, and the predicate
@@ -710,50 +700,26 @@ function FilterBar({
     }
     onFilter(next as unknown as ListFilter);
   };
-  const anySubset = filter.statuses.length > 0;
   const facets = activeFacets(filter);
   const authors = [...new Map(round.map((s) => [s.createdBy.id, s.createdBy.name]))];
   const routes = [...new Set(round.map((s) => s.route))].sort();
   // F-07b: unknown statuses get a neutral, non-interactive chip with the raw
   // value — visible in the totals, never hidden by a filter they cannot match.
   const strays = [...counts.byStatus.keys()].filter((k) => !(ALL_STATUSES as readonly string[]).includes(k));
-
-  const chips = (
-    <div class="snag-dk-menugroup">
-      <div class="snag-dk-chiphead">
-        <span class="snag-dk-menutitle">{format("filter.status")}</span>
-        <button type="button" class="snag-dk-link" onClick={() => set({ statuses: [] })}>
-          {format(anySubset ? "filter.selectall" : "filter.clear")}
-        </button>
-      </div>
-      <div class="snag-dk-chips" role="group" aria-label={format("filter.status")}>
-        {ALL_STATUSES.map((st) => {
-          const on = filter.statuses.includes(st);
-          return (
-            <button
-              type="button"
-              class="snag-dk-chip"
-              aria-pressed={on}
-              style={`border-color:color-mix(in srgb, ${statusVar(st)} 60%, transparent);` +
-                `background:color-mix(in srgb, ${statusVar(st)} ${on ? 28 : 10}%, transparent)`}
-              onClick={() => set({ statuses: toggleStatus(filter.statuses, st) })}
-            >
-              {statusLabel(st)} <span class="snag-dk-dim">{count(counts.byStatus.get(st) ?? 0)}</span>
-            </button>
-          );
-        })}
-        {strays.map((st) => (
-          <span class="snag-dk-chip snag-dk-chip-stray">
-            {st} <span class="snag-dk-dim">{count(counts.byStatus.get(st) ?? 0)}</span>
-          </span>
-        ))}
-      </div>
-    </div>
+  const toggle = (m: "sort" | "filter"): void => setMenu(menu === m ? null : m);
+  const caret = (
+    <svg class="snag-dk-caret" width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
+      <path d="M1 2.5 4 5.5 7 2.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+    </svg>
   );
 
   return (
     <div class="snag-dk-filters">
-      {any && (
+      <div class="snag-dk-searchwrap">
+        <svg class="snag-dk-searchicon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+          <circle cx="7" cy="7" r="4.75" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <path d="M10.5 10.5 14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+        </svg>
         <input
           class="snag-input snag-dk-search"
           type="search"
@@ -762,28 +728,46 @@ function FilterBar({
           value={filter.q ?? ""}
           onInput={(e) => set({ q: (e.currentTarget as HTMLInputElement).value || undefined })}
         />
-      )}
-      {/*
-        ONE MENU — the first cut, and the one that pays for itself twice.
-        Sort and Filter were two exclusive menus side by side, which is where
-        the z-index note in this file's stylesheet came from: two panels that
-        can never both be open still need a scrim, a stacking order and a
-        sticky group header that does not paint over either. One menu deletes
-        the class rather than fixing the instance.
-
-        The facets are unchanged — sort, author, page, and the this-page-only
-        switch all write the same `ListFilter` they always did, so every
-        behavioural test still asserts the same thing about the same state.
-        What moved is where a person reaches for them.
-      */}
+      </div>
+      {/* Status, on the face. Multi-select; none pressed means all shown, so
+          "Select all" is the way back from any subset. */}
+      <div class="snag-dk-chiphead">
+        <span class="snag-dk-menutitle" id="snag-dk-st">{format("filter.status")}</span>
+        <button type="button" class="snag-dk-link snag-dk-selectall" onClick={() => set({ statuses: [] })}>
+          {format("filter.selectall")}
+        </button>
+      </div>
+      <div class="snag-dk-chips" role="group" aria-labelledby="snag-dk-st">
+        {ALL_STATUSES.map((st) => {
+          const on = filter.statuses.includes(st);
+          return (
+            <button
+              type="button"
+              class="snag-dk-chip"
+              aria-pressed={on}
+              style={on
+                ? `border-color:${statusVar(st)};background:color-mix(in srgb, ${statusVar(st)} 18%, transparent)`
+                : undefined}
+              onClick={() => set({ statuses: toggleStatus(filter.statuses, st) })}
+            >
+              <span class="snag-dk-chipdot" aria-hidden="true" style={{ background: statusColour(st) }} />
+              <span class="snag-dk-chiplabel">{statusLabel(st)}</span>{" "}
+              <span class="snag-dk-chipn">{count(counts.byStatus.get(st) ?? 0)}</span>
+            </button>
+          );
+        })}
+        {strays.map((st) => (
+          <span class="snag-dk-chip snag-dk-chip-stray">
+            <span class="snag-dk-chiplabel">{st}</span>{" "}
+            <span class="snag-dk-chipn">{count(counts.byStatus.get(st) ?? 0)}</span>
+          </span>
+        ))}
+      </div>
       <div
         class="snag-dk-menus"
         onKeyDown={(e: KeyboardEvent) => {
-          // Escape closes the MENU, not the dock. Now folded status,
-          // sort and page-only into one panel, that panel is a rung of its
-          // own on the Escape ladder — dismissing the whole dock because
-          // someone changed their mind about a filter is the same surprise
-          // the Dock-level handler already guards against one rung down.
+          // Escape closes the MENU, not the dock: an open menu is a rung of
+          // its own on the Escape ladder.
           if (e.key !== "Escape" || !menu) return;
           e.stopPropagation();
           setMenu(null);
@@ -793,90 +777,51 @@ function FilterBar({
         <span class="snag-dk-menuwrap">
           <button
             type="button"
-            class="snag-dk-link"
+            class="snag-dk-link snag-dk-trigger"
+            aria-expanded={menu === "sort"}
+            onClick={() => toggle("sort")}
+          >
+            {format("sort.button")}
+            {caret}
+          </button>
+          {menu === "sort" && (
+            <div class="snag-dk-menu" role="radiogroup" aria-label={format("sort.button")}>
+              {([
+                ["newest", "sort.newest"],
+                ["oldest", "sort.oldest"],
+                ["page", "sort.page"],
+              ] as const).map(([k, label]) => (
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={filter.sort === k}
+                  onClick={() => set({ sort: k })}
+                >
+                  <span class="snag-dk-tick" aria-hidden="true">{filter.sort === k ? "✓" : " "}</span>
+                  {format(label)}
+                </button>
+              ))}
+            </div>
+          )}
+        </span>
+        <span class="snag-dk-menuwrap">
+          <button
+            type="button"
+            class="snag-dk-link snag-dk-trigger"
             aria-expanded={menu === "filter"}
-            onClick={() => setMenu(menu === "filter" ? null : "filter")}
+            onClick={() => toggle("filter")}
           >
             {facets > 0 ? format("filter.button.n", { n: count(facets) }) : format("filter.button")}
+            {caret}
           </button>
           {menu === "filter" && (
-            // NOT `role="menu"`. It was one while sort stood alone and held
-            // nothing but commands; merged with the filter form it holds two
-            // selects and a checkbox, which a menu may not contain — the role
-            // is a promise about the children, and the decision changed the children.
-            // It is a group of filter controls, so it says that.
+            // A group of filter controls (selects and a checkbox), not a menu:
+            // the role is a promise about the children.
             <div class="snag-dk-menu snag-dk-menu-form" role="group" aria-label={format("filter.button")}>
-              {/* Round first — it is the widest scope in here, and everything
-                  below filters WITHIN whatever it selects. Clear sits with it
-                  because starting a round and clearing the board are the same
-                  intention; it keeps its two-step arm. */}
-              {(multiRound || any) && (
-                <div class="snag-dk-menugroup">
-                  {!multiRound && <span class="snag-dk-menutitle">{format("round.label")}</span>}
-                  {multiRound && (
-                  <label class="snag-dk-round">
-                    <span class="snag-dk-menutitle">{format("round.label")}</span>
-                    <select
-                      class="snag-input"
-                      value={String(activeRound ?? "")}
-                      onChange={(e) => onRound!(Number((e.currentTarget as HTMLSelectElement).value))}
-                    >
-                      {rounds!.map((r) => (
-                        <option value={String(r.number)} key={r.number}>
-                          {r.name}
-                          {r.closed ? ` ${format("round.closed")}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  )}
-                  {/* Clear all belongs to the ROUND, not to the filters, so it
-                      sits here whether or not there is a second round to
-                      switch to — a one-round board still needs emptying, and
-                      that was the whole point of it existing. */}
-                  {any && (
-                    <Danger
-                      label={format("dock.clear")}
-                      title={format("dock.clear.aria")}
-                      cls="snag-dk-link snag-dk-clear"
-                      onConfirm={onClearAll}
-                    />
-                  )}
-                </div>
-              )}
-              {any && chips}
-              {/* Sort next: it changes the shape of the list, where the ones
-                  below change its contents, and a reader scanning for "why is
-                  this order wrong" looks near the top. */}
-              {any && (
-              <div class="snag-dk-menugroup" role="radiogroup" aria-label={format("sort.button")}>
-                <span class="snag-dk-menutitle" aria-hidden="true">{format("sort.button")}</span>
-                {([
-                  ["newest", "sort.newest"],
-                  ["oldest", "sort.oldest"],
-                  ["page", "sort.page"],
-                ] as const).map(([k, label]) => (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={filter.sort === k}
-                    onClick={() => set({ sort: k })}
-                  >
-                    <span class="snag-dk-tick" aria-hidden="true">{filter.sort === k ? "\u2713" : "\u00A0"}</span>
-                    {format(label)}
-                  </button>
-                ))}
-              </div>
-              )}
-              {/* Who and where. The page-only switch joins them: it is a scope
-                  facet like the two above it, and it was one of the nine
-                  things permanently on screen for a choice most sessions
-                  never make. */}
-              {any && (
-              <div class="snag-dk-menugroup snag-dk-menugroup-last">
-                {/* The third facet. Unlike the pill above the
-                    list, `read` is PIN-GOVERNING — asking for unread
-                    threads is asking about the page, not just the list. */}
+              {/* Who and where, then the round's own destructive action. */}
+              <div class="snag-dk-menugroup">
+                {/* The third facet. Unlike the activity bar, `read`
+                    is PIN-GOVERNING. */}
                 {seenAt && (
                   <label>
                     {format("filter.read")}
@@ -925,10 +870,19 @@ function FilterBar({
                   {format("filter.pageonly")}
                 </label>
               </div>
-              )}
+              {/* Clear all belongs to the ROUND; it keeps its two-step arm. */}
+              <div class="snag-dk-menugroup snag-dk-menugroup-last">
+                <Danger
+                  label={format("dock.clear")}
+                  title={format("dock.clear.aria")}
+                  cls="snag-dk-link snag-dk-clear"
+                  onConfirm={onClearAll}
+                />
+              </div>
             </div>
           )}
         </span>
+        {trailing}
       </div>
     </div>
   );
@@ -948,9 +902,6 @@ function List({
   onFilter,
   hiddenNote,
   onHiddenShow,
-  rounds,
-  activeRound,
-  onRound,
   seenAt,
 }: DockProps & { groups: Group[]; hiddenNote: string | null; onHiddenShow: (id: string) => void }) {
   // Numbering base = the UNFILTERED round (pin 3 is still "3" when
@@ -996,30 +947,6 @@ function List({
 
   return (
     <>
-      {/* One control, and it shows whenever there is anything to control:
-          snags to filter, or a second round to switch back to. The round
-          selector used to be its own bar for exactly that second reason. */}
-      {/* The ROUND, in plain sight. It sat inside the Filter menu, and a
-          reviewer looking at an empty round saw "No comments yet" with no hint
-          that another round held the conversation. Parallel rounds made it the
-          first question the panel answers, not a filter. */}
-      {rounds && rounds.length > 1 && onRound && (
-        <label class="snag-dk-roundbar">
-          <span class="snag-dk-dim">{format("round.label")}</span>
-          <select
-            class="snag-input"
-            value={String(activeRound ?? "")}
-            onChange={(e) => onRound(Number((e.currentTarget as HTMLSelectElement).value))}
-          >
-            {rounds.map((r) => (
-              <option value={String(r.number)} key={r.number}>
-                {r.name}
-                {r.closed ? ` ${format("round.closed")}` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
       {snags.length > 0 && (
         <FilterBar
           round={snags}
@@ -1027,24 +954,28 @@ function List({
           onFilter={onFilter}
           onClearAll={onClearAll}
           {...(seenAt === undefined ? {} : { seenAt })}
+          trailing={
+            /* ONE control whose label is its state, not three,
+               at the end of the Sort/Filter row (it had a full-width bar of its
+               own; the row had the room). It appears only when there is unseen
+               work, or while it is the thing doing the narrowing (otherwise
+               turning it on would remove the only way to turn it off). It
+               narrows the LIST only: asserts the pins stay
+               byte-identical through it. */
+            seenAt && (unseen > 0 || filter.newOnly) ? (
+              <button
+                type="button"
+                class="snag-dk-link snag-dk-newpill"
+                aria-pressed={filter.newOnly}
+                onClick={() => onFilter({ ...filter, newOnly: !filter.newOnly })}
+              >
+                {filter.newOnly
+                  ? format(unseen === 0 ? "filter.new.none" : "filter.new.on")
+                  : format("filter.new", { n: count(unseen) })}
+              </button>
+            ) : null
+          }
         />
-      )}
-      {/* ONE control whose label is its state, not three.
-          It appears only when there is unseen work, or while it is the thing
-          doing the narrowing (otherwise turning it on would remove the only
-          way to turn it off). It narrows the LIST only: asserts the
-          pins stay byte-identical through it. */}
-      {seenAt && (unseen > 0 || filter.newOnly) && (
-        <button
-          type="button"
-          class="snag-dk-newpill"
-          aria-pressed={filter.newOnly}
-          onClick={() => onFilter({ ...filter, newOnly: !filter.newOnly })}
-        >
-          {filter.newOnly
-            ? format(unseen === 0 ? "filter.new.none" : "filter.new.on")
-            : format("filter.new", { n: count(unseen) })}
-        </button>
       )}
       {snags.length === 0 ? (
         <div class="snag-dk-empty">
@@ -2098,7 +2029,34 @@ function Dock(props: DockProps) {
         </div>
       )}
       <header class="snag-dk-hd">
-        <strong>{format(open ? "dock.title.detail" : "dock.title.list")}</strong>
+        {/* The list's title IS the round when there is more than one: which
+            round you are looking at is the first thing the panel answers, and
+            a separate bar for it spent a row saying so. A native select keeps
+            the keyboard and the screen-reader contract for free; it is styled
+            as a title with a chevron. An empty round keeps it too — that is
+            the normal state, and the way back to the round holding the work. */}
+        {!open && props.rounds && props.rounds.length > 1 && props.onRound ? (
+          <span class="snag-dk-roundwrap">
+            <select
+              class="snag-dk-round"
+              aria-label={format("round.label")}
+              value={String(props.activeRound ?? "")}
+              onChange={(e) => props.onRound!(Number((e.currentTarget as HTMLSelectElement).value))}
+            >
+              {props.rounds.map((r) => (
+                <option value={String(r.number)} key={r.number}>
+                  {r.name}
+                  {r.closed ? ` ${format("round.closed")}` : ""}
+                </option>
+              ))}
+            </select>
+            <svg class="snag-dk-roundcaret" width="10" height="10" viewBox="0 0 8 8" aria-hidden="true">
+              <path d="M1 2.5 4 5.5 7 2.5" fill="none" stroke="currentColor" stroke-width="1.4" />
+            </svg>
+          </span>
+        ) : (
+          <strong>{format(open ? "dock.title.detail" : "dock.title.list")}</strong>
+        )}
         <button
           type="button"
           class="snag-dk-link"
@@ -2134,16 +2092,40 @@ const CSS = `
   background:${t.bg};color:${t.fg};display:flex;flex-direction:column;
   font:400 13px/1.45 ${t.font};box-shadow:${t.shadow};border-inline-start:1px solid ${t.border};
   pointer-events:auto;overscroll-behavior:contain}
-.snag-dk-filters{padding:8px 12px 6px;border-block-end:1px solid ${t.border};display:grid;gap:6px}
-.snag-dk-search{width:100%;box-sizing:border-box;font-size:12px;padding:5px 8px}
-.snag-dk-chiphead{display:flex;justify-content:space-between;align-items:center;padding-inline-end:8px}
-.snag-dk-chips{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.snag-dk-chip{font:500 11px/1.2 ${t.font};color:${t.fg};padding:5px 8px;border-radius:6px;
+.snag-dk-filters{padding:10px 14px 6px;border-block-end:1px solid ${t.border};display:grid;gap:8px;flex:0 0 auto}
+/* The glyph sits INSIDE the field, so the field reads as search at a glance.
+   currentColor in the muted token — under a forced palette muted is
+   CanvasText, so the glyph follows the system ink with no rule of its own. */
+.snag-dk-searchwrap{position:relative;display:flex}
+.snag-dk-searchicon{position:absolute;inset-inline-start:9px;top:50%;transform:translateY(-50%);
+  color:${t.muted};pointer-events:none}
+.snag-dk-search{width:100%;box-sizing:border-box;font-size:12px;padding:6px 8px;padding-inline-start:28px}
+.snag-dk-chiphead{display:flex;justify-content:space-between;align-items:center;margin-block-end:-4px}
+.snag-dk-chiphead .snag-dk-menutitle{padding:0}
+.snag-dk-selectall{font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:2px 4px;
+  margin-inline-end:-4px}
+.snag-dk-chips{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.snag-dk-chip{font:500 12px/1.2 ${t.font};color:${t.fg};padding:7px 10px;border-radius:6px;
   border:1px solid ${t.border};background:none;cursor:pointer;text-align:start;display:flex;
-  justify-content:space-between;align-items:center;gap:4px}
+  align-items:center;gap:7px;min-width:0;transition:background ${t.motion},border-color ${t.motion}}
+.snag-dk-chip:hover{background:${t.hover}}
+.snag-dk-chip:focus-visible{outline:2px solid ${t.focus};outline-offset:1px}
 .snag-dk-chip[aria-pressed="true"]{font-weight:600}
+/* The dot keeps its status colour under a forced palette — it is the one
+   place the colour is the point, and the label beside it carries the word. */
+.snag-dk-chipdot{flex:0 0 8px;width:8px;height:8px;border-radius:50%;forced-color-adjust:none}
+.snag-dk-chiplabel{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.snag-dk-chipn{flex:0 0 auto;color:${t.muted};font-variant-numeric:tabular-nums}
 .snag-dk-chip-stray{color:${t.muted};cursor:default}
-.snag-dk-menus{display:flex;gap:10px;position:relative}
+.snag-dk-chip-stray:hover{background:none}
+@media (forced-colors:active){
+  .snag-dk-chip[aria-pressed="true"]{border:2px solid Highlight;padding:6px 9px}
+}
+.snag-dk-menus{display:flex;gap:4px;position:relative;margin-inline-start:-6px}
+/* Above the scrim, so with one menu open a click on the OTHER trigger
+   switches menus in one click instead of only dismissing. */
+.snag-dk-trigger{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:500;
+  position:relative;z-index:3}
 .snag-dk-menuwrap{position:relative}
 /* Both of these sit ABOVE the list, and the numbers are the whole rule.
    .snag-dk-grouphd is a sticky header with z-index:1, and it lives LATER in
@@ -2153,11 +2135,10 @@ const CSS = `
    above the list too: clicking a row while a menu is open should dismiss the
    menu, not open that thread.
 
-   What DID delete here is the second half of the old note: two exclusive
-   menus side by side also had to be stacked against EACH OTHER. One menu
-   cannot collide with itself. */
-/* Each facet is a labelled group, top to bottom widest-scope-first: round,
-   status, sort, then who and where. */
+   Sort and Filter are two menus again (0.1.21), but EXCLUSIVE — one state
+   holds which is open — so they never have to be stacked against each other. */
+/* Each facet in the Filter menu is a labelled group: who and where, then the
+   round's Clear all. */
 .snag-dk-menugroup{display:flex;flex-direction:column;gap:1px;padding-bottom:6px;margin-bottom:6px;
   border-bottom:1px solid ${t.border}}
 .snag-dk-menugroup-last{padding-bottom:0;margin-bottom:0;border-bottom:0}
@@ -2207,6 +2188,7 @@ const CSS = `
   .snag-dk-select{min-height:44px}
   .snag-dk-chip{min-height:44px}
   .snag-dk-search{min-height:44px}
+  .snag-dk-round{min-height:44px}
 }
 @media (pointer:fine){.snag-dk-scrim,.snag-dk-grab{display:none}}
 .snag-dk-hd{display:flex;justify-content:space-between;align-items:center;gap:8px;
@@ -2247,9 +2229,8 @@ const CSS = `
 .snag-dk-dot--on{background:${t.accent}}
 /* The activity pill sits between the filter bar and the list: it is a state of
    the list, not a facet of the menu. */
-.snag-dk-newpill{display:block;width:100%;box-sizing:border-box;text-align:start;
-  background:${t.sunken};border:0;border-block-end:1px solid ${t.border};color:${t.accent};
-  font:600 12px/1.45 ${t.font};padding:8px 14px;cursor:pointer;flex:0 0 auto}
+.snag-dk-newpill{margin-inline-start:auto;font-weight:600;white-space:nowrap}
+.snag-dk-newpill[aria-pressed="true"]{background:${t.sunken};border-radius:6px}
 .snag-dk-newpill:hover{background:${t.hover}}
 .snag-dk-newpill:focus-visible{outline:2px solid ${t.focus};outline-offset:-2px}
 .snag-dk-num{flex:0 0 22px;height:22px;border-radius:50% 50% 50% 2px;font-weight:600;
@@ -2272,8 +2253,15 @@ const CSS = `
 .snag-dk-empty p{margin:0 0 4px}
 .snag-dk-notice{margin:0;padding:11px 14px;font-size:12px;color:${t.muted};
   border-bottom:1px solid ${t.border};flex:0 0 auto}
-.snag-dk-roundbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid ${t.border};flex:0 0 auto}
-.snag-dk-roundbar .snag-input{flex:1;min-width:0}
+/* The header's round select, dressed as the title it replaces. */
+.snag-dk-roundwrap{position:relative;display:inline-flex;align-items:center;min-width:0;flex:0 1 auto}
+.snag-dk-round{appearance:none;-webkit-appearance:none;background:${t.sunken};border:1px solid ${t.border};color:${t.fg};
+  font:600 13px/1.45 ${t.font};padding-block:4px;padding-inline:10px 26px;border-radius:6px;
+  cursor:pointer;max-width:100%;text-overflow:ellipsis;transition:background ${t.motion}}
+.snag-dk-round:hover{background:${t.hover}}
+.snag-dk-round:focus-visible{outline:2px solid ${t.focus};outline-offset:1px}
+.snag-dk-round option{background:${t.bg};color:${t.fg};font-weight:400}
+.snag-dk-roundcaret{position:absolute;inset-inline-end:10px;color:${t.muted};pointer-events:none}
 .snag-dk-foot{display:flex;gap:6px;padding:10px 14px;border-top:1px solid ${t.border};flex:0 0 auto}
 .snag-dk-link{background:transparent;border:0;color:${t.accent};font:inherit;cursor:pointer;
   padding:4px 6px;border-radius:calc(${t.radius} - 2px);transition:background ${t.motion}}

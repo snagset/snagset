@@ -56,7 +56,7 @@
   {
     "name": "snag.dock.js (lazy)",
     "path": "dist/snag.dock.js",
-    "limit": "22 KB",
+    "limit": "23 KB",
     "gzip": true,
     "brotli": false
   },

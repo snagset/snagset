@@ -356,9 +356,6 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
   app.get("/api/v1/me", async (c) => {
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
-    const [org] = await inOrg(sql, owner.orgId, (tx) => tx<{ name: string; slug: string }[]>`
-      SELECT name, slug FROM orgs WHERE id = ${owner.orgId}
-    `);
     /*
      * `shot` and `last_activity` are here rather than in a per-card request,
      * for the same reason the counts are: the Sites screen draws every project
@@ -374,55 +371,72 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
      * Deliberately the newest SCREENSHOT and not the newest image: a reviewer
      * can attach a photo to a comment, and a client's holiday snap is not what
      * their site looks like.
+     *
+     * ONE transaction for the org, its sites and the counts — they were three,
+     * each paying BEGIN, the claim and COMMIT on a call every page load makes.
+     * And two facts per site that each cost the dashboard a request IN SERIES
+     * before it could draw: whether the site has an address yet (`addressed`,
+     * the gate's first-run test, which read `/origins` first) and the round a
+     * fresh visit lands in (`landing_round`, which Comments read `/rounds` for
+     * before it could ask for the list). Same rule as the dashboard's
+     * `landing()`: the newest open, unarchived round, else the newest
+     * unarchived, else the newest.
      */
-    const projects = await inOrg(sql, owner.orgId, (tx) => tx<
-      {
-        uid: string; name: string; key_prefix: string; write_mode: string;
-        write_mode_downgrade_at: Date | null;
-        status: string; domain: string | null; guest_can_resolve: boolean;
-        threads: number; unresolved: number;
-        shot: string | null; last_activity: Date | null;
-      }[]
-    >`
-      SELECT p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status,
-             p.settings->>'domain' AS domain, p.guest_can_resolve,
-             count(t.id)::int AS threads,
-             count(t.id) FILTER (WHERE t.status <> 'resolved')::int AS unresolved,
-             max(t.updated_at) AS last_activity,
-             s.id AS shot
-      FROM projects p
-      LEFT JOIN threads t ON t.project_id = p.id AND t.deleted_at IS NULL AND t.private = false
-      LEFT JOIN LATERAL (
-        SELECT a.id
-        FROM attachments a
-        -- Joined back to the thread, even though attachments.project_id
-        -- would answer on its own: a screenshot belonging to a PRIVATE or
-        -- deleted thread must not become the site's public face, and only the
-        -- thread knows that.
-        JOIN threads th ON th.id = a.thread_id
-        WHERE a.project_id = p.id
-          AND a.kind = 'screenshot'
-          AND a.state = 'bound'
-          AND a.deleted_at IS NULL
-          AND th.deleted_at IS NULL
-          AND th.private = false
-        ORDER BY a.created_at DESC
-        LIMIT 1
-      ) s ON true
-      WHERE p.org_id = ${owner.orgId} AND p.deleted_at IS NULL
-      GROUP BY p.id, p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status, p.settings,
-               p.guest_can_resolve, s.id
-      ORDER BY p.created_at
-    `);
-    // The plan's numbers and how far along them the studio is
-    // shown where a limit exists, silent where there is none.
+    const { org, projects, used } = await inOrg(sql, owner.orgId, async (tx) => {
+      const [org] = await tx<{ name: string; slug: string }[]>`SELECT name, slug FROM orgs WHERE id = ${owner.orgId}`;
+      const projects = await tx<
+        {
+          uid: string; name: string; key_prefix: string; write_mode: string;
+          write_mode_downgrade_at: Date | null;
+          status: string; domain: string | null; guest_can_resolve: boolean;
+          threads: number; unresolved: number;
+          shot: string | null; last_activity: Date | null;
+          addressed: boolean; landing_round: number | null;
+        }[]
+      >`
+        SELECT p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status,
+               p.settings->>'domain' AS domain, p.guest_can_resolve,
+               (COALESCE(p.settings->>'domain', '') <> ''
+                 OR EXISTS (SELECT 1 FROM project_origins o WHERE o.project_id = p.id)) AS addressed,
+               (SELECT r.number FROM rounds r
+                 WHERE r.project_id = p.id AND r.deleted_at IS NULL
+                 ORDER BY (r.archived_at IS NULL AND r.closed_at IS NULL) DESC, (r.archived_at IS NULL) DESC, r.number DESC
+                 LIMIT 1) AS landing_round,
+               count(t.id)::int AS threads,
+               count(t.id) FILTER (WHERE t.status <> 'resolved')::int AS unresolved,
+               max(t.updated_at) AS last_activity,
+               s.id AS shot
+        FROM projects p
+        LEFT JOIN threads t ON t.project_id = p.id AND t.deleted_at IS NULL AND t.private = false
+        LEFT JOIN LATERAL (
+          SELECT a.id
+          FROM attachments a
+          -- Joined back to the thread, even though attachments.project_id
+          -- would answer on its own: a screenshot belonging to a PRIVATE or
+          -- deleted thread must not become the site's public face, and only the
+          -- thread knows that.
+          JOIN threads th ON th.id = a.thread_id
+          WHERE a.project_id = p.id
+            AND a.kind = 'screenshot'
+            AND a.state = 'bound'
+            AND a.deleted_at IS NULL
+            AND th.deleted_at IS NULL
+            AND th.private = false
+          ORDER BY a.created_at DESC
+          LIMIT 1
+        ) s ON true
+        WHERE p.org_id = ${owner.orgId} AND p.deleted_at IS NULL
+        GROUP BY p.id, p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status, p.settings,
+                 p.guest_can_resolve, s.id
+        ORDER BY p.created_at
+      `;
+      // The plan's numbers and how far along them the studio is
+      // shown where a limit exists, silent where there is none.
+      return { org, projects, used: await usage(tx, owner.orgId) };
+    });
     // Every studio this person belongs to, for the switcher; the current one is marked.
     const studios = await studiosOf(sql, owner.userId);
     const l = await deps.limits(owner.orgId);
-    const used = await sql.begin(async (tx) => {
-      await tx`SELECT set_config('app.org_id', ${owner.orgId}, true)`;
-      return usage(tx, owner.orgId);
-    });
     return c.json({
       limits: {
         projects: { limit: l.projects, used: used.projects },
@@ -467,6 +481,12 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
         // renders as its own state rather than a broken image.
         previewUrl: p.shot ? `/api/v1/attachments/${ID_PREFIX.attachment}${p.shot}/blob` : null,
         lastActivityAt: p.last_activity ? p.last_activity.toISOString() : null,
+        // Whether the site has a domain or any exact address — false is the
+        // first run's cue (/welcome). The list itself stays on /origins.
+        addressed: p.addressed,
+        // The round Comments opens on, so its list can be asked for beside the
+        // rounds rather than after them. Null: no round at all.
+        landingRound: p.landing_round,
       })),
     });
   });

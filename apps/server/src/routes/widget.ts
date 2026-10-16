@@ -44,9 +44,15 @@ const majorOf = (version: string): string => version.split(".")[0] ?? "0";
  * The design sets both, and the asymmetry is the whole point of having two paths:
  * a client who pins gets bytes that can be cached forever and hashed for SRI,
  * and a client who never touches the tag again gets a fix within five minutes.
+ *
+ * `s-maxage` says the same to a SHARED cache, which reads only that: on Vercel
+ * every path is the function, and a widget chunk fetched by a reviewer in
+ * Seoul crossed to the function's region on every page load past the five
+ * minutes. With it the nearest edge answers, for the same five minutes — and
+ * a deploy starts that cache afresh.
  */
-const IMMUTABLE = "public, max-age=31536000, immutable";
-const ALIAS = "public, max-age=300";
+const IMMUTABLE = "public, max-age=31536000, s-maxage=31536000, immutable";
+const ALIAS = "public, max-age=300, s-maxage=300";
 
 export function widgetRoutes(deps: WidgetDeps): Hono {
   const app = new Hono();

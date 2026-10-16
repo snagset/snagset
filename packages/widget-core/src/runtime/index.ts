@@ -261,7 +261,14 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
   // The config's round history is kept for the dock's selector; when it
   // lands after the dock is already open, one update repaints the header.
   let roundInfo: import("../storage/types.ts").RoundInfo[] | null = null;
-  void storage.init({ uid, env }).then((cfg) => {
+  // Retried, not abandoned: a config that failed once (a blip, a cold
+  // serverless start) used to leave the widget without its round switcher,
+  // write mode and screenshot switch until the page was reloaded.
+  const loadConfig = (tries: number): ReturnType<typeof storage.init> =>
+    storage.init({ uid, env }).catch((e: unknown) =>
+      tries >= 3 ? Promise.reject(e) : new Promise((r) => setTimeout(r, 1500 * (tries + 1))).then(() => loadConfig(tries + 1)),
+    );
+  void loadConfig(0).then((cfg) => {
     roundInfo = cfg.rounds ?? null;
     dock?.update(dockProps());
 

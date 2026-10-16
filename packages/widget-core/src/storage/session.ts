@@ -51,6 +51,14 @@ export interface StoredSession {
   /** That member is a studio owner or admin — Delete on every comment.
    *  Only what to draw; the server checks the membership on each delete. */
   moderator?: boolean;
+  /**
+   * The name this session was EXCHANGED with, so the adapter can tell when the
+   * reviewer has since typed a different one. It lived in memory alone, so
+   * every page load of a named guest found "no name exchanged yet", re-ran the
+   * exchange, and paid a round trip before its first read. Carried across
+   * refreshes, which present no name.
+   */
+  name?: string;
 }
 
 const key = (uid: string): string => storageKey.session(uid);
