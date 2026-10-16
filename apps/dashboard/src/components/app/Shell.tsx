@@ -85,6 +85,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <SidebarInset className="min-w-0">
         <Header onSearch={() => setPalette(true)} />
         <DatabaseBehind names={me.pendingMigrations ?? []} owner={me.user.role === "owner"} />
+        {me.regionMismatch && (me.user.role === "owner" || me.user.role === "admin") && <FarFromDatabase {...me.regionMismatch} />}
         <div className="min-h-0 flex-1">{children}</div>
       </SidebarInset>
       {/* ⌘K from anywhere signed in, including the screens with no search box of their own. */}
@@ -115,6 +116,29 @@ function DatabaseBehind({ names, owner }: { names: string[]; owner: boolean }) {
           </>
         ) : (
           "Ask the studio's owner to run snagset migrate. Until then, parts of this version may fail."
+        )}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The server and its database on different continents: every query crosses
+ * the distance, several per page. Shown to whoever can fix it, with the fix.
+ */
+function FarFromDatabase({ functions, database, suggest }: { functions: string; database: string; suggest: string | null }) {
+  return (
+    <div role="status" className="mx-7 mt-4 rounded-md border border-border bg-warn-soft px-3 py-2 text-[13px]">
+      <p className="m-0 font-medium">
+        This server runs in {functions}, but its database is in {database} — every page waits on that distance.
+      </p>
+      <p className="m-0 mt-0.5 text-muted-foreground">
+        {suggest ? (
+          <>
+            Add <code className="font-mono">"regions": ["{suggest}"]</code> to <code className="font-mono">vercel.json</code> and redeploy.
+          </>
+        ) : (
+          "Run the server in the same region as the database."
         )}
       </p>
     </div>

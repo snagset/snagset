@@ -30,6 +30,7 @@ import { inviteRoutes } from "./routes/invites.ts";
 import { accountRoutes } from "./routes/account.ts";
 import { rlsStatus } from "./db/rls.ts";
 import { threadRoutes } from "./routes/threads.ts";
+import { regionMismatch } from "./instance/region.ts";
 import { bodyLimit } from "./routes/bodyLimit.ts";
 import { anchorReportRoutes } from "./routes/anchorReports.ts";
 import { commentRoutes } from "./routes/comments.ts";
@@ -172,6 +173,8 @@ export function createApp(deps: Deps): Hono<Env> {
     // A `Secure` cookie is dropped on plain http, which on a first `npx
     // snagset` run against localhost reads as "login silently does nothing".
     secure: baseUrl.protocol === "https:",
+    // Read once: neither side moves while the process lives.
+    regionMismatch: regionMismatch(process.env["VERCEL_REGION"], cfg.get("DATABASE_URL")),
   };
 
   // Every response carries the request id, the server version and the

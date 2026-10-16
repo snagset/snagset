@@ -138,6 +138,10 @@ function commentsJson(tx: postgres.TransactionSql, asOwner: boolean) {
     '[]'::json)`;
 }
 
+/** How far back each `serverTime` reaches, so a write still committing
+ *  when a poll read the clock is caught by the next poll (see the list). */
+const POLL_OVERLAP_MS = 60_000;
+
 export function threadRoutes(
   sql: postgres.Sql,
   /** The 10-second cache, not a fresh SELECT per handler. Every
@@ -415,6 +419,26 @@ export function threadRoutes(
      * the two words `deleted[]` and `private` are unavoidable in the
      * explanation.
      */
+    /**
+     * The NEXT `since`, read BEFORE the list and set back by POLL_OVERLAP_MS.
+     *
+     * `updated_at` is written with `now()`, which is the writing
+     * transaction's START. A status change that started before this poll's
+     * read but committed just after it was invisible to the read, yet older
+     * than a `serverTime` taken afterwards — so the next poll's
+     * `updated_at > since` skipped it, and every poll after that too, until a
+     * full reload. Visitors' status changes "did not stick" on everyone
+     * else's screen (and could be overwritten on their own by a racing
+     * poll). Reading the clock first closes the read/commit gap; the overlap
+     * covers a write transaction still open when the clock was read. A
+     * thread seen twice is merged by id and version on the client; a thread
+     * never seen is a lost update.
+     *
+     * And from POSTGRES, never this process: `updated_at` is the database's
+     * clock, and an app server running a second ahead would skip that second
+     * forever. The client must never use its own clock either.
+     */
+    const [clock] = await sql<{ now: Date }[]>`SELECT now() - make_interval(secs => ${POLL_OVERLAP_MS / 1000}) AS now`;
     const rows = await inOrg(sql, p.org_id, async (tx) => {
       // Absent round query param: an OWNER still sees every round
       // (unchanged), but a non-owner reader defaults to the latest OPEN
@@ -553,19 +577,6 @@ export function threadRoutes(
         );
       }
     }
-
-    /**
-     * `serverTime` comes from POSTGRES, not from this process.
-     *
-     * The client hands it straight back as the next `since`, and `since` is
-     * compared against `updated_at`, which Postgres wrote with `now()`. Two
-     * clocks, one comparison: if the app server ran even a second ahead of the
-     * database, every thread updated inside that second would be skipped on the
-     * next poll and never returned again — a permanently missing comment, on a
-     * skew nobody would think to look for. The design says the client must never
-     * use its own clock; the same argument applies one layer down.
-     */
-    const [clock] = await sql<{ now: Date }[]>`SELECT now() AS now`;
 
     // The tombstones. Ids only — the client already has these threads, and
     // a body would be handing back the private content that made it invisible.

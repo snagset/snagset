@@ -307,7 +307,8 @@ test("deleting a round takes its threads with it, only with its exact name, and 
     headers: bearer(guest),
   });
   const delta = (await poll.json()) as { deleted: string[] };
-  assert.deepEqual(delta.deleted.sort(), inFour.sort());
+  // Every one of them (the minute of overlap may re-send earlier tombstones too).
+  for (const id of inFour) assert.ok(delta.deleted.includes(id), `${id} is tombstoned`);
 
   const [gone] = await sql<{ shots: number; mail: string }[]>`
     SELECT (SELECT count(*)::int FROM attachments WHERE thread_id = ${aRow}::uuid AND deleted_at IS NULL) AS shots,

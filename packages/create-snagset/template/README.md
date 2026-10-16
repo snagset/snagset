@@ -82,7 +82,14 @@ gives you a role without the bypass.
 
 ## Deploy it
 
-**Vercel.** `vercel.json` and `api/index.js` are here already. The
+**Vercel.** `vercel.json` and `api/index.js` are here already. **Set
+`regions` in `vercel.json` to the region your database is in** — it says
+`iad1` (Washington, Vercel's default) until you do. Functions on another
+continent from the database make every page wait on that distance, several
+times over. Neon `eu-west-2` or Supabase `eu-west-2` → `lhr1`; `eu-central-1`
+→ `fra1`; `us-east-1` → `iad1`; `us-west-2` → `pdx1`; `ap-southeast-1` →
+`sin1`; `ap-northeast-1` → `hnd1`; `ap-southeast-2` → `syd1`. The dashboard
+says so if they differ. The
 `rewrites` entry is load-bearing: without it Vercel's filesystem router serves
 only `/api/index` and 404s `/`, `/snag.js` and the cron's own path. Keep the
 file free of comment keys — Vercel's schema rejects them. Set `DATABASE_URL`

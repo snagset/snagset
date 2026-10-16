@@ -145,8 +145,8 @@ its dashboard offers several connection strings of which one is right. In
 order, because each step produces something the next one wants:
 
 1. **Create the project** in the region nearest your clients, which should
-   also be where Snagset runs: on Vercel, set the functions' region to the
-   same city. Generate the database password and keep it. It is the
+   also be where Snagset runs: on Vercel, set `regions` in `vercel.json` to
+   the same city (see [Run the server next to the database](#run-the-server-next-to-the-database)). Generate the database password and keep it. It is the
    database's admin password; Snagset connects with its own (step 3).
 2. **Turn the Data API off** — Integrations › Data API, *Enable Data API*
    (on older dashboards it is under Project Settings › API). Supabase's REST
@@ -579,3 +579,31 @@ left behind. A visitor who is not a reviewer costs one ~300-byte cached check �
 promise of a reply. The source is AGPL-3.0 and the issue tracker is public; that
 is the whole of the arrangement, said plainly because it is not the kind of thing
 that can be quietly introduced later.
+
+## Run the server next to the database
+
+Every page in the dashboard, and every load of the widget, makes several
+database queries. Each one travels between the server and the database, so
+the two must be in the same region — on another continent, a page that
+should take 50 ms takes a second.
+
+On Vercel, set `regions` in `vercel.json` to the database's region (Vercel
+otherwise runs functions in `iad1`, Washington):
+
+| Database region (Neon, Supabase) | `vercel.json` |
+|---|---|
+| `eu-west-2` London | `"regions": ["lhr1"]` |
+| `eu-central-1` Frankfurt | `"regions": ["fra1"]` |
+| `eu-west-1` Dublin | `"regions": ["dub1"]` |
+| `us-east-1` Virginia | `"regions": ["iad1"]` |
+| `us-east-2` Ohio | `"regions": ["cle1"]` |
+| `us-west-2` Oregon | `"regions": ["pdx1"]` |
+| `ap-southeast-1` Singapore | `"regions": ["sin1"]` |
+| `ap-northeast-1` Tokyo | `"regions": ["hnd1"]` |
+| `ap-southeast-2` Sydney | `"regions": ["syd1"]` |
+| `sa-east-1` São Paulo | `"regions": ["gru1"]` |
+
+The dashboard shows a notice to owners and admins when the two are apart,
+naming the region to set. Pick the region itself by where your studio and
+most of your clients are: a reviewer far away still waits on the distance to
+the server, once per request.

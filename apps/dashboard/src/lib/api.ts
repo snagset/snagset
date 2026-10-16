@@ -96,6 +96,8 @@ export interface Me {
   signupOpen: boolean;
   /** Migrations this build ships that the database has not run — empty when current. Optional: an older server omits it. */
   pendingMigrations?: string[];
+  /** The server's functions and its database are in different regions. */
+  regionMismatch?: { functions: string; database: string; suggest: string | null };
   /** The studio's limits: from its plan, a hand-set row, or unlimited (null). Reviewers are never counted. */
   limits: {
     projects: { limit: number | null; used: number };

@@ -250,7 +250,8 @@ test("the owner deletes a thread: 204, gone from every read, picture and pending
     headers: asOwner(),
   });
   const delta = (await poll.json()) as { data: unknown[]; deleted: string[] };
-  assert.deepEqual(delta.deleted, [`thr_${doomedId}`]);
+  // Among them: the minute of overlap may re-send earlier tombstones too.
+  assert.ok(delta.deleted.includes(`thr_${doomedId}`), "the deleted thread is tombstoned");
 
   const feed = await app.request("/api/v1/activity?status=all", { headers: asOwner() });
   assert.equal(feed.status, 200);

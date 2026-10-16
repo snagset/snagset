@@ -193,13 +193,20 @@ test("a poll with no changes returns nothing — that is the hot path", { skip }
   const full = await list();
   assert.equal(full.data.length, 1);
 
+  // `serverTime` reaches back a minute (the overlap that catches a write
+  // still committing), so a quiet poll right after a change may hand that
+  // thread back once more — and nothing else.
   const quiet = await list(`?since=${encodeURIComponent(full.serverTime)}`);
-  assert.deepEqual(quiet.data, [], "the whole point: an idle project costs one empty response");
+  assert.ok(quiet.data.every((t: any) => t.key === full.data[0].key), "only the recent change, if anything");
   assert.deepEqual(quiet.deleted, []);
+  // An idle project — nothing changed for longer than the overlap — costs one empty response.
+  const later = await list(`?since=${encodeURIComponent(new Date(Date.now() + 5_000).toISOString())}`);
+  assert.deepEqual(later.data, [], "the whole point: an idle project costs one empty response");
 });
 
 test("a poll returns only what changed since", { skip }, async () => {
-  const before = (await list()).serverTime;
+  // The database's own clock, not `serverTime` (which reaches back a minute).
+  const before = (await sql<{ now: Date }[]>`SELECT now() AS now`)[0]!.now.toISOString();
   const second = await makeThread("second");
 
   const delta = await list(`?since=${encodeURIComponent(before)}`);
@@ -219,9 +226,10 @@ test("serverTime comes from POSTGRES, not this process", { skip }, async () => {
    */
   const [db] = await sql<{ now: Date }[]>`SELECT now() AS now`;
   const reported = new Date((await list()).serverTime).getTime();
+  // A minute behind it, on purpose — the overlap (see the next test).
   assert.ok(
-    Math.abs(reported - db!.now.getTime()) < 2000,
-    "serverTime should track the database clock",
+    Math.abs(reported - (db!.now.getTime() - 60_000)) < 2000,
+    "serverTime should track the database clock, a minute back",
   );
 });
 
@@ -238,6 +246,47 @@ test("a round trip loses nothing — poll, change, poll again", { skip }, async 
     cursor = delta.serverTime;
     assert.ok(seen.has(made.key), `round ${i}: the thread just created was not in the delta`);
   }
+});
+
+test("a status change still committing when a poll reads is caught by the NEXT poll", { skip }, async () => {
+  /**
+   * Found on a real deployment: guests resolved comments, the database had
+   * them resolved, and other screens kept showing them open until a reload.
+   * `updated_at` is the writing transaction's START; a write that began
+   * before a poll read the list but committed after it was invisible to that
+   * read — and older than a `serverTime` stamped afterwards, so skipped by
+   * every later poll.
+   */
+  const t = await makeThread("raced");
+  let cursor = (await list()).serverTime;
+
+  // A writer opens its transaction and changes the status — not committed yet.
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let started!: () => void;
+  const begun = new Promise<void>((r) => (started = r));
+  const writer = sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+    await tx`UPDATE threads SET status = 'review', version = version + 1, updated_at = now()
+             WHERE id = ${t.id.replace(/^thr_/, "")}::uuid`;
+    started();
+    await gate;
+  });
+  await begun;
+
+  // A poll runs while the write is open: it cannot see it.
+  const during = await list(`?since=${encodeURIComponent(cursor)}`);
+  const stale = during.data.find((x: any) => x.key === t.key);
+  assert.ok(!stale || stale.status !== "review", "the uncommitted write is invisible");
+  cursor = during.serverTime;
+
+  release();
+  await writer;
+
+  // The next poll, from the cursor the racing poll handed out, must see it.
+  const after = await list(`?since=${encodeURIComponent(cursor)}`);
+  const caught = after.data.find((x: any) => x.key === t.key);
+  assert.equal(caught?.status, "review", "the committed change must reach the next poll");
 });
 
 // ── A36, the tombstone ───────────────────────────────────────────────────
@@ -284,8 +333,10 @@ test("a tombstone carries the id and NOTHING else", { skip }, async () => {
   });
   const delta = await list(`?since=${encodeURIComponent(cursor)}`);
   // The client already has the id. A body would hand back the private content
-  // that made it invisible in the first place.
-  assert.deepEqual(delta.deleted, [t.id]);
+  // that made it invisible in the first place. (The minute of overlap may
+  // re-send an earlier test's tombstone too; this one must be among them.)
+  assert.ok(delta.deleted.includes(t.id));
+  assert.ok(!delta.data.some((x: any) => x.id === t.id), "a tombstone, never a body");
   assert.ok(!JSON.stringify(delta).includes("secret plans"));
 });
 

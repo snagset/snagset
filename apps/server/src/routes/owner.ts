@@ -57,6 +57,8 @@ export interface OwnerDeps {
   limits: LimitsSource;
   /** Whether a signed-in person may make another studio here (`SNAGSET_SIGNUP_OPEN`); the header offers it only then. */
   signupOpen?: () => boolean;
+  /** Functions and database far apart (instance/region.ts) — shown as a banner. */
+  regionMismatch?: import("../instance/region.ts").RegionMismatch | null;
   /** The server's own origin, for the CSRF origin check. Injected rather than
    *  read off the request, because a check against a value the attacker sends
    *  is not a check. */
@@ -443,6 +445,8 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
       // (db/migrate.ts says why a serverless deploy can be behind). Empty
       // when current; the dashboard shows a banner otherwise.
       pendingMigrations: await pendingMigrations(sql),
+      // Functions on one continent, the database on another (instance/region.ts).
+      ...(deps.regionMismatch ? { regionMismatch: deps.regionMismatch } : {}),
       projects: projects.map((p) => ({
         uid: p.uid,
         name: p.name,
