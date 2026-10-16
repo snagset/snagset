@@ -294,10 +294,11 @@ test("a link-only site shows its comments to a link, never to a bare request", {
   assert.equal((await app.request(`/api/v1/projects/${uid}/threads`)).status, 200);
 
   // A second site, link-only, made fresh so no cached row says otherwise.
-  const [{ id: userId }] = await sql<{ id: string }[]>`SELECT id FROM users WHERE org_id = ${orgId}::uuid LIMIT 1`;
+  const [user] = await sql<{ id: string }[]>`SELECT id FROM users WHERE org_id = ${orgId}::uuid LIMIT 1`;
+  const userId = user!.id;
   const locked = await sql.begin(async (tx) => {
     await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
-    const p = await createProject(tx, { orgId, name: "Locked", createdBy: userId!, origins: ["https://locked.test"], graceHours: 24 });
+    const p = await createProject(tx, { orgId, name: "Locked", createdBy: userId, origins: ["https://locked.test"], graceHours: 24 });
     await tx`UPDATE projects SET write_mode = 'link-required' WHERE id = ${p.id}::uuid`;
     return p;
   });
