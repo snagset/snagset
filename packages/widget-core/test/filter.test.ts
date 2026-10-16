@@ -37,12 +37,12 @@ function snag(over: Partial<Snag> & { id: string }): Snag {
   } as Snag;
 }
 
-test("statuses: [] and all-four both mean no filter, and full collapses to empty", () => {
+test("statuses: [] and all-four both mean no filter, and all four stay lit", () => {
   const s = snag({ id: "1", status: "resolved" });
   assert.ok(pinPass(s, defaultFilter()));
   assert.ok(pinPass(s, { ...defaultFilter(), statuses: [...ALL_STATUSES] as Status[] }));
-  // …because the UI can never SET all four: the toggle collapses.
-  assert.deepEqual(toggleStatus(["open", "progress", "review"], "resolved"), []);
+  // Pastel's model: the fourth chip stays lit rather than collapsing to none.
+  assert.deepEqual(toggleStatus(["open", "progress", "review"], "resolved"), ["open", "progress", "review", "resolved"]);
   assert.deepEqual(toggleStatus([], "open"), ["open"]);
   assert.deepEqual(toggleStatus(["open"], "open"), []);
 });

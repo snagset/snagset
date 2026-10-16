@@ -112,6 +112,9 @@ export interface DockProps {
   assignees?(): Promise<import("../storage/types.ts").Reviewer[]>;
   onAssign?(id: string, who: import("../storage/types.ts").Reviewer | null): void;
   onClearAll(): void;
+  /** Everything in the round marked read, now — the new-activity count clears
+   *  without closing the panel (which also marks everything read). */
+  onMarkAllRead?: () => void;
   onClose(): void;
   /**
    * Absent on a server-backed install: everything is in the dashboard there,
@@ -689,6 +692,7 @@ function FilterBar({
   // the Escape rung are shared: whichever is open closes first.
   const [menu, setMenu] = useState<null | "sort" | "filter">(null);
   const counts = countStatuses(round);
+  const allOn = ALL_STATUSES.every((st) => filter.statuses.includes(st));
   // `undefined` DELETES the facet (exactOptionalPropertyTypes: an absent key
   // and an undefined-valued one are different objects, and the predicate
   // tests presence).
@@ -729,12 +733,18 @@ function FilterBar({
           onInput={(e) => set({ q: (e.currentTarget as HTMLInputElement).value || undefined })}
         />
       </div>
-      {/* Status, on the face. Multi-select; none pressed means all shown, so
-          "Select all" is the way back from any subset. */}
+      {/* Status, on the face. Multi-select; none pressed means all shown. */}
       <div class="snag-dk-chiphead">
         <span class="snag-dk-menutitle" id="snag-dk-st">{format("filter.status")}</span>
-        <button type="button" class="snag-dk-link snag-dk-selectall" onClick={() => set({ statuses: [] })}>
-          {format("filter.selectall")}
+        {/* Pastel's toggle: "Select all" lights every chip, then reads
+            "Clear", which lights none. Both show every comment; the chips say
+            which you are looking at. */}
+        <button
+          type="button"
+          class="snag-dk-link snag-dk-selectall"
+          onClick={() => set({ statuses: allOn ? [] : [...ALL_STATUSES] })}
+        >
+          {format(allOn ? "filter.clear" : "filter.selectall")}
         </button>
       </div>
       <div class="snag-dk-chips" role="group" aria-labelledby="snag-dk-st">
@@ -896,6 +906,7 @@ function List({
   onHover,
   onExport,
   onClearAll,
+  onMarkAllRead,
   clusterFilter,
   onClusterClear,
   filter,
@@ -962,7 +973,13 @@ function List({
                turning it on would remove the only way to turn it off). It
                narrows the LIST only: asserts the pins stay
                byte-identical through it. */
-            seenAt && (unseen > 0 || filter.newOnly) ? (
+            seenAt && filter.newOnly && unseen > 0 && onMarkAllRead ? (
+              // Looking at the new ones: the way out is to clear them, as in
+              // Pastel — the count goes, and the full list comes back.
+              <button type="button" class="snag-dk-link snag-dk-newpill" onClick={onMarkAllRead}>
+                {format("filter.new.markread")}
+              </button>
+            ) : seenAt && (unseen > 0 || filter.newOnly) ? (
               <button
                 type="button"
                 class="snag-dk-link snag-dk-newpill"

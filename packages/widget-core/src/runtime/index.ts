@@ -10,7 +10,7 @@ import { createNotice, type Notice } from "./notice.ts";
 import { createPausedNotice, type PausedNotice } from "./paused.ts";
 import { watchPage, type PageWatcher } from "./watch.ts";
 import { takeHandoff, writeHandoff } from "./jump.ts";
-import { defaultFilter, pinPass, type ListFilter } from "../storage/filter.ts";
+import { defaultFilter, isUnread, pinPass, type ListFilter } from "../storage/filter.ts";
 import { glueChrome } from "./vv.ts";
 import { LAYER } from "./theme.ts";
 import { normalisePath, redactRoute, routeWithHint } from "./route.ts";
@@ -920,11 +920,23 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
    * page showing none of them is a dead end, and the two surfaces disagreeing
    * about whether there is anything here is worse than either alone.
    */
+  /**
+   * The last new thread read: the "new only" view has nothing left to show,
+   * so it lets go by itself and the whole list comes back (Pastel clears it
+   * the same way) — rather than a "you're caught up" row over an empty list.
+   */
+  function settleNew(): void {
+    if (filter.newOnly && !all.some((s) => isUnread(s, seen.map()))) filter = { ...filter, newOnly: false };
+  }
+
   async function openPanel(id: string | null = null): Promise<void> {
     if (id && id !== openId) emit("thread:open", { threadId: id });
     // Level one: reading a thread clears ITS dot and decrements the
     // count, so triage carries on in place with the rest of the dots intact.
-    if (id) seen.mark(id);
+    if (id) {
+      seen.mark(id);
+      settleNew();
+    }
     openId = id;
     panelWanted = true;
     if (state === "browse") setState("comments");
@@ -1004,7 +1016,10 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
     // because this is the path a row click takes. Marking only in openPanel
     // meant the dot survived reading the thread, which is the one thing a dot
     // is for.
-    if (id) seen.mark(id);
+    if (id) {
+      seen.mark(id);
+      settleNew();
+    }
     openId = id;
     pins.highlight(null);
     // The exemption follows the OPEN detail — an openId change under an
@@ -1061,6 +1076,11 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
         ? { assignees: () => storage.listAssignees!(), onAssign: (id, who) => void setAssignee(id, who) }
         : {}),
       onClearAll: () => void clearAll(),
+      onMarkAllRead: () => {
+        seen.markAll(all);
+        filter = { ...filter, newOnly: false };
+        paint();
+      },
       onClose: closePanel,
       // Export only where there is no server to read the comments from.
       ...(storage.kind === "local" ? { onExport: exportAs } : {}),

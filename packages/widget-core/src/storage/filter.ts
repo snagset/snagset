@@ -50,8 +50,10 @@ export const ALL_STATUSES: readonly Status[] = ["open", "progress", "review", "r
  * and a full selection collapses to empty the moment it happens."
  */
 export function toggleStatus(current: readonly Status[], s: Status): Status[] {
-  const next = current.includes(s) ? current.filter((x) => x !== s) : [...current, s];
-  return next.length >= ALL_STATUSES.length ? [] : next;
+  // No collapse when all four are on: they stay lit, as "Select all" lights
+  // them (Pastel's model). All four on shows what none on shows — every
+  // comment — and the chips say which one you chose.
+  return current.includes(s) ? current.filter((x) => x !== s) : [...current, s];
 }
 
 /**
