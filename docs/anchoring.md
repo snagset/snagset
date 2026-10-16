@@ -101,8 +101,8 @@ forty comments and I have fixed thirty of them", rather than asking anyone to
 tidy up.
 
 Several rounds can be open at once — the studio's own QA beside the
-client's. Anyone reviewing can switch rounds in the widget's Filter menu (a
-review link opens on the round it was made for, otherwise the newest open
-one), and a new comment goes to the round on screen. A closed round takes no
+client's. Anyone reviewing can switch rounds from the round name at the top of
+the widget's panel (a review link opens on the round it was made for,
+otherwise the newest open one), and a new comment goes to the round on screen. A closed round takes no
 new comments: the comment box says which round the comment will go to
 instead, and the list follows it there.

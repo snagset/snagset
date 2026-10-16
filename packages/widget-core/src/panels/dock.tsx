@@ -1541,10 +1541,7 @@ function Detail({
   // already in progress opens straight back into the box holding it.
   const [replying, setReplying] = useState(saved.length > 0);
   const replyRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    if (replying) replyRef.current?.focus();
-  }, [replying]);
+  const nameRef = useRef<HTMLInputElement>(null);
 
   /** Every write to the draft goes through here, so nothing can forget to save. */
   const draft = (next: string): void => {
@@ -1570,6 +1567,23 @@ function Detail({
   const [blocked, setBlocked] = useState(false);
   const badEmail = email.trim().length > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   const canReply = !!reply.trim() && (!!member || !asking || (!!name.trim() && !badEmail));
+
+  /**
+   * Focus goes where the reply box is waiting — the name, when it is asking.
+   *
+   * It always went to the textarea, which sits BELOW the name it now asks for
+   * (0.1.15). On a phone that opened the keyboard on the reply, scrolled the
+   * name out of view, and left a reviewer tapping a Reply button disabled by a
+   * field they were never sent to. And because this runs after paint, focus
+   * could land on the textarea while a fast typist — WebKit's `fill`, in the
+   * suite — was already typing their name, so the name went into the reply.
+   * Same rule as the composer: name first when it is asked, otherwise the body.
+   */
+  useEffect(() => {
+    if (!replying) return;
+    (asking && !member && !name.trim() ? nameRef : replyRef).current?.focus();
+  }, [replying]);
+
   const signInNow = (): void => {
     if (!studio) return;
     setBlocked(false);
@@ -1795,6 +1809,7 @@ function Detail({
             asking && (
               <>
                 <input
+                  ref={nameRef}
                   class="snag-input"
                   type="text"
                   autocomplete="name"

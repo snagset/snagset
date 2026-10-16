@@ -121,6 +121,14 @@ out** in the comment box ends it everywhere. Clients' sessions are not
 remembered this way: theirs end with the tab, so a shared office computer
 never keeps someone signed in.
 
+The widget also keeps the last list of comments it was shown, so the panel
+opens on it at once while the fresh one loads. It is kept where the sign-in is
+— for as long as the browser for a member, until the tab closes for a client —
+and it goes when the sign-in does: on **Sign out**, when a session ends or is
+refused, or when someone else signs in. A member's copy, which can include
+team-only threads, is never shown to anyone who is not signed in as that
+member.
+
 Three things keep it safe on somebody else's page:
 
 - **It only works on the site's own addresses** — its domain, its allowed
