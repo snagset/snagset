@@ -35,6 +35,11 @@ you set up and forgot is not a public comment box a year later.
 `SNAGSET_WRITE_MODE_GRACE_HOURS` changes the window. Set it to `0` for
 link-required from the first second.
 
+The same setting decides who can **read** the comments. On an `open` site
+anyone who loads the page sees them; on a `link-required` or `verified-only`
+site only someone holding a link (or your application's identity) does — and
+the studio, always.
+
 ## Review links
 
 **The link is the access control.** There is no separate permission screen,

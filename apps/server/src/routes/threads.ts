@@ -324,6 +324,19 @@ export function threadRoutes(
     // Better a sentence naming the missing scope than a confident short list.
     if (mcp && !asAgent) return scopeDenied(c, "threads:read");
 
+    /**
+     * A site that takes comments only through a review link shows them only
+     * to one, too. This list answered with no credential at all — right for
+     * an `open` site, whose widget reads it that way — but on a link-only
+     * site anyone with the uid (it is in every page's source) could read
+     * every comment without ever having been sent a link. The studio and its
+     * agents still read; a reviewer reads through the session their link
+     * minted.
+     */
+    if (!asStudio && !c.get("session") && effectiveWriteMode(p, new Date()) !== "open") {
+      return fail(c, 401, "link_required", "This site's comments are shared through a review link. Ask the studio for one.");
+    }
+
     // The filters. `status` and `q` stay dashboard-only. `round` used to be
     // gated the same way (`asOwner ? …: null`), which is the bug: a
     // review-link session's `?round` was silently discarded and every reader

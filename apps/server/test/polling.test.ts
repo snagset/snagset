@@ -289,6 +289,27 @@ test("a status change still committing when a poll reads is caught by the NEXT p
   assert.equal(caught?.status, "review", "the committed change must reach the next poll");
 });
 
+test("a link-only site shows its comments to a link, never to a bare request", { skip }, async () => {
+  // Open sites: the widget reads the list with no credential, as before.
+  assert.equal((await app.request(`/api/v1/projects/${uid}/threads`)).status, 200);
+
+  // A second site, link-only, made fresh so no cached row says otherwise.
+  const [{ id: userId }] = await sql<{ id: string }[]>`SELECT id FROM users WHERE org_id = ${orgId}::uuid LIMIT 1`;
+  const locked = await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+    const p = await createProject(tx, { orgId, name: "Locked", createdBy: userId!, origins: ["https://locked.test"], graceHours: 24 });
+    await tx`UPDATE projects SET write_mode = 'link-required' WHERE id = ${p.id}::uuid`;
+    return p;
+  });
+  const bare = await app.request(`/api/v1/projects/${locked.uid}/threads`);
+  assert.equal(bare.status, 401, "anyone with the uid used to read every comment");
+  assert.equal(((await bare.json()) as { error: { code: string } }).error.code, "link_required");
+
+  // The studio still reads it.
+  const studio = await app.request(`/api/v1/projects/${locked.uid}/threads`, { headers: asOwner() });
+  assert.equal(studio.status, 200, await studio.clone().text());
+});
+
 // ── A36, the tombstone ───────────────────────────────────────────────────
 
 test("a thread that BECOMES private lands in deleted[], not silence", { skip }, async () => {
