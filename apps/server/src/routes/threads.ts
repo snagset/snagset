@@ -188,7 +188,6 @@ export function threadRoutes(
     const p = await project(c.req.param("uid"));
     if (!p) return fail(c, 404, "project_not_found", "No project with that uid.");
     c.header("x-snagset-config-version", String(p.config_version));
-    c.header("ETag", `"${p.config_etag}"`);
     /**
      * CACHEABLE, briefly — the decision makes this the stub's visibility check, fetched
      * once per visitor per page-load-cluster rather than per page. 60 seconds:
@@ -200,6 +199,10 @@ export function threadRoutes(
      * edge ignores Vary: Origin — it replayed a copy made for localhost:3000
      * to the client's site, the browser refused it, and the widget lost its
      * round switcher.
+     *
+     * And NO ETag: given one, the edge answers a browser's revalidation with
+     * a 304 that drops Access-Control-Allow-Origin, so a browser holding a bad
+     * copy kept its bad header for as long as the config did not change.
      */
     c.header("Cache-Control", "private, max-age=60");
     // Unconditionally, not only when the CORS middleware set it: a shared

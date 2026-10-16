@@ -423,6 +423,8 @@ test("/config from a STRANGER origin: 200, public subset, writable false", { ski
   // … and since some shared caches ignore Vary (Vercel's edge replayed a
   // localhost copy to a client site), none of them may keep it at all.
   assert.equal(res.headers.get("Cache-Control"), "private, max-age=60");
+  // No ETag: an edge 304 drops the CORS headers and pins a bad browser copy.
+  assert.equal(res.headers.get("ETag"), null);
   const conf = await json(res);
   assert.equal(conf.writable, false);
   assert.equal(conf.reason, "origin_not_allowed");
