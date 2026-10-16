@@ -58,10 +58,10 @@ test("the three write modes are the three the schema allows", () => {
 
 test("the numbers on the page are the registry's defaults", () => {
   const def = (name: string) => REGISTRY.find((r) => r.name === name)?.default;
-  // "open for 24 hours", "14 days unless you say otherwise", "15 minutes
+  // "stays open until you change it", "14 days unless you say otherwise", "15 minutes
   // sliding, 12 hours absolute".
-  assert.equal(def("SNAGSET_WRITE_MODE_GRACE_HOURS"), "24");
-  assert.match(PAGE, /24 hours/);
+  assert.equal(def("SNAGSET_WRITE_MODE_GRACE_HOURS"), "0");
+  assert.match(PAGE, /stays open until you change it/);
   assert.equal(def("SNAGSET_REVIEW_LINK_TTL_DAYS"), "14");
   assert.match(PAGE, /14 days/);
   assert.equal(def("SNAGSET_SESSION_TTL_S"), String(15 * 60));

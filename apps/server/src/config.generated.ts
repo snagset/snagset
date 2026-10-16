@@ -41,7 +41,7 @@ export const REGISTRY: readonly VarRow[] = [
   { name: "SNAGSET_SESSION_ABSOLUTE_TTL_S", type: "int", default: "43200", required: false, oneOf: null, secret: false, section: "4.3" },
   { name: "SNAGSET_REVIEW_LINK_TTL_DAYS", type: "int", default: "14", required: false, oneOf: null, secret: false, section: "4.3" },
   { name: "SNAGSET_REVIEW_LINK_MAX_TTL_DAYS", type: "int", default: "90", required: false, oneOf: null, secret: false, section: "4.3" },
-  { name: "SNAGSET_WRITE_MODE_GRACE_HOURS", type: "int", default: "24", required: false, oneOf: null, secret: false, section: "4.3" },
+  { name: "SNAGSET_WRITE_MODE_GRACE_HOURS", type: "int", default: "0", required: false, oneOf: null, secret: false, section: "4.3" },
   { name: "SNAGSET_STORAGE_S3_ENDPOINT", type: "url", default: null, required: false, oneOf: null, secret: false, section: "4.4" },
   { name: "SNAGSET_STORAGE_S3_BUCKET", type: "string", default: null, required: false, oneOf: null, secret: false, section: "4.4" },
   { name: "SNAGSET_STORAGE_S3_REGION", type: "string", default: "auto", required: false, oneOf: null, secret: false, section: "4.4" },

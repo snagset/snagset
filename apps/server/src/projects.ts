@@ -124,7 +124,7 @@ export async function createProject(
     INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag, write_mode_downgrade_at, settings)
     VALUES (${id}, ${input.orgId}, ${uid}, ${name},
             ${randomBytes(32)}, ${randomBytes(8).toString("hex")},
-            now() + ${input.graceHours}::int * interval '1 hour',
+            ${input.graceHours > 0 ? tx`now() + ${input.graceHours}::int * interval '1 hour'` : null},
             ${tx.json(input.domain ? { domain: input.domain } : {})}::jsonb)
   `;
 

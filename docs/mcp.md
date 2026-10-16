@@ -116,9 +116,9 @@ a person who did not say it.
 
 ## What to think about before granting a write scope
 
-Anyone who can load your site can type a comment. In a project's first 24 hours
-that is anyone at all. Your agent then reads that text with access to your
-repository.
+Anyone who can load your site can type a comment. While a site is `open` (the
+default, until you switch it to link-required) that is anyone at all. Your agent
+then reads that text with access to your repository.
 
 Everything Snagset returns is wrapped in `<untrusted-content>` tags and preceded
 by a statement telling the model it is reading data rather than instructions.

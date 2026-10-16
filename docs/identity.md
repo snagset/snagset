@@ -27,13 +27,14 @@ A per-site setting, and the default changes after a day:
 | `link-required` | Only somebody holding a review link |
 | `verified-only` | Only users your application vouches for |
 
-A new site starts **`open` for 24 hours**, then falls back to
-`link-required` on its own. That window exists so the first pin needs no
-set-up — paste the tag, click, type — and it closes on its own so that a site
-you set up and forgot is not a public comment box a year later.
+A new site starts **`open`** and stays open until you change it. Switch it
+to `link-required` in the site's settings when a review should only be seen
+and joined by the people you send links to.
 
-`SNAGSET_WRITE_MODE_GRACE_HOURS` changes the window. Set it to `0` for
-link-required from the first second.
+To have new sites lock themselves after a while instead, set
+`SNAGSET_WRITE_MODE_GRACE_HOURS` to a number of hours: each new site then
+switches to `link-required` that long after it is created. It is `0` — never
+— by default.
 
 The same setting decides who can **read** the comments. On an `open` site
 anyone who loads the page sees them; on a `link-required` or `verified-only`

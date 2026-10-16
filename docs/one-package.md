@@ -101,8 +101,9 @@ That run sends the owner's daily digest of new comments (see
 [who gets email](self-hosting#who-gets-email-and-how-often)), and tidies up:
 it retries a notification that failed to send, deletes
 expired one-time tokens and rate-limit counters, and removes uploads nobody
-attached. A new site's 24-hour open window closes on time whether it has run or
-not. Once a day is all Vercel's Hobby plan allows.
+attached. If you set `SNAGSET_WRITE_MODE_GRACE_HOURS`, a new site's open window
+closes on time whether it has run or not. Once a day is all Vercel's Hobby plan
+allows.
 On Pro you can make it hourly with `"0 * * * *"`, so a failed send is retried
 sooner.
 

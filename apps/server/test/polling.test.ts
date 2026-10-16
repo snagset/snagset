@@ -311,6 +311,23 @@ test("a link-only site shows its comments to a link, never to a bare request", {
   assert.equal(studio.status, 200, await studio.clone().text());
 });
 
+test("a new site stays open: no switch to link-required is scheduled unless a grace window is set", { skip }, async () => {
+  const [user] = await sql<{ id: string }[]>`SELECT id FROM users WHERE org_id = ${orgId}::uuid LIMIT 1`;
+  const made = await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+    const open = await createProject(tx, { orgId, name: "Stays open", createdBy: user!.id, origins: ["https://open.test"], graceHours: 0 });
+    const timed = await createProject(tx, { orgId, name: "Locks later", createdBy: user!.id, origins: ["https://timed.test"], graceHours: 24 });
+    return { open, timed };
+  });
+  const rows = await sql<{ id: string; write_mode: string; write_mode_downgrade_at: Date | null }[]>`
+    SELECT id, write_mode, write_mode_downgrade_at FROM projects WHERE id IN (${made.open.id}::uuid, ${made.timed.id}::uuid)`;
+  const open = rows.find((r) => r.id === made.open.id)!;
+  const timed = rows.find((r) => r.id === made.timed.id)!;
+  assert.equal(open.write_mode, "open");
+  assert.equal(open.write_mode_downgrade_at, null, "the default: open until the studio locks it");
+  assert.ok(timed.write_mode_downgrade_at, "a grace window, when set, still schedules the switch");
+});
+
 // ── A36, the tombstone ───────────────────────────────────────────────────
 
 test("a thread that BECOMES private lands in deleted[], not silence", { skip }, async () => {
