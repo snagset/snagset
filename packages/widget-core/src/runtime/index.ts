@@ -10,7 +10,7 @@ import { createNotice, type Notice } from "./notice.ts";
 import { createPausedNotice, type PausedNotice } from "./paused.ts";
 import { watchPage, type PageWatcher } from "./watch.ts";
 import { takeHandoff, writeHandoff } from "./jump.ts";
-import { defaultFilter, isUnread, pinPass, type ListFilter } from "../storage/filter.ts";
+import { defaultFilter, isUnread, pinPass, statusNarrows, type ListFilter } from "../storage/filter.ts";
 import { glueChrome } from "./vv.ts";
 import { LAYER } from "./theme.ts";
 import { normalisePath, redactRoute, routeWithHint } from "./route.ts";
@@ -399,7 +399,7 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
   let filter: ListFilter = defaultFilter();
   /** Do the current facets touch the PINS at all? (the split.) */
   const pinFacetsActive = (): boolean =>
-    filter.statuses.length > 0 || !!filter.by || !!filter.page || filter.read !== "all";
+    statusNarrows(filter.statuses) || !!filter.by || !!filter.page || filter.read !== "all";
 
   const pins: PinLayer = createPinLayer(
     root,

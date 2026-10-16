@@ -44,7 +44,11 @@ test("statuses: [] and all-four both mean no filter, and all four stay lit", () 
   // Pastel's model: the fourth chip stays lit rather than collapsing to none.
   assert.deepEqual(toggleStatus(["open", "progress", "review"], "resolved"), ["open", "progress", "review", "resolved"]);
   assert.deepEqual(toggleStatus([], "open"), ["open"]);
-  assert.deepEqual(toggleStatus(["open"], "open"), []);
+  // The last lit chip stays lit (Pastel): never an empty selection.
+  assert.deepEqual(toggleStatus(["open"], "open"), ["open"]);
+  assert.deepEqual(toggleStatus(["open", "review"], "open"), ["review"]);
+  // The default is all four lit, and that hides nothing.
+  assert.deepEqual(defaultFilter().statuses, [...ALL_STATUSES]);
 });
 
 test("the pin-governing quartet filters; the list-only quartet never does (the split)", () => {

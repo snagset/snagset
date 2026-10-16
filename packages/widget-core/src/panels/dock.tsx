@@ -22,6 +22,8 @@ import {
   pinPass,
   sortSnags,
   toggleStatus,
+  statusNarrows,
+  CLEARED_STATUSES,
   type ListFilter,
 } from "../storage/filter.ts";
 
@@ -733,16 +735,15 @@ function FilterBar({
           onInput={(e) => set({ q: (e.currentTarget as HTMLInputElement).value || undefined })}
         />
       </div>
-      {/* Status, on the face. Multi-select; none pressed means all shown. */}
+      {/* Status, on the face. Multi-select; all lit by default, never none. */}
       <div class="snag-dk-chiphead">
         <span class="snag-dk-menutitle" id="snag-dk-st">{format("filter.status")}</span>
         {/* Pastel's toggle: "Select all" lights every chip, then reads
-            "Clear", which lights none. Both show every comment; the chips say
-            which you are looking at. */}
+            "Clear", which goes back to Active alone. */}
         <button
           type="button"
           class="snag-dk-link snag-dk-selectall"
-          onClick={() => set({ statuses: allOn ? [] : [...ALL_STATUSES] })}
+          onClick={() => set({ statuses: allOn ? [...CLEARED_STATUSES] : [...ALL_STATUSES] })}
         >
           {format(allOn ? "filter.clear" : "filter.selectall")}
         </button>
@@ -920,7 +921,7 @@ function List({
   const numbers = numbering(snags);
   const ordered = groups.flatMap((g) => g.snags);
   const filterActive =
-    filter.statuses.length > 0 || !!filter.by || !!filter.page || !!filter.q?.trim() ||
+    statusNarrows(filter.statuses) || !!filter.by || !!filter.page || !!filter.q?.trim() ||
     filter.pageOnly || filter.newOnly || filter.read !== "all";
   // The count the pill carries: whole-round unseen, like the status chips —
   // not the narrowed list, or reading one thread would change the number that

@@ -23,7 +23,8 @@ import type { Snag, Status } from "./types.ts";
  * each chunk uses, which is what keeps the eager half inside the envelope.
  */
 export interface ListFilter {
-  /** Multi-select; `[]` and all-four both mean "no filter". */
+  /** Multi-select, never empty in the UI: all four lit is the default and
+   *  means "no filter"; `[]` is read the same way for safety. */
   statuses: Status[];
   read: "all" | "unread" | "read";
   /** Reviewer id. */
@@ -38,22 +39,29 @@ export interface ListFilter {
   sort: "page" | "newest" | "oldest";
 }
 
-export function defaultFilter(): ListFilter {
-  return { statuses: [], read: "all", pageOnly: false, newOnly: false, sort: "page" };
-}
-
 /** The four canonical statuses, .1's order — the chip grid's rows. */
 export const ALL_STATUSES: readonly Status[] = ["open", "progress", "review", "resolved"];
 
+export function defaultFilter(): ListFilter {
+  return { statuses: [...ALL_STATUSES], read: "all", pageOnly: false, newOnly: false, sort: "page" };
+}
+
 /**
- * "an empty status selection and a full one both mean 'no filter',
- * and a full selection collapses to empty the moment it happens."
+ * Pastel's model: the chips start all lit, and at least one stays lit — the
+ * last lit chip does not turn off, so the list can never be empty because of
+ * the status row alone.
  */
 export function toggleStatus(current: readonly Status[], s: Status): Status[] {
-  // No collapse when all four are on: they stay lit, as "Select all" lights
-  // them (Pastel's model). All four on shows what none on shows — every
-  // comment — and the chips say which one you chose.
-  return current.includes(s) ? current.filter((x) => x !== s) : [...current, s];
+  if (!current.includes(s)) return [...current, s];
+  return current.length > 1 ? current.filter((x) => x !== s) : [...current];
+}
+
+/** "Clear": back to the one status that matters first, as Pastel does. */
+export const CLEARED_STATUSES: readonly Status[] = ["open"];
+
+/** Does the status row hide anything? All four lit (or none) does not. */
+export function statusNarrows(statuses: readonly Status[]): boolean {
+  return statuses.length > 0 && !ALL_STATUSES.every((st) => statuses.includes(st));
 }
 
 /**
@@ -65,7 +73,7 @@ export function toggleStatus(current: readonly Status[], s: Status): Status[] {
  * match" — the statuses test only hides the four values it can name.
  */
 export function pinPass(s: Snag, f: ListFilter, seenAt?: ReadonlyMap<string, number>): boolean {
-  if (f.statuses.length > 0 && (ALL_STATUSES as readonly string[]).includes(s.status) && !f.statuses.includes(s.status)) {
+  if (statusNarrows(f.statuses) && (ALL_STATUSES as readonly string[]).includes(s.status) && !f.statuses.includes(s.status)) {
     return false;
   }
   if (f.by && s.createdBy.id !== f.by) return false;
