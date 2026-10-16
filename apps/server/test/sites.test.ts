@@ -420,6 +420,9 @@ test("/config from a STRANGER origin: 200, public subset, writable false", { ski
   assert.equal(res.headers.get("Access-Control-Allow-Origin"), "https://web.archive.org");
   // … and a shared cache must never replay one origin's body to another.
   assert.equal(res.headers.get("Vary"), "Origin");
+  // … and since some shared caches ignore Vary (Vercel's edge replayed a
+  // localhost copy to a client site), none of them may keep it at all.
+  assert.equal(res.headers.get("Cache-Control"), "private, max-age=60");
   const conf = await json(res);
   assert.equal(conf.writable, false);
   assert.equal(conf.reason, "origin_not_allowed");

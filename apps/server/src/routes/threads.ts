@@ -194,8 +194,14 @@ export function threadRoutes(
      * once per visitor per page-load-cluster rather than per page. 60 seconds:
      * long enough that a browsing session costs one request, short enough that
      * flipping the audience in the dashboard lands within a minute.
+     *
+     * PRIVATE, not public: the browser keeps it, a shared cache does not. The
+     * response names one origin in Access-Control-Allow-Origin, and Vercel's
+     * edge ignores Vary: Origin — it replayed a copy made for localhost:3000
+     * to the client's site, the browser refused it, and the widget lost its
+     * round switcher.
      */
-    c.header("Cache-Control", "public, max-age=60");
+    c.header("Cache-Control", "private, max-age=60");
     // Unconditionally, not only when the CORS middleware set it: a shared
     // cache that stored a no-Origin response WITHOUT Vary would replay the
     // full body to a stranger origin, and the split below would be theatre.
