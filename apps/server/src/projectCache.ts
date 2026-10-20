@@ -11,8 +11,8 @@ import { maintenance } from "./db/scope.ts";
  * query cost."*
  *
  * (Less `config_version`, now: it fed an `x-snagset-config-version` header no
- * client ever read, and both were retired — the column is dropped next
- * release. `config_etag` likewise, unread since the /config ETag went.)
+ * client ever read, and both were retired — the column went in 0013, with
+ * `config_etag`, unread since the /config ETag went.)
  *
  * That is the whole design: a session carries `epo`, every authenticated
  * request compares it against this cache, and revoking a link bumps the row.

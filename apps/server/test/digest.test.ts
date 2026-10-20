@@ -89,8 +89,8 @@ before(async () => {
       s.round = randomUUID();
       s.thread = randomUUID();
       await tx`
-        INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag)
-        VALUES (${s.id}, ${orgId}, ${s.uid}, ${name}, ${randomBytes(32)}, 'e')`;
+        INSERT INTO projects (id, org_id, uid, name, ip_salt)
+        VALUES (${s.id}, ${orgId}, ${s.uid}, ${name}, ${randomBytes(32)})`;
       await tx`
         INSERT INTO environments (id, org_id, project_id, key, label, is_default)
         VALUES (${s.env}, ${orgId}, ${s.id}, 'production', 'Production', true)`;
@@ -352,8 +352,8 @@ async function doomedSite(name: string): Promise<{ id: string; uid: string; thre
   await sql.begin(async (tx) => {
     await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
     await tx`
-      INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag)
-      VALUES (${s.id}, ${orgId}, ${s.uid}, ${name}, ${randomBytes(32)}, 'e')`;
+      INSERT INTO projects (id, org_id, uid, name, ip_salt)
+      VALUES (${s.id}, ${orgId}, ${s.uid}, ${name}, ${randomBytes(32)})`;
     await tx`
       INSERT INTO environments (id, org_id, project_id, key, label, is_default)
       VALUES (${env}, ${orgId}, ${s.id}, 'production', 'Production', true)`;

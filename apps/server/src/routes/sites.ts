@@ -379,7 +379,7 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
                }
                -- No config_version bump. It fed the x-snagset-config-version
                -- header, which no client ever read; both are retired and the
-               -- column goes in next release's migration.
+               -- column went in 0013.
          WHERE id = ${project.id}::uuid
       `;
       if (origins) {

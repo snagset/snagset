@@ -50,8 +50,8 @@ before(async () => {
     await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
     await tx`INSERT INTO orgs (id, name, slug) VALUES (${orgId}, 'Org', 'org')`;
     await tx`
-      INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag)
-      VALUES (${projectId}, ${orgId}, 'prj_qwerty123456', 'P', ${Buffer.alloc(32, 1)}, 'e')`;
+      INSERT INTO projects (id, org_id, uid, name, ip_salt)
+      VALUES (${projectId}, ${orgId}, 'prj_qwerty123456', 'P', ${Buffer.alloc(32, 1)})`;
     await tx`
       INSERT INTO reviewers (id, org_id, project_id, kind, name, email, holder_secret_hash)
       VALUES (${reviewerId}, ${orgId}, ${projectId}, 'guest', 'Ada', 'ada@example.test', ${Buffer.alloc(32, 4)})`;

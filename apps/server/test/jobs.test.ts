@@ -50,9 +50,9 @@ before(async () => {
     await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
     await tx`INSERT INTO orgs (id, name, slug) VALUES (${orgId}, 'Studio', 'studio')`;
     await tx`
-      INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag)
+      INSERT INTO projects (id, org_id, uid, name, ip_salt)
       VALUES (${projectId}, ${orgId}, 'prj_jjjjjjjjjjjj', 'Jobs',
-              ${Buffer.alloc(32, 7)}, 'etag')`;
+              ${Buffer.alloc(32, 7)})`;
   });
 });
 

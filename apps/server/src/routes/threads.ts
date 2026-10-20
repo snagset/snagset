@@ -151,19 +151,17 @@ function commentsJson(tx: postgres.TransactionSql, asOwner: boolean) {
  * partial index whose predicate is exactly this WHERE clause, so it is one
  * index probe per thread over its handful of rows (EXPLAINed when this
  * landed: a bitmap index scan on that index, no comments seq scan, and the
- * 100-thread list within noise of the stored column). The stored columns
- * stay in the schema for one release, unread, so this release can be rolled
- * back; the next one drops them.
+ * 100-thread list within noise of the stored column). 0.1.32 stopped
+ * reading and writing the stored columns and 0013 dropped them.
  *
  * THE SAME NUMBER FOR EVERYONE, and that is not an oversight. The stored
  * column every reader used was the PUBLIC total -- the owner's list read it
  * too -- because it is what a client may be told (05 section 3.5,
  * section A4: a client told "4 replies" who can read two has learned that
  * two exist). Live comments only; team-only ones never. And a private
- * thread counts 0, which is what the CHECK (NOT private OR
- * comment_count_public = 0) made the stored column. Its comments are all
- * private anyway (the flip makes them so and the reply route forces it), so
- * the CASE is a guarantee, not a change.
+ * thread counts 0, which is what a CHECK on the stored column used to
+ * force. Its comments are all private anyway (the flip makes them so and the
+ * reply route forces it), so the CASE is a guarantee, not a change.
  *
  * Over an alias `t` that carries `id` and `private`.
  */
@@ -1480,13 +1478,8 @@ export function threadRoutes(
                 assigneeRow === undefined ? tx`assignee_id` : assigneeRow === null ? tx`NULL` : tx`${assigneeRow}::uuid`
               },
               -- 05 section 6.4, consequence one of three -- a private thread has
-              -- no public replies to count -- is now commentTotal's CASE, read
-              -- below. This write is NOT that: nothing reads the stored column
-              -- any more, but its CHECK (NOT private OR comment_count_public =
-              -- 0) is still in the schema, and a thread whose old count was 3
-              -- could not be made private without zeroing it. Goes with the
-              -- column in the next release's drop migration.
-              comment_count_public = ${wantsPrivate === true ? tx`0` : tx`comment_count_public`},
+              -- no public replies to count -- is commentTotal's CASE, read
+              -- below. There is no stored count to zero any more (0013).
               version = version + 1, updated_at = now()
           WHERE id = ${threadRow}::uuid AND project_id = ${p.id}::uuid AND deleted_at IS NULL
           -- EVERY changing column comes out of RETURNING, and that is the whole

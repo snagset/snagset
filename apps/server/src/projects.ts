@@ -120,14 +120,10 @@ export async function createProject(
   const name = input.name.trim() || "Untitled site";
   const origins = validateOrigins(input.origins ?? []);
 
-  // `config_etag` is written and never read: the /config ETag it served is
-  // gone, but the column is NOT NULL with no default until next release's
-  // migration drops it, so an INSERT that left it out would fail. Any value
-  // will do; random keeps it looking like what it used to be.
   await tx`
-    INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag, write_mode_downgrade_at, settings)
+    INSERT INTO projects (id, org_id, uid, name, ip_salt, write_mode_downgrade_at, settings)
     VALUES (${id}, ${input.orgId}, ${uid}, ${name},
-            ${randomBytes(32)}, ${randomBytes(8).toString("hex")},
+            ${randomBytes(32)},
             ${input.graceHours > 0 ? tx`now() + ${input.graceHours}::int * interval '1 hour'` : null},
             ${tx.json(input.domain ? { domain: input.domain } : {})}::jsonb)
   `;

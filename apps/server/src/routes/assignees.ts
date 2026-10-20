@@ -47,8 +47,8 @@ export interface AssigneeDeps {
  * `reviewers.thread_count > 0 OR comment_count > 0`, two totals bumped by the
  * thread and reply routes — which had already been found unmaintained once
  * (0005_studio_reviewers.sql had to backfill them). Now it is an EXISTS on
- * `threads_author` / `comments_author`, each one index probe. The columns stay
- * in the schema, unread, for one release so this one can be rolled back.
+ * `threads_author` / `comments_author`, each one index probe. The counters,
+ * and the partial index whose predicate named them, went in 0013.
  *
  * DELETED ROWS COUNT. Once written, always in the pool: the counters were
  * bumped on every write and never taken back on a delete, so a client whose

@@ -363,8 +363,8 @@ test("materialising studio people is idempotent — the backfill and both routes
   await sql.begin(async (tx) => {
     await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
     await tx`
-      INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag)
-      VALUES (${oldProject}, ${orgId}, 'prj_bbbbbbbbbbbb', 'Old', ${Buffer.alloc(32, 1)}, 'etag')`;
+      INSERT INTO projects (id, org_id, uid, name, ip_salt)
+      VALUES (${oldProject}, ${orgId}, 'prj_bbbbbbbbbbbb', 'Old', ${Buffer.alloc(32, 1)})`;
   });
   const count = async () =>
     (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM reviewers WHERE project_id = ${oldProject} AND user_id IS NOT NULL`)[0]!.n;

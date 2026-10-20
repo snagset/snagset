@@ -93,8 +93,8 @@ before(async () => {
     // A domain AND exact origins, one of them a wildcard — the three ways an
     // origin is the site's (cors.ts `originPermitted`).
     await tx`
-      INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag, settings)
-      VALUES (${projectId}, ${orgId}, ${uid}, 'Acme',${Buffer.alloc(32, 1)}, 'etag',
+      INSERT INTO projects (id, org_id, uid, name, ip_salt, settings)
+      VALUES (${projectId}, ${orgId}, ${uid}, 'Acme',${Buffer.alloc(32, 1)},
               ${sql.json({ domain: "acme.test" })})`;
     await tx`
       INSERT INTO environments (id, org_id, project_id, key, label, is_default)

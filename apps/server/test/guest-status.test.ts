@@ -85,8 +85,8 @@ before(async () => {
       await tx`INSERT INTO memberships (org_id, user_id, role) VALUES (${orgId}, ${id}, ${role})`;
     }
     await tx`
-      INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag)
-      VALUES (${projectId}, ${orgId}, ${uid}, 'Kilnwork', ${Buffer.alloc(32, 1)}, 'etag')`;
+      INSERT INTO projects (id, org_id, uid, name, ip_salt)
+      VALUES (${projectId}, ${orgId}, ${uid}, 'Kilnwork', ${Buffer.alloc(32, 1)})`;
     await tx`
       INSERT INTO environments (id, org_id, project_id, key, label, is_default)
       VALUES (${randomUUID()}, ${orgId}, ${projectId}, 'production', 'Production', true)`;

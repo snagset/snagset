@@ -292,8 +292,8 @@ test("a site in another org is reported ABSENT, not forbidden", { skip }, async 
     await tx`INSERT INTO users (id, org_id, email) VALUES (${otherUser}, ${otherOrg}, 'x@other.test')`;
     await tx`INSERT INTO memberships (org_id, user_id, role) VALUES (${otherOrg}, ${otherUser}, 'owner')`;
     await tx`
-      INSERT INTO projects (id, org_id, uid, name, ip_salt, config_etag)
-      VALUES (${randomUUID()}, ${otherOrg}, 'prj_zzzzzzzzzzzz', 'Theirs', ${Buffer.alloc(32, 3)}, 'e')`;
+      INSERT INTO projects (id, org_id, uid, name, ip_salt)
+      VALUES (${randomUUID()}, ${otherOrg}, 'prj_zzzzzzzzzzzz', 'Theirs', ${Buffer.alloc(32, 3)})`;
   });
   const res = await app.request("/api/v1/projects/prj_zzzzzzzzzzzz/origins", {
     method: "POST",
