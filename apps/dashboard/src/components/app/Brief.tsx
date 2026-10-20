@@ -187,10 +187,14 @@ export function Brief({
 
         <section className="flex flex-col gap-3">
           {thread.comments.length === 0 && <p className="m-0 text-muted-foreground">A pin with no words — the element says what it is about.</p>}
-          {thread.comments.map((c) => (
+          {/* A deleted reply leaves nothing behind — no name, no "deleted" line.
+              Only the opening comment keeps its place, since the thread hangs
+              off it. */}
+          {thread.comments.filter((c, i) => i === 0 || c.body !== null).map((c, i) => (
             <CommentItem
               key={c.id}
               comment={c}
+              reply={i > 0}
               mine={canEditComment(c, myId)}
               {...(onEditComment ? { onEdit: (next: string) => onEditComment(c.id, next) } : {})}
               {...(onDeleteComment ? { onDelete: () => onDeleteComment(c.id) } : {})}
@@ -372,11 +376,14 @@ export function Brief({
  */
 function CommentItem({
   comment: c,
+  reply,
   mine,
   onEdit,
   onDelete,
 }: {
   comment: Comment;
+  /** A reply vanishes when deleted; the opening comment leaves its tombstone. */
+  reply: boolean;
   mine: boolean;
   onEdit?: (body: string) => Promise<unknown>;
   onDelete?: () => Promise<unknown>;
@@ -508,7 +515,7 @@ function CommentItem({
           open={confirming}
           onOpenChange={setConfirming}
           title="Delete this comment?"
-          description="Its author's name stays; the text is removed."
+          description={reply ? "The reply is removed for everyone." : "Its author's name stays; the text is removed."}
           confirmLabel="Delete comment"
           busy={deleting}
           onConfirm={async () => {

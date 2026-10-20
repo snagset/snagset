@@ -1,6 +1,6 @@
 {
   "name": "@snagset/server",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "private": false,
   "type": "module",
   "description": "The Snagset server: API, dashboard and widget in one package. Node and Postgres, or Vercel.",

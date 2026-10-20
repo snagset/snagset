@@ -334,7 +334,14 @@ export function commentRoutes(deps: CommentDeps): Hono<Env> {
       const [row] = await tx<{ comment_count: number; comment_count_public: number }[]>`
         SELECT comment_count, comment_count_public FROM threads WHERE id = ${thread.id}::uuid FOR UPDATE
       `;
-      const seq = row!.comment_count + 1;
+      // `seq` follows the highest one ever used, deleted rows included — NOT
+      // `comment_count + 1`. A deleted reply keeps its row (and its seq) but
+      // takes one off the count, so the count-based seq collided with it on
+      // UNIQUE (thread_id, seq): every reply after a delete was a 500.
+      const [top] = await tx<{ seq: number }[]>`
+        SELECT COALESCE(MAX(seq), 0)::int AS seq FROM comments WHERE thread_id = ${thread.id}::uuid
+      `;
+      const seq = top!.seq + 1;
       const publicCount = wantPrivate ? row!.comment_count_public : row!.comment_count_public + 1;
 
       const [comment] = await tx<{ id: string; body: string; created_at: Date }[]>`

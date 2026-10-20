@@ -246,3 +246,29 @@ test("the canonical unscoped path works too, and a mismatched uid 404s", { skip 
   // against the real route until now.
   assert.equal(wrongUid.status, 404);
 });
+
+test("a reply after a deleted reply posts — seq never reuses a deleted one's", { skip }, async () => {
+  /**
+   * The production 500: deleting a reply keeps its row (and its seq) but takes
+   * one off `comment_count`, and the next reply was numbered
+   * `comment_count + 1` — the deleted reply's seq — so UNIQUE (thread_id, seq)
+   * refused it, in the dashboard and the widget alike.
+   */
+  const owner = {
+    "content-type": "application/json",
+    Cookie: ownerAuth.cookie,
+    [HTTP_HEADER.csrf]: ownerAuth.csrf,
+  };
+  const first = await app.request(path(), { method: "POST", headers: owner, body: JSON.stringify({ body: "to be deleted" }) });
+  assert.equal(first.status, 201);
+  const gone = (await json(first)).id as string;
+  const del = await app.request(`/api/v1/projects/${uid}/comments/${gone}`, { method: "DELETE", headers: owner });
+  assert.ok(del.status === 200 || del.status === 204, `delete: ${del.status}`);
+
+  const next = await app.request(path(), { method: "POST", headers: owner, body: JSON.stringify({ body: "after the delete" }) });
+  const b = await json(next);
+  assert.equal(next.status, 201, JSON.stringify(b));
+
+  const seqs = await sql<{ seq: number }[]>`SELECT seq FROM comments WHERE thread_id = ${threadId} ORDER BY seq`;
+  assert.equal(new Set(seqs.map((r) => r.seq)).size, seqs.length, "every seq distinct");
+});

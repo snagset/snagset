@@ -171,6 +171,10 @@ const STATUS_ORDER = Object.keys(STATUS) as Status[];
  * that just armed it — a control that grows on click moves the second click
  * somewhere else.
  */
+/** The replies worth showing. A deleted reply is gone from the conversation —
+ *  no name, no "deleted" line — so it is not drawn and not counted. */
+const replies = (s: Snag) => s.comments.slice(1).filter((c) => c.body !== null);
+
 function Danger({
   label,
   title,
@@ -635,7 +639,7 @@ function Row({ snag: s, n, here, unread, onOpen, onHover }: {
           </span>
         </span>
         <DeviceGlyph snag={s} />
-        {s.comments.length > 1 && (
+        {replies(s).length > 0 && (
           // Labelled, not a bare numeral: on its own the badge reads as "3" to a
           // screen reader, next to a row that already starts with the pin number.
           // `role="img"`: a bare <span> may not carry aria-label at all (ARIA
@@ -645,9 +649,9 @@ function Row({ snag: s, n, here, unread, onOpen, onHover }: {
           <span
             class="snag-dk-replies"
             role="img"
-            aria-label={format("dock.replies", { n: count(s.comments.length - 1) })}
+            aria-label={format("dock.replies", { n: count(replies(s).length) })}
           >
-            {count(s.comments.length - 1)}
+            {count(replies(s).length)}
           </span>
         )}
         {!here && (
@@ -1770,9 +1774,9 @@ function Detail({
 
       {snag.anchorState !== "anchored" && <AnchorDetails anchor={snag.anchor} />}
 
-      {snag.comments.length > 1 && (
+      {replies(snag).length > 0 && (
         <ul class="snag-dk-replies-list">
-          {snag.comments.slice(1).map((c) => (
+          {replies(snag).map((c) => (
             <li key={c.id}>
               <strong>{c.author.name}</strong> <When iso={c.createdAt} />
               {renderMarkdown(c.body ?? "")}
