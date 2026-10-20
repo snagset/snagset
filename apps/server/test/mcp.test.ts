@@ -90,9 +90,9 @@ before(async () => {
     ] as const) {
       await tx`
         INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                             anchor, context, created_by, private, comment_count, comment_count_public)
+                             anchor, context, created_by, private)
         VALUES (${id}, ${orgId}, ${projectId}, ${key}, ${envId}, ${roundId}, ${n},
-                ${tx.json({ offset: {}, page: {} })}, ${tx.json({})}, ${reviewerId}, ${isPrivate}, 0, 0)`;
+                ${tx.json({ offset: {}, page: {} })}, ${tx.json({})}, ${reviewerId}, ${isPrivate})`;
     }
   });
 

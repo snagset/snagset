@@ -224,7 +224,6 @@
       "server",
       "min-client",
       "time",
-      "config-version",
       "idempotent-replay",
       "request-id",
       "mcp-transport"

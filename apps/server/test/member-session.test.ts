@@ -291,10 +291,10 @@ test("an owner signed in from the widget deletes a client's comment and snag, bu
       VALUES (${guest}, ${orgId}, ${projectId}, 'guest', 'Cleo Client', ${Buffer.alloc(32, 5)})`;
     await tx`
       INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                           anchor, context, created_by, comment_count, comment_count_public)
+                           anchor, context, created_by)
       VALUES (${thread}, ${orgId}, ${projectId}, 'SN-90', ${t!.environment_id}, ${t!.round_id}, ${t!.n},
               ${tx.json({ label: "h1", page: { origin: SITE, pathname: "/", route: "/" }, offset: {} })},
-              ${tx.json({ url: `${SITE}/` })}, ${guest}, 2, 2)`;
+              ${tx.json({ url: `${SITE}/` })}, ${guest})`;
     for (const [id, seq, body] of [[first, 1, "Logo is blurry"], [second, 2, "and the footer"]] as const) {
       await tx`
         INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body)

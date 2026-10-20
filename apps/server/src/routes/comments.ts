@@ -328,21 +328,21 @@ export function commentRoutes(deps: CommentDeps): Hono<Env> {
         });
       }
 
-      // Locked here, not read-then-trusted: `seq` and both counters are
-      // derived from THIS row under the lock, so two replies landing at once
-      // serialise instead of racing to the same `seq` (verbatim).
-      const [row] = await tx<{ comment_count: number; comment_count_public: number }[]>`
-        SELECT comment_count, comment_count_public FROM threads WHERE id = ${thread.id}::uuid FOR UPDATE
-      `;
+      // The thread row, locked: two replies landing at once serialise here
+      // instead of racing to the same `seq` (verbatim). Nothing is read
+      // from it any more — it used to carry the reply counters this route
+      // bumped, which are now counted from `comments` where they are read
+      // (commentTotal in threads.ts) — but the lock is the point, and
+      // MAX(seq) below is only safe under it.
+      await tx`SELECT 1 FROM threads WHERE id = ${thread.id}::uuid FOR UPDATE`;
       // `seq` follows the highest one ever used, deleted rows included — NOT
-      // `comment_count + 1`. A deleted reply keeps its row (and its seq) but
+      // the live count + 1. A deleted reply keeps its row (and its seq) but
       // takes one off the count, so the count-based seq collided with it on
       // UNIQUE (thread_id, seq): every reply after a delete was a 500.
       const [top] = await tx<{ seq: number }[]>`
         SELECT COALESCE(MAX(seq), 0)::int AS seq FROM comments WHERE thread_id = ${thread.id}::uuid
       `;
       const seq = top!.seq + 1;
-      const publicCount = wantPrivate ? row!.comment_count_public : row!.comment_count_public + 1;
 
       const [comment] = await tx<{ id: string; body: string; created_at: Date }[]>`
         INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body, private)
@@ -353,17 +353,17 @@ export function commentRoutes(deps: CommentDeps): Hono<Env> {
 
       await tx`
         UPDATE threads
-        SET comment_count = comment_count + 1,
-            comment_count_public = ${publicCount},
-            version = version + 1,
+        SET version = version + 1,
             updated_at = now()
         WHERE id = ${thread.id}::uuid
       `;
-      // The author's own counter — what puts a person who has only
-      // ever replied into the assignee pool, and floats whoever just
-      // wrote to the top of it.
+      // The author, seen now — which floats whoever just wrote to the top of
+      // the assignee pool. Being IN the pool used to need this row's
+      // comment_count bumped too; the pool now asks `comments` directly
+      // (inPool in assignees.ts), so the reply inserted above is the
+      // membership.
       await tx`
-        UPDATE reviewers SET comment_count = comment_count + 1, last_seen_at = now()
+        UPDATE reviewers SET last_seen_at = now()
         WHERE id = ${reviewerId}::uuid
       `;
 

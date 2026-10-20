@@ -279,7 +279,6 @@ export const HTTP_HEADER = {
   server: "x-snagset-server",
   minClient: "x-snagset-min-client",
   time: "x-snagset-time",
-  configVersion: "x-snagset-config-version",
   idempotentReplay: "x-snagset-idempotent-replay",
   requestId: "x-snagset-request-id",
   mcpTransport: "x-snagset-mcp-transport",

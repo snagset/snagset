@@ -42,11 +42,26 @@ export interface AssigneeDeps {
  * wrote is not in it (the matrix's "be assigned: ✓ once they have written").
  * The thread PATCH validates a candidate against the same predicate, which is
  * why it is exported rather than inlined in the query below.
+ *
+ * "HAS WRITTEN" IS ASKED OF THE ROWS, NOT A COUNTER. It was
+ * `reviewers.thread_count > 0 OR comment_count > 0`, two totals bumped by the
+ * thread and reply routes — which had already been found unmaintained once
+ * (0005_studio_reviewers.sql had to backfill them). Now it is an EXISTS on
+ * `threads_author` / `comments_author`, each one index probe. The columns stay
+ * in the schema, unread, for one release so this one can be rolled back.
+ *
+ * DELETED ROWS COUNT. Once written, always in the pool: the counters were
+ * bumped on every write and never taken back on a delete, so a client whose
+ * only comment was later removed stayed assignable, and that is kept. (Only
+ * 0005's one-time backfill skipped deleted rows; nothing live ever did.) A
+ * pool that dropped someone because their snag was deleted would also strand
+ * the assignments they already hold.
  */
 export function inPool(t: postgres.TransactionSql) {
   return t`r.blocked_at IS NULL AND r.erased_at IS NULL
            AND (r.user_id IS NOT NULL OR r.invited_by IS NOT NULL
-                OR r.thread_count > 0 OR r.comment_count > 0)`;
+                OR EXISTS (SELECT 1 FROM threads pt WHERE pt.created_by = r.id)
+                OR EXISTS (SELECT 1 FROM comments pc WHERE pc.author_id = r.id))`;
 }
 
 function fail(c: Ctx, status: number, code: string, message: string, details?: unknown) {

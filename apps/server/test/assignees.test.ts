@@ -118,18 +118,18 @@ before(async () => {
     await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
     const [env] = await tx<{ id: string }[]>`SELECT id FROM environments WHERE project_id = ${projectId} AND is_default`;
     const [round] = await tx<{ id: string }[]>`SELECT id FROM rounds WHERE project_id = ${projectId}`;
-    // Ada wrote the thread (thread_count 1); Bob only exchanged a session.
+    // Ada wrote the thread below; Bob only exchanged a session.
     await tx`
-      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash, thread_count)
-      VALUES (${adaId}, ${orgId}, ${projectId}, 'guest', 'Ada the client', ${Buffer.alloc(32, 2)}, 1)`;
+      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash)
+      VALUES (${adaId}, ${orgId}, ${projectId}, 'guest', 'Ada the client', ${Buffer.alloc(32, 2)})`;
     await tx`
       INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash)
       VALUES (${bobId}, ${orgId}, ${projectId}, 'guest', 'Bob', ${Buffer.alloc(32, 3)})`;
     await tx`
       INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                           anchor, context, created_by, comment_count, comment_count_public)
+                           anchor, context, created_by)
       VALUES (${threadId}, ${orgId}, ${projectId}, 'SN-1', ${env!.id}, ${round!.id}, 1,
-              ${tx.json({ offset: {}, page: {} })}, ${tx.json({})}, ${adaId}, 0, 0)`;
+              ${tx.json({ offset: {}, page: {} })}, ${tx.json({})}, ${adaId})`;
     // The fixture took key SN-1 and position 1 by hand; the sequences the
     // real create route mints from must know, or its first thread collides.
     await tx`UPDATE projects SET thread_seq = 1 WHERE id = ${projectId}`;
@@ -406,14 +406,66 @@ test("leaving a pin is what makes a person assignable — through the widget's o
     }),
   });
   assert.equal(made.status, 201, await made.clone().text());
-  // The counters moved on the write itself — no fixture typed them in.
-  const [row] = await sql<{ thread_count: number; comment_count: number }[]>`
-    SELECT thread_count, comment_count FROM reviewers WHERE id = ${bobId}
-  `;
-  assert.deepEqual(row, { thread_count: 1, comment_count: 1 });
+  // Nothing to check on Bob's row: the pool asks `threads` and `comments`
+  // directly now (inPool), so the thread just written IS the membership.
   const names = ((await json(await app.request(pool(), { headers: asOwner() })))["data"] as any[]).map((r) => r.name);
   assert.ok(names.includes("Bob"), `Bob should be in the pool now: ${names.join(", ")}`);
   const set = await app.request(thread(), { method: "PATCH", headers: asOwner(), body: JSON.stringify({ assignee: `rev_${bobId}` }) });
   assert.equal(set.status, 200, await set.clone().text());
   assert.equal((await json(set))["assignee"].name, "Bob");
+});
+
+test("only replying, never opening a thread, is enough — and a deleted reply does not take it back", { skip }, async () => {
+  /**
+   * The other half of "everyone who has written": a client who answered a
+   * question and never pinned anything. It used to rest on
+   * `reviewers.comment_count`, bumped by the reply route; the pool asks
+   * `comments` itself now, so this is the reply route's half of the test
+   * above.
+   */
+  const cyId = randomUUID();
+  await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+    await tx`
+      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash)
+      VALUES (${cyId}, ${orgId}, ${projectId}, 'guest', 'Cy', ${Buffer.alloc(32, 7)})`;
+  });
+  const names = async () =>
+    ((await json(await app.request(pool(), { headers: asOwner() })))["data"] as any[]).map((r) => r.name as string);
+  assert.ok(!(await names()).includes("Cy"), "a session and no words: not in the pool");
+
+  const cy = await mintSession(
+    createKeyring(SECRET),
+    {
+      projectUid: uid,
+      reviewerId: cyId,
+      environmentKey: "production",
+      kind: "guest",
+      reviewLinkId: null,
+      permissions: ["comment:create"],
+      sessionEpoch: 1,
+    },
+    { slidingS: 900, absoluteS: 43_200 },
+  );
+  const said = await app.request(`${thread()}/comments`, {
+    method: "POST",
+    headers: bearer(cy.token),
+    body: JSON.stringify({ body: "yes, the blue one" }),
+  });
+  assert.equal(said.status, 201, await said.clone().text());
+  const after = await names();
+  assert.ok(after.includes("Cy"), `Cy should be in the pool now: ${after.join(", ")}`);
+  // The studio first, then the most recent writer — which is Cy.
+  const teamCount = ((await json(await app.request(pool(), { headers: asOwner() })))["data"] as any[])
+    .filter((r) => r.isTeam).length;
+  assert.equal(after[teamCount], "Cy", `the most recent writer floats to the top: ${after.join(", ")}`);
+
+  // The deleted-row rule: once written, always assignable, as under the
+  // counters (which no delete ever decremented).
+  const del = await app.request(`/api/v1/projects/${uid}/comments/${(await json(said))["id"]}`, {
+    method: "DELETE",
+    headers: bearer(cy.token),
+  });
+  assert.equal(del.status, 200, await del.clone().text());
+  assert.ok((await names()).includes("Cy"), "deleting the only reply does not drop them from the pool");
 });

@@ -99,10 +99,10 @@ before(async () => {
       VALUES (${reviewerId}, ${orgId}, ${projectId}, 'guest', 'Dana', ${Buffer.alloc(32, 2)})`;
     await tx`
       INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                           anchor, context, created_by, comment_count, comment_count_public)
+                           anchor, context, created_by)
       VALUES (${threadId}, ${orgId}, ${projectId}, 'SN-1', ${envId}, ${roundId}, 1,
               ${tx.json({ offset: {}, page: {} })},
-              ${tx.json({ url: "https://client.test/pricing" })}, ${reviewerId}, 0, 0)`;
+              ${tx.json({ url: "https://client.test/pricing" })}, ${reviewerId})`;
   });
 });
 

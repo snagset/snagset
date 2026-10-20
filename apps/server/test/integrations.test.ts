@@ -316,14 +316,14 @@ before(async () => {
     const [env] = await tx<{ id: string }[]>`SELECT id FROM environments WHERE project_id = ${projectId} AND is_default`;
     const [round] = await tx<{ id: string }[]>`SELECT id FROM rounds WHERE project_id = ${projectId}`;
     await tx`
-      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash, thread_count)
-      VALUES (${adaId}, ${orgId}, ${projectId}, 'guest', 'Ada the client', ${Buffer.alloc(32, 2)}, 1)`;
+      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash)
+      VALUES (${adaId}, ${orgId}, ${projectId}, 'guest', 'Ada the client', ${Buffer.alloc(32, 2)})`;
     await tx`
       INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                           anchor, context, created_by, comment_count, comment_count_public)
+                           anchor, context, created_by)
       VALUES (${threadId}, ${orgId}, ${projectId}, 'SN-1', ${env!.id}, ${round!.id}, 1,
               ${tx.json({ label: "button “Buy now”", css: "main .pricing button", page: { origin: "https://kilnwork.studio", pathname: "/pricing", route: "/pricing" }, offset: {} })},
-              ${tx.json({ ua: "secret-ua" })}, ${adaId}, 1, 1)`;
+              ${tx.json({ ua: "secret-ua" })}, ${adaId})`;
     await tx`
       INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body)
       VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${threadId}, 1, ${adaId},

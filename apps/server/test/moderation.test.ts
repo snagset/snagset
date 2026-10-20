@@ -88,19 +88,19 @@ before(async () => {
       INSERT INTO rounds (id, org_id, project_id, number, name, created_by, thread_seq)
       VALUES (${roundId}, ${orgId}, ${projectId}, 1, 'Round 1', ${userId}, 2)`;
     await tx`
-      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash, thread_count, comment_count)
-      VALUES (${adaId}, ${orgId}, ${projectId}, 'guest', 'Ada', ${Buffer.alloc(32, 2)}, 2, 2)`;
+      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash)
+      VALUES (${adaId}, ${orgId}, ${projectId}, 'guest', 'Ada', ${Buffer.alloc(32, 2)})`;
     for (const [id, key, n, body, cid] of [
       [doomedId, "SN-1", 1, "Spam, please remove.", randomUUID()],
       [keptId, "SN-2", 2, "The pricing table wraps at 1280.", adaCommentId],
     ] as const) {
       await tx`
         INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                             anchor, context, created_by, comment_count, comment_count_public)
+                             anchor, context, created_by)
         VALUES (${id}, ${orgId}, ${projectId}, ${key}, ${envId}, ${roundId}, ${n},
                 ${tx.json({ label: "table", page: { origin: "https://kilnwork.studio", pathname: "/pricing", route: "/pricing" }, offset: {} })},
                 ${tx.json({ url: "https://kilnwork.studio/pricing" })},
-                ${adaId}, 1, 1)`;
+                ${adaId})`;
       await tx`
         INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body)
         VALUES (${cid}, ${orgId}, ${projectId}, ${id}, 1, ${adaId}, ${body})`;
@@ -194,10 +194,10 @@ test("a reviewer deletes a thread they started until someone else replies to it"
     for (const [id, key, n] of [[mine, "SN-3", 3], [answered, "SN-4", 4]] as const) {
       await tx`
         INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                             anchor, context, created_by, comment_count, comment_count_public)
+                             anchor, context, created_by)
         VALUES (${id}, ${orgId}, ${projectId}, ${key}, ${envId}, ${roundId}, ${n},
                 ${tx.json({ label: "h1", page: { origin: "https://kilnwork.studio", pathname: "/", route: "/" }, offset: {} })},
-                ${tx.json({ url: "https://kilnwork.studio/" })}, ${ada}, 1, 1)`;
+                ${tx.json({ url: "https://kilnwork.studio/" })}, ${ada})`;
       await tx`
         INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body)
         VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${id}, 1, ${ada}, 'Wrong element, sorry.')`;

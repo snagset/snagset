@@ -70,11 +70,11 @@ async function seed(
     }
     await tx`
       INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number, status, private,
-                           anchor, context, created_by, comment_count, comment_count_public, resolved_at, updated_at)
+                           anchor, context, created_by, resolved_at, updated_at)
       VALUES (${id}, ${orgId}, ${site.id}, ${key}, ${env!.id}, ${round!.id}, ${position}, ${opts.status ?? "open"}::snag_thread_status,
               ${opts.private ?? false},
               ${tx.json({ label: "the button", css: "button", page: { origin: "https://x.test", pathname: "/pricing", route: "/pricing" }, offset: {} })},
-              ${tx.json({ ua: "x" })}, ${reviewer}, 1, ${opts.private ? 0 : 1},
+              ${tx.json({ ua: "x" })}, ${reviewer},
               ${opts.status === "resolved" ? tx`now()` : tx`NULL`},
               now() - ${`${opts.minutesAgo} minutes`}::interval)`;
     await tx`

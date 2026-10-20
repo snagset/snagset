@@ -91,9 +91,9 @@ before(async () => {
       VALUES (${reviewerId}, ${orgId}, ${projectId}, 'guest', 'Ada', ${Buffer.alloc(32, 2)})`;
     await tx`
       INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                            anchor, context, created_by, comment_count, comment_count_public)
+                            anchor, context, created_by)
       VALUES (${threadId}, ${orgId}, ${projectId}, 'SN-1', ${envId}, ${roundId}, 1,
-              ${tx.json({ offset: {}, page: {} })}, ${tx.json({})}, ${reviewerId}, 0, 0)`;
+              ${tx.json({ offset: {}, page: {} })}, ${tx.json({})}, ${reviewerId})`;
   });
 
   app = createApp({
@@ -144,6 +144,14 @@ after(async () => {
 const json = (res: Response) => res.json() as Promise<Record<string, any>>;
 const path = () => `/api/v1/projects/${uid}/threads/thr_${threadId}/comments`;
 
+/** `commentCount` as the thread detail route reports it to this caller. */
+async function wireCount(headers: Record<string, string>): Promise<number> {
+  const res = await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { headers });
+  const b = await json(res);
+  assert.equal(res.status, 200, JSON.stringify(b));
+  return b.commentCount as number;
+}
+
 test("no credential at all → 401", { skip }, async () => {
   const res = await app.request(path(), {
     method: "POST",
@@ -165,11 +173,11 @@ test("a session bearer with comment:create posts a comment and bumps the count",
   assert.equal(b.body, "Looks great");
   assert.match(b.author.id, /^rev_/);
 
-  const [t] = await sql<{ comment_count: number; comment_count_public: number; version: number }[]>`
-    SELECT comment_count, comment_count_public, version FROM threads WHERE id = ${threadId}
-  `;
-  assert.equal(t!.comment_count, 1);
-  assert.equal(t!.comment_count_public, 1);
+  // The count a client is shown, not a column: it is counted from the
+  // comments on read now (commentTotal in threads.ts), so the API is the only
+  // place it exists to assert.
+  assert.equal(await wireCount({ Authorization: `Bearer ${bearer}` }), 1);
+  const [t] = await sql<{ version: number }[]>`SELECT version FROM threads WHERE id = ${threadId}`;
   assert.equal(t!.version, 2, "version bumped");
 });
 
@@ -271,4 +279,50 @@ test("a reply after a deleted reply posts — seq never reuses a deleted one's",
 
   const seqs = await sql<{ seq: number }[]>`SELECT seq FROM comments WHERE thread_id = ${threadId} ORDER BY seq`;
   assert.equal(new Set(seqs.map((r) => r.seq)).size, seqs.length, "every seq distinct");
+});
+
+test("commentCount follows a reply, a private reply and a delete — for a guest and for the studio", { skip }, async () => {
+  /**
+   * The count used to be two stored columns bumped by hand (reply +1, delete
+   * -1, the private case decrementing one and not the other). It is counted
+   * on read now, so this is the regression net for the three writes that used
+   * to keep it right.
+   *
+   * THE SAME NUMBER FOR BOTH READERS, on purpose: every reader got the
+   * PUBLIC total before (the owner's list read `comment_count_public` too),
+   * and this change keeps it. The studio sees the private reply in
+   * `comments`; it is not in `commentCount` for anyone.
+   */
+  const guest = { Authorization: `Bearer ${bearer}` };
+  const owner = { Cookie: ownerAuth.cookie, [HTTP_HEADER.csrf]: ownerAuth.csrf };
+  const post = (body: Record<string, unknown>) =>
+    app.request(path(), { method: "POST", headers: { "content-type": "application/json", ...owner }, body: JSON.stringify(body) });
+  const start = await wireCount(guest);
+  assert.equal(await wireCount(owner), start, "both readers start from the same public total");
+
+  const reply = await post({ body: "a public reply" });
+  assert.equal(reply.status, 201);
+  assert.equal(await wireCount(guest), start + 1, "a reply counts");
+  assert.equal(await wireCount(owner), start + 1);
+
+  const priv = await post({ body: "team only", private: true });
+  const pb = await json(priv);
+  assert.equal(priv.status, 201, JSON.stringify(pb));
+  assert.equal(await wireCount(guest), start + 1, "a private reply is not in the guest's count");
+  assert.equal(await wireCount(owner), start + 1, "nor the studio's: commentCount is the public total for everyone");
+  const ownerView = await json(await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { headers: owner }));
+  assert.ok(
+    (ownerView.comments as { id: string }[]).some((c) => c.id === pb.id),
+    "while the studio still reads the private reply itself",
+  );
+
+  const del = await app.request(`/api/v1/projects/${uid}/comments/${(await json(reply)).id}`, { method: "DELETE", headers: owner });
+  assert.ok(del.status === 200 || del.status === 204, `delete: ${del.status}`);
+  assert.equal(await wireCount(guest), start, "a deleted reply stops counting");
+  assert.equal(await wireCount(owner), start);
+
+  // And the list route agrees with the detail route.
+  const list = await json(await app.request(`/api/v1/projects/${uid}/threads?key=SN-1`, { headers: guest }));
+  const rows = (list.data ?? list.threads) as { commentCount: number }[];
+  assert.equal(rows[0]!.commentCount, start);
 });

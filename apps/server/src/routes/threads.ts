@@ -138,6 +138,42 @@ function commentsJson(tx: postgres.TransactionSql, asOwner: boolean) {
     '[]'::json)`;
 }
 
+/**
+ * THE REPLY COUNT, COUNTED. `commentCount` on the wire, as `comment_total`
+ * on the row.
+ *
+ * It was `threads.comment_count_public`, a total every write kept up to date
+ * by hand: the reply route added one, the delete route took one off, the
+ * thread PATCH recomputed it on a privacy flip. Three writers of one number
+ * is two places for it to drift, and a counter that drifts is a thread
+ * reading "3 replies" above two. It is now derived from the comments
+ * themselves, in the same query, through `comments_thread_public` -- the
+ * partial index whose predicate is exactly this WHERE clause, so it is one
+ * index probe per thread over its handful of rows (EXPLAINed when this
+ * landed: a bitmap index scan on that index, no comments seq scan, and the
+ * 100-thread list within noise of the stored column). The stored columns
+ * stay in the schema for one release, unread, so this release can be rolled
+ * back; the next one drops them.
+ *
+ * THE SAME NUMBER FOR EVERYONE, and that is not an oversight. The stored
+ * column every reader used was the PUBLIC total -- the owner's list read it
+ * too -- because it is what a client may be told (05 section 3.5,
+ * section A4: a client told "4 replies" who can read two has learned that
+ * two exist). Live comments only; team-only ones never. And a private
+ * thread counts 0, which is what the CHECK (NOT private OR
+ * comment_count_public = 0) made the stored column. Its comments are all
+ * private anyway (the flip makes them so and the reply route forces it), so
+ * the CASE is a guarantee, not a change.
+ *
+ * Over an alias `t` that carries `id` and `private`.
+ */
+function commentTotal(tx: postgres.TransactionSql) {
+  return tx`(CASE WHEN t.private THEN 0 ELSE (
+              SELECT count(*)::int FROM comments cc
+               WHERE cc.thread_id = t.id AND cc.deleted_at IS NULL AND cc.private = false
+            ) END)`;
+}
+
 /** How far back each `serverTime` reaches, so a write still committing
  *  when a poll read the clock is caught by the next poll (see the list). */
 const POLL_OVERLAP_MS = 60_000;
@@ -187,7 +223,11 @@ export function threadRoutes(
   app.get("/api/v1/projects/:uid/config", async (c) => {
     const p = await project(c.req.param("uid"));
     if (!p) return fail(c, 404, "project_not_found", "No project with that uid.");
-    c.header("x-snagset-config-version", String(p.config_version));
+    // No `x-snagset-config-version` header, here or on the thread writes that
+    // also sent it. It was meant to let the widget notice a stale config, and
+    // no client ever read it -- widget-core, the dashboard and the MCP package
+    // all ignore it -- while every site edit paid a write to keep it moving.
+    // The Cache-Control below is what bounds staleness.
     /**
      * CACHEABLE, briefly — the decision makes this the stub's visibility check, fetched
      * once per visitor per page-load-cluster rather than per page. 60 seconds:
@@ -487,7 +527,7 @@ export function threadRoutes(
               )`;
       return tx<Record<string, unknown>[]>`
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, t.comment_count_public,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx)} AS comment_total,
                t.route, e.key AS environment_key, rd.number AS round, rd.name AS round_name,
                r.name AS created_by_name, r.kind AS created_by_kind, r.id AS created_by_id,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -858,7 +898,6 @@ export function threadRoutes(
         const roundId = roundNo !== null ? ctx.asked_id : ctx.round_id;
         if (!roundId) throw new HttpError(409, "no_active_round", "This project has no open round.");
 
-        const counted = commentBody === null ? 0 : 1;
         const [row] = await tx<Record<string, unknown>[]>`
           WITH pseq AS (
             UPDATE projects SET thread_seq = thread_seq + 1
@@ -872,17 +911,19 @@ export function threadRoutes(
           ),
           ins AS (
             INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                                 anchor, context, created_by, anchor_state,
-                                 comment_count, comment_count_public)
+                                 anchor, context, created_by, anchor_state)
             SELECT ${threadId}::uuid, ${p.org_id}::uuid, ${p.id}::uuid,
                    ${p.key_prefix}::text || '-' || pseq.thread_seq::text,
                    ${ctx.environment_id}::uuid, ${roundId}::uuid, rseq.thread_seq,
                    ${tx.json(body.anchor)}::jsonb, ${tx.json(body.context)}::jsonb,
-                   ${reviewerId}::uuid, ${body.anchorState ?? "anchored"}::snag_anchor_state,
-                   ${counted}::int, ${counted}::int
+                   ${reviewerId}::uuid, ${body.anchorState ?? "anchored"}::snag_anchor_state
             FROM pseq, rseq
+            -- comment_total (commentTotal above) without counting: a new
+            -- thread is never private and has its first comment or none, and
+            -- a sub-statement could not see the comment the CTE below inserts.
             RETURNING id, key, status, version, anchor, anchor_state, context, round_number,
-                      created_at, updated_at, resolved_at, comment_count_public
+                      created_at, updated_at, resolved_at,
+                      ${commentBody === null ? 0 : 1}::int AS comment_total
           ),
           bound AS (
             UPDATE attachments
@@ -899,19 +940,14 @@ export function threadRoutes(
             FROM ins WHERE ${commentBody}::text IS NOT NULL
             RETURNING id, body, created_at
           ),
-          -- The author's row: seen now, and the counters the assignee pool
-          -- reads (05 section 3.4, section 6.4b -- "everyone who has
-          -- commented" is thread_count > 0 OR comment_count > 0). Until
-          -- nothing moved thread_count at all, so a client whose only act
-          -- was leaving a pin was invisible to the pool. ONE update: two
-          -- data-modifying CTEs touching the same row in one statement is
-          -- unsupported in Postgres and only one of them lands -- the first
-          -- attempt at this was a second CTE, and it lost to this one.
+          -- The author's row, seen now: the assignee pool (05 section 6.4b)
+          -- puts the most recent writer at the top. Being IN the pool is no
+          -- longer this row's business -- it used to be thread_count and
+          -- comment_count, bumped here, and the pool now asks the threads
+          -- and comments tables directly (inPool in assignees.ts), so the
+          -- thread this statement inserts is the membership.
           touched AS (
-            UPDATE reviewers
-            SET last_seen_at = now(),
-                thread_count = thread_count + 1,
-                comment_count = comment_count + ${counted}::int
+            UPDATE reviewers SET last_seen_at = now()
             WHERE id = ${reviewerId}::uuid RETURNING id
           )
           SELECT ins.*, rv.id AS created_by_id, rv.name AS created_by_name, rv.kind AS created_by_kind,
@@ -982,7 +1018,6 @@ export function threadRoutes(
         return row!;
       });
 
-      c.header("x-snagset-config-version", String(p.config_version));
       return c.json(shape(created), 201);
     } catch (e) {
       if (e instanceof HttpError) return fail(c, e.status, e.code, e.message);
@@ -1012,7 +1047,7 @@ export function threadRoutes(
         const [existing] = await inOrg(sql, p.org_id, async (tx) =>
           tx<Record<string, unknown>[]>`
             SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-                   t.created_at, t.updated_at, t.resolved_at, t.comment_count_public,
+                   t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx)} AS comment_total,
                    t.route, e.key AS environment_key, rd.number AS round, rd.name AS round_name,
                    r.id AS created_by_id, r.name AS created_by_name, r.kind AS created_by_kind,
                    ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -1046,7 +1081,6 @@ export function threadRoutes(
           `,
         );
         if (existing) {
-          c.header("x-snagset-config-version", String(p.config_version));
           // 200, not 201: the second request created nothing. A client that
           // branches on the status learns the truth, and one that does not
           // gets the same body either way.
@@ -1099,7 +1133,7 @@ export function threadRoutes(
     const [row] = await inOrg(sql, p.org_id, async (tx) =>
       tx<Record<string, unknown>[]>`
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, t.comment_count_public,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx)} AS comment_total,
                t.route, e.key AS environment_key, rd.number AS round, rd.name AS round_name,
                r.id AS created_by_id, r.name AS created_by_name, r.kind AS created_by_kind,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -1413,9 +1447,10 @@ export function threadRoutes(
        * before the flip.
        *
        * A data-modifying CTE cannot see another sub-statement's writes, so
-       * folding this into the CTE would have counted `comment_count_public`
-       * against comments this statement was in the middle of hiding. Same
-       * transaction, two statements, in the order the arithmetic needs.
+       * folding this into the CTE would have counted the reply total
+       * (commentTotal, in the outer SELECT below) against comments this
+       * statement was in the middle of hiding. Same transaction, two
+       * statements, in the order the arithmetic needs.
        *
        * Making a thread public again deliberately does NOT un-private the
        * replies. "Share the thread" and "share what we said about it
@@ -1444,17 +1479,14 @@ export function threadRoutes(
               assignee_id = ${
                 assigneeRow === undefined ? tx`assignee_id` : assigneeRow === null ? tx`NULL` : tx`${assigneeRow}::uuid`
               },
-              -- 05 section 6.4, consequence one of three: a private thread has
-              -- no public replies to count, and a thread made public again
-              -- counts only the replies that are themselves public.
-              comment_count_public = ${
-                wantsPrivate === undefined
-                  ? tx`comment_count_public`
-                  : wantsPrivate
-                    ? tx`0`
-                    : tx`(SELECT count(*)::int FROM comments c
-                            WHERE c.thread_id = threads.id AND c.deleted_at IS NULL AND c.private = false)`
-              },
+              -- 05 section 6.4, consequence one of three -- a private thread has
+              -- no public replies to count -- is now commentTotal's CASE, read
+              -- below. This write is NOT that: nothing reads the stored column
+              -- any more, but its CHECK (NOT private OR comment_count_public =
+              -- 0) is still in the schema, and a thread whose old count was 3
+              -- could not be made private without zeroing it. Goes with the
+              -- column in the next release's drop migration.
+              comment_count_public = ${wantsPrivate === true ? tx`0` : tx`comment_count_public`},
               version = version + 1, updated_at = now()
           WHERE id = ${threadRow}::uuid AND project_id = ${p.id}::uuid AND deleted_at IS NULL
           -- EVERY changing column comes out of RETURNING, and that is the whole
@@ -1466,11 +1498,11 @@ export function threadRoutes(
           -- pressing Reopen answered "resolved". The joins below are safe
           -- precisely because this UPDATE does not touch what they read.
           RETURNING id, key, status, version, anchor, anchor_state, context, round_number,
-                    created_at, updated_at, resolved_at, comment_count_public,
+                    created_at, updated_at, resolved_at, private,
                     route, created_by, environment_id, assignee_id
         )
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, t.comment_count_public,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx)} AS comment_total,
                t.route, e.key AS environment_key,
                r.name AS created_by_name, r.kind AS created_by_kind, r.id AS created_by_id,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -1891,7 +1923,7 @@ function shape(r: Record<string, any>) {
     // round trips.
     version: r.version,
     resolvedAt: r.resolved_at ? new Date(r.resolved_at).toISOString() : undefined,
-    commentCount: r.comment_count_public ?? 0,
+    commentCount: r.comment_total ?? 0,
     // Present on the LIST too, not only the detail: the dock draws a thumbnail
     // from it, and before this the picture reappeared only on the machine that
     // took it — everyone else saw a comment with no screenshot.

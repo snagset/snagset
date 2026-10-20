@@ -90,9 +90,9 @@ async function makeThread(s: { id: string }, author: string, body: string): Prom
     const key = `SN-${n!.n}`;
     await tx`
       INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                           anchor, context, created_by, comment_count, comment_count_public)
+                           anchor, context, created_by)
       VALUES (${id}, ${orgId}, ${s.id}, ${key}, ${env!.id}, ${round!.id}, ${pos!.n},
-              ${tx.json({ offset: {}, page: {} })}, ${tx.json({ url: "https://client.test/pricing" })}, ${author}, 1, 1)`;
+              ${tx.json({ offset: {}, page: {} })}, ${tx.json({ url: "https://client.test/pricing" })}, ${author})`;
     await tx`
       INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body)
       VALUES (${randomUUID()}, ${orgId}, ${s.id}, ${id}, 1, ${author}, ${body})`;
@@ -201,8 +201,8 @@ before(async () => {
     await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
     await ensureStudioReviewers(tx as postgres.TransactionSql, { orgId });
     await tx`
-      INSERT INTO reviewers (id, org_id, project_id, kind, name, email, holder_secret_hash, thread_count)
-      VALUES (${ada}, ${orgId}, ${site.a.id}, 'guest', 'Ada the client', 'ada@client.test', ${Buffer.alloc(32, 2)}, 1)`;
+      INSERT INTO reviewers (id, org_id, project_id, kind, name, email, holder_secret_hash)
+      VALUES (${ada}, ${orgId}, ${site.a.id}, 'guest', 'Ada the client', 'ada@client.test', ${Buffer.alloc(32, 2)})`;
   });
   const studio = async (userId: string, projectId: string) =>
     (await sql<{ id: string }[]>`SELECT id FROM reviewers WHERE user_id = ${userId} AND project_id = ${projectId}`)[0]!.id;

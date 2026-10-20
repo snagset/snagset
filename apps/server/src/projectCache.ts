@@ -10,6 +10,10 @@ import { maintenance } from "./db/scope.ts";
  * for 10 s, so revocation takes effect within 10 s across all nodes at zero
  * query cost."*
  *
+ * (Less `config_version`, now: it fed an `x-snagset-config-version` header no
+ * client ever read, and both were retired — the column is dropped next
+ * release. `config_etag` likewise, unread since the /config ETag went.)
+ *
  * That is the whole design: a session carries `epo`, every authenticated
  * request compares it against this cache, and revoking a link bumps the row.
  * No query per request, and no node needs telling.
@@ -42,8 +46,6 @@ export interface ProjectRow {
    *  that saved it, which invalidates). */
   guest_can_resolve: boolean;
   session_epoch: number;
-  config_version: number;
-  config_etag: string;
   key_prefix: string;
   ip_salt: Buffer;
 }
@@ -84,7 +86,7 @@ export function createProjectCache(
   async function load(uid: string): Promise<ProjectRow | null> {
     const rows = await maintenance(sql, (tx) => tx<ProjectRow[]>`
       SELECT id, org_id, uid, name, status, write_mode, write_mode_downgrade_at, read_mode,
-             guest_can_resolve, session_epoch, config_version, config_etag, key_prefix, ip_salt,
+             guest_can_resolve, session_epoch, key_prefix, ip_salt,
              settings->>'domain' AS domain
       FROM projects WHERE uid = ${uid} AND deleted_at IS NULL
     `);

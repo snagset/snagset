@@ -103,10 +103,10 @@ before(async () => {
     const reviewer = randomUUID();
     const thread = randomUUID();
     await tx`INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash) VALUES (${reviewer}, ${orgId}, ${projectId}, 'guest', 'Ada the client', ${Buffer.alloc(32, 5)})`;
-    await tx`INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number, anchor, context, created_by, comment_count, comment_count_public)
+    await tx`INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number, anchor, context, created_by)
              VALUES (${thread}, ${orgId}, ${projectId}, 'SN-1', ${env!.id}, ${round!.id}, 1,
                      ${tx.json({ label: "the price table", css: "table", page: { origin: "https://kilnwork.studio", pathname: "/pricing", route: "/pricing" }, offset: {} })},
-                     ${tx.json({ ua: "x" })}, ${reviewer}, 1, 1)`;
+                     ${tx.json({ ua: "x" })}, ${reviewer})`;
     await tx`INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body) VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${thread}, 1, ${reviewer}, 'the price table wraps on tablets')`;
     await tx`UPDATE projects SET thread_seq = 1 WHERE id = ${projectId}`;
     await tx`UPDATE rounds SET thread_seq = 1 WHERE id = ${round!.id}`;

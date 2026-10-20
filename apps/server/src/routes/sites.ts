@@ -376,11 +376,10 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
                    : mode === "open"
                      ? null
                      : tx`write_mode_downgrade_at`
-               },
-               -- Bumped on every edit, not only a mode change: the widget
-               -- polls this to learn its config changed, and a renamed site
-               -- whose origins moved is exactly when it needs to.
-               config_version = config_version + 1
+               }
+               -- No config_version bump. It fed the x-snagset-config-version
+               -- header, which no client ever read; both are retired and the
+               -- column goes in next release's migration.
          WHERE id = ${project.id}::uuid
       `;
       if (origins) {
@@ -444,7 +443,7 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
     await sql.begin(async (tx) => {
       await tx`SELECT set_config('app.org_id', ${owner.orgId}, true)`;
       await tx`
-        UPDATE projects SET deleted_at = now(), config_version = config_version + 1
+        UPDATE projects SET deleted_at = now()
          WHERE id = ${project.id}::uuid
       `;
     });

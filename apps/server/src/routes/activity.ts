@@ -47,7 +47,7 @@ interface Row {
   route: string | null;
   updated_at: Date;
   created_at: Date;
-  comment_count_public: number;
+  comment_total: number;
   project_uid: string;
   project_name: string;
   environment_key: string;
@@ -100,7 +100,13 @@ export function activityRoutes(sql: postgres.Sql): Hono<Env> {
     const rows = await sql.begin(async (tx) => {
       await tx`SELECT set_config('app.org_id', ${owner.orgId}, true)`;
       return tx<Row[]>`
-        SELECT t.id, t.key, t.status, t.route, t.updated_at, t.created_at, t.comment_count_public,
+        SELECT t.id, t.key, t.status, t.route, t.updated_at, t.created_at,
+               -- The public reply total, counted (commentTotal in threads.ts,
+               -- which the per-site list uses: the two screens must agree).
+               -- No private-thread CASE here because the WHERE below already
+               -- leaves private threads out of this feed.
+               (SELECT count(*)::int FROM comments cc
+                 WHERE cc.thread_id = t.id AND cc.deleted_at IS NULL AND cc.private = false) AS comment_total,
                p.uid AS project_uid, p.name AS project_name, e.key AS environment_key,
                r.name AS created_by_name, r.kind AS created_by_kind,
                ar.name AS assignee_name,
@@ -155,7 +161,7 @@ export function activityRoutes(sql: postgres.Sql): Hono<Env> {
         environment: r.environment_key,
         createdBy: { name: r.created_by_name, kind: r.created_by_kind },
         assignee: r.assignee_name,
-        commentCount: r.comment_count_public,
+        commentCount: r.comment_total,
         latest: r.latest_body === null ? null : { body: r.latest_body, at: r.latest_at?.toISOString() ?? null, author: r.latest_author },
         createdAt: r.created_at.toISOString(),
         updatedAt: r.updated_at.toISOString(),

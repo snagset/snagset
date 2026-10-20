@@ -392,10 +392,11 @@ test("going private hides the replies too, and zeroes the public count", { skip 
   });
 
   const row = t.id.replace("thr_", "");
-  const [thread] = await sql<{ private: boolean; comment_count_public: number }[]>`
-    SELECT private, comment_count_public FROM threads WHERE id = ${row}::uuid`;
+  const [thread] = await sql<{ private: boolean }[]>`
+    SELECT private FROM threads WHERE id = ${row}::uuid`;
   assert.equal(thread!.private, true);
-  assert.equal(thread!.comment_count_public, 0, "a private thread has no public replies to count");
+  // Through the API: the count is derived on read now, not stored.
+  assert.equal((await threadById(t.id)).commentCount, 0, "a private thread has no public replies to count");
 
   const [pub] = await sql<{ n: number }[]>`
     SELECT count(*)::int AS n FROM comments WHERE thread_id = ${row}::uuid AND private = false`;
@@ -415,9 +416,7 @@ test("making it public again does NOT un-private the replies", { skip }, async (
   const [priv] = await sql<{ n: number }[]>`
     SELECT count(*)::int AS n FROM comments WHERE thread_id = ${row}::uuid AND private = true`;
   assert.equal(priv!.n, 2, "both the root comment and the reply stay team-only");
-  const [thread] = await sql<{ comment_count_public: number }[]>`
-    SELECT comment_count_public FROM threads WHERE id = ${row}::uuid`;
-  assert.equal(thread!.comment_count_public, 0, "and the recomputed count agrees with them");
+  assert.equal((await threadById(t.id)).commentCount, 0, "and the count agrees with them");
 });
 
 // ── the input ────────────────────────────────────────────────────────────
@@ -674,12 +673,10 @@ test("a retried REPLY returns the reply, not a 500", { skip }, async () => {
   assert.equal(second.status, 200);
   assert.equal((await json(first)).id, (await json(second)).id);
 
-  const row = t.id.replace("thr_", "");
-  const [thread] = await sql<{ comment_count: number }[]>`
-    SELECT comment_count FROM threads WHERE id = ${row}::uuid`;
-  // The counter is the thing a naive retry corrupts: two increments for one
-  // reply, and every count in the dashboard is wrong from then on.
-  assert.equal(thread!.comment_count, 2, "the root comment and ONE reply");
+  // The count is the thing a naive retry corrupts: two rows for one reply,
+  // and every count in the dashboard is wrong from then on. It is counted
+  // from the rows now, so a duplicate row would show here.
+  assert.equal((await threadById(t.id)).commentCount, 2, "the root comment and ONE reply");
 });
 
 test("an id that belongs to another project is a conflict, not a retry", { skip }, async () => {
@@ -816,17 +813,16 @@ test("delete leaves a TOMBSTONE — the conversation keeps its shape", { skip },
   assert.ok(row!.deleted_at);
 });
 
-test("deleting decrements BOTH counters, and never below zero", { skip }, async () => {
+test("deleting takes the reply out of the count", { skip }, async () => {
   // A thread showing "3 replies" above two of them is the failure this
-  // prevents, and it is invisible until somebody counts.
+  // prevents, and it is invisible until somebody counts. It was two stored
+  // counters decremented by hand; it is counted from the live rows now, so
+  // this asserts what the API says.
   const t = await makeThread("root");
   await reply(t.id, "one");
   await reply(t.id, "two");
   const row = t.id.replace("thr_", "");
-  const [before] = await sql<{ c: number; p: number }[]>`
-    SELECT comment_count AS c, comment_count_public AS p FROM threads WHERE id = ${row}::uuid`;
-  assert.equal(before!.c, 3);
-  assert.equal(before!.p, 3);
+  assert.equal((await threadById(t.id)).commentCount, 3);
 
   const [last] = await sql<{ id: string }[]>`
     SELECT id FROM comments WHERE thread_id = ${row}::uuid ORDER BY seq DESC LIMIT 1`;
@@ -834,10 +830,7 @@ test("deleting decrements BOTH counters, and never below zero", { skip }, async 
     method: "DELETE",
     headers: asReviewer(),
   });
-  const [after] = await sql<{ c: number; p: number }[]>`
-    SELECT comment_count AS c, comment_count_public AS p FROM threads WHERE id = ${row}::uuid`;
-  assert.equal(after!.c, 2);
-  assert.equal(after!.p, 2);
+  assert.equal((await threadById(t.id)).commentCount, 2);
 });
 
 test("deleting twice is the same outcome, not an error", { skip }, async () => {
@@ -851,9 +844,7 @@ test("deleting twice is the same outcome, not an error", { skip }, async () => {
   assert.equal((await app.request(path, { method: "DELETE", headers: asReviewer() })).status, 200);
   assert.equal((await app.request(path, { method: "DELETE", headers: asReviewer() })).status, 200);
 
-  const [counts] = await sql<{ c: number }[]>`
-    SELECT comment_count AS c FROM threads WHERE id = ${t.id.replace("thr_", "")}::uuid`;
-  assert.equal(counts!.c, 1, "and the counter moved exactly once");
+  assert.equal((await threadById(t.id)).commentCount, 1, "and the count moved exactly once");
 });
 
 test("past the 15-minute window the author is told to reply instead", { skip }, async () => {

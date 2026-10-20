@@ -279,21 +279,18 @@ export function commentEditRoutes(deps: CommentEditDeps): Hono<Env> {
     const [tombstone] = await sql.begin(async (tx) => {
       await tx`SELECT set_config('app.org_id', ${row.org_id}, true)`;
       /**
-       * The counters, in the same statement as the tombstone.
+       * The thread moves, in the same transaction as the tombstone, so a poll
+       * picks the deletion up.
        *
-       * `comment_count` is every reply and `comment_count_public` is the ones a
-       * client may read — so a private comment being deleted must decrement the
-       * first and not the second. Getting this wrong is invisible until a
-       * thread shows "3 replies" above two of them.
-       *
-       * `GREATEST(…, 0)` because a counter that has already drifted must not go
-       * negative and start rendering as "-1 replies" forever.
+       * No counters. This used to decrement `comment_count` and
+       * `comment_count_public` by hand, and getting the private case wrong was
+       * invisible until a thread showed "3 replies" above two of them. The
+       * reply total is now counted from the live comments wherever it is read
+       * (commentTotal in threads.ts), so the tombstone below IS the decrement.
        */
       await tx`
         UPDATE threads
-           SET comment_count = GREATEST(comment_count - 1, 0),
-               comment_count_public = GREATEST(comment_count_public - ${row.private ? 0 : 1}, 0),
-               version = version + 1,
+           SET version = version + 1,
                updated_at = now()
          WHERE id = ${row.thread_id}::uuid
       `;

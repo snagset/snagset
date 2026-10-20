@@ -64,19 +64,19 @@ before(async () => {
       INSERT INTO rounds (id, org_id, project_id, number, name, created_by, thread_seq)
       VALUES (${roundId}, ${orgId}, ${projectId}, 1, 'Round 1', ${userId}, 2)`;
     await tx`
-      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash, thread_count)
-      VALUES (${adaId}, ${orgId}, ${projectId}, 'guest', 'Ada', ${Buffer.alloc(32, 2)}, 2)`;
+      INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash)
+      VALUES (${adaId}, ${orgId}, ${projectId}, 'guest', 'Ada', ${Buffer.alloc(32, 2)})`;
     for (const [id, key, n, isPrivate, body] of [
       [publicId, "SN-1", 1, false, "The pricing table wraps at 1280."],
       [privateId, "SN-2", 2, true, "Internal: ask the client about the copy."],
     ] as const) {
       await tx`
         INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number,
-                             anchor, context, created_by, private, comment_count, comment_count_public)
+                             anchor, context, created_by, private)
         VALUES (${id}, ${orgId}, ${projectId}, ${key}, ${envId}, ${roundId}, ${n},
                 ${tx.json({ label: "table “Plans”", css: "main .pricing > table", page: { origin: "https://kilnwork.studio", pathname: "/pricing", route: "/pricing" }, offset: {} })},
                 ${tx.json({ viewport: { w: 1440, h: 900, dpr: 2 }, derived: { browser: "Chrome 131", os: "macOS" } })},
-                ${adaId}, ${isPrivate}, 1, ${isPrivate ? 0 : 1})`;
+                ${adaId}, ${isPrivate})`;
       await tx`
         INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body, private)
         VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${id}, 1, ${adaId}, ${body}, ${isPrivate})`;
