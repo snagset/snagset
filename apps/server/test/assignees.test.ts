@@ -477,16 +477,19 @@ test("one row per person: a guest's many browsers fold together, a studio member
    * and an MCP agent listed among the clients.
    */
   const say = async (tx: postgres.TransactionSql, author: string) => {
-    const [{ n }] = await tx<{ n: number }[]>`SELECT COALESCE(max(seq), 0)::int + 1 AS n FROM comments WHERE thread_id = ${threadId}`;
+    const [next] = await tx<{ n: number }[]>`SELECT COALESCE(max(seq), 0)::int + 1 AS n FROM comments WHERE thread_id = ${threadId}`;
     await tx`
       INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body)
-      VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${threadId}, ${n}, ${author}, 'hello')`;
+      VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${threadId}, ${next!.n}, ${author}, 'hello')`;
   };
-  const morrises = [randomUUID(), randomUUID(), randomUUID()];
+  const morrises: string[] = [randomUUID(), randomUUID(), randomUUID()];
   const ownerAlias = randomUUID();
   await sql.begin(async (tx) => {
     await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
-    for (const [i, [id, name]] of ([[morrises[0], "Morris"], [morrises[1], "morris"], [morrises[2], " Morris "]] as const).entries()) {
+    const spellings = ["Morris", "morris", " Morris "];
+    for (let i = 0; i < 3; i++) {
+      const id = morrises[i]!;
+      const name = spellings[i]!;
       await tx`
         INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash, last_seen_at)
         VALUES (${id}, ${orgId}, ${projectId}, 'guest', ${name}, ${Buffer.alloc(32, 20 + i)}, now() - ${`${3 - i} minutes`}::interval)`;
