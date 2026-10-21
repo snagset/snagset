@@ -673,7 +673,8 @@ function AssigneeMenu({
   const [adding, setAdding] = useState(false);
   const me = pool.find((r) => r.isMe);
   const team = pool.filter((r) => r.isTeam);
-  const others = pool.filter((r) => !r.isTeam);
+  const others = pool.filter((r) => !r.isTeam && !r.isAgent);
+  const agents = pool.filter((r) => !r.isTeam && r.isAgent);
   const pick = (r: Reviewer) => onAssign({ id: r.id, name: r.name, kind: r.kind, isTeam: r.isTeam });
   const person = (r: Reviewer) => (
     <DropdownMenuItem key={r.id} onClick={() => pick(r)}>
@@ -725,6 +726,12 @@ function AssigneeMenu({
             <DropdownMenuGroup>
               <DropdownMenuLabel>People who commented</DropdownMenuLabel>
               {others.map(person)}
+            </DropdownMenuGroup>
+          )}
+          {agents.length > 0 && (
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Agents</DropdownMenuLabel>
+              {agents.map(person)}
             </DropdownMenuGroup>
           )}
           <DropdownMenuSeparator />

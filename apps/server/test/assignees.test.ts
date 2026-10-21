@@ -469,3 +469,55 @@ test("only replying, never opening a thread, is enough — and a deleted reply d
   assert.equal(del.status, 200, await del.clone().text());
   assert.ok((await names()).includes("Cy"), "deleting the only reply does not drop them from the pool");
 });
+
+test("one row per person: a guest's many browsers fold together, a studio member's guest self folds in, agents stand apart", { skip }, async () => {
+  /**
+   * Production: "Morris" six times (every browser a client opens is a new
+   * guest identity), a colleague who commented before signing in listed twice,
+   * and an MCP agent listed among the clients.
+   */
+  const say = async (tx: postgres.TransactionSql, author: string) => {
+    const [{ n }] = await tx<{ n: number }[]>`SELECT COALESCE(max(seq), 0)::int + 1 AS n FROM comments WHERE thread_id = ${threadId}`;
+    await tx`
+      INSERT INTO comments (id, org_id, project_id, thread_id, seq, author_id, body)
+      VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${threadId}, ${n}, ${author}, 'hello')`;
+  };
+  const morrises = [randomUUID(), randomUUID(), randomUUID()];
+  const ownerAlias = randomUUID();
+  await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+    for (const [i, [id, name]] of ([[morrises[0], "Morris"], [morrises[1], "morris"], [morrises[2], " Morris "]] as const).entries()) {
+      await tx`
+        INSERT INTO reviewers (id, org_id, project_id, kind, name, holder_secret_hash, last_seen_at)
+        VALUES (${id}, ${orgId}, ${projectId}, 'guest', ${name}, ${Buffer.alloc(32, 20 + i)}, now() - ${`${3 - i} minutes`}::interval)`;
+      await say(tx, id);
+    }
+    // The owner, commenting as a guest under their own address.
+    await tx`
+      INSERT INTO reviewers (id, org_id, project_id, kind, name, email, holder_secret_hash)
+      VALUES (${ownerAlias}, ${orgId}, ${projectId}, 'guest', 'Owner on a phone', 'o@e.test', ${Buffer.alloc(32, 30)})`;
+    await say(tx, ownerAlias);
+  });
+  // An agent's writer, as agentReviewer() makes it: a guest-kind row tied to
+  // its token. Named like a client on purpose — it must still stand apart.
+  await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+    const [tok] = await tx<{ id: string }[]>`SELECT id FROM mcp_tokens WHERE project_id = ${projectId} LIMIT 1`;
+    const agentId = randomUUID();
+    await tx`
+      INSERT INTO reviewers (id, org_id, project_id, kind, name, is_agent, agent_mcp_token_id, holder_secret_hash)
+      VALUES (${agentId}, ${orgId}, ${projectId}, 'guest', 'Morris', true, ${tok!.id}, ${Buffer.alloc(32, 40)})`;
+    await say(tx, agentId);
+  });
+
+  const rows = (await json(await app.request(pool(), { headers: asOwner() })))["data"] as any[];
+  const named = (n: string) => rows.filter((r) => !r.isAgent && String(r.name).trim().toLowerCase() === n);
+  assert.equal(named("morris").length, 1, `one Morris: ${rows.map((r) => r.name).join(", ")}`);
+  assert.equal(named("morris")[0].id, `rev_${morrises[2]}`, "the most recently active identity represents them");
+  assert.equal(named("owner on a phone").length, 0, "the owner's guest self folds into the owner");
+  assert.equal(rows.filter((r) => r.isTeam).length, 1);
+  const agents = rows.filter((r) => r.isAgent);
+  assert.equal(agents.length, 1, "the agent is listed, flagged");
+  assert.ok(!agents[0].isTeam);
+  assert.equal(rows.at(-1).isAgent, true, "and after the people");
+});

@@ -48,6 +48,26 @@ test("renaming the studio and yourself shows up on /me", { skip }, async () => {
   assert.equal(j.org.name, "Example Studio"); assert.equal(j.user.name, "Edith");
 });
 
+test("your name reaches your studio identity on every site, so the assignee menu stops showing your address", { skip }, async () => {
+  const me = await login("owner@studio.test");
+  const made = await app.request("/api/v1/projects", { method: "POST", headers: as(me), body: JSON.stringify({ name: "Site", origins: "https://example.test" }) });
+  assert.ok(made.status === 200 || made.status === 201, await made.clone().text());
+  assert.equal((await app.request("/api/v1/me", { method: "PATCH", headers: as(me), body: JSON.stringify({ name: "Edith S" }) })).status, 200);
+  const rows = await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    return tx<{ name: string }[]>`SELECT r.name FROM reviewers r JOIN users u ON u.id = r.user_id WHERE u.email = 'owner@studio.test'`;
+  });
+  assert.ok(rows.length > 0, "the site materialised a studio reviewer row");
+  for (const r of rows) assert.equal(r.name, "Edith S");
+  // Clearing the name falls back to the address, never to an empty label.
+  assert.equal((await app.request("/api/v1/me", { method: "PATCH", headers: as(me), body: JSON.stringify({ name: "" }) })).status, 200);
+  const again = await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    return tx<{ name: string }[]>`SELECT r.name FROM reviewers r JOIN users u ON u.id = r.user_id WHERE u.email = 'owner@studio.test'`;
+  });
+  for (const r of again) assert.equal(r.name, "owner@studio.test");
+});
+
 test("a password change needs the current one, keeps this session, and ends every other", { skip }, async () => {
   const here = await login("owner@studio.test");
   const elsewhere = await login("owner@studio.test");

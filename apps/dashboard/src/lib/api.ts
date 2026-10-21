@@ -288,6 +288,8 @@ export interface Assignee {
   kind: string;
   /** A studio member, as opposed to somebody who commented. Grouping, not permission. */
   isTeam: boolean;
+  /** An MCP agent's writer, listed apart from the people. */
+  isAgent?: boolean;
 }
 
 /** A person in the pool — a `Reviewer` plus the two flags the menu groups by. */

@@ -83,6 +83,9 @@ export function shapeReviewer(r: Record<string, unknown>, withEmail: boolean) {
     // studio" above "people who have commented". NOT a permission.
     isTeam: !!r["is_team"],
     isMe: !!r["is_me"],
+    // An MCP agent writes as a guest-kind reviewer; the dropdown lists it
+    // apart from the people, so "the maintainer's Claude Code" is not read as a client.
+    ...(r["is_agent"] ? { isAgent: true } : {}),
   };
 }
 
@@ -116,19 +119,54 @@ export function assigneeRoutes(deps: AssigneeDeps): Hono<Env> {
 
     const rows = await inOrg(p.org_id, (tx) =>
       tx<Record<string, unknown>[]>`
-        SELECT r.id, r.name, r.email, r.kind, r.avatar_url,
-               (r.user_id IS NOT NULL) AS is_team,
-               ${asOwner ? tx`(r.user_id = ${owner!.userId}::uuid)` : tx`(r.id = ${session!.sub}::uuid)`} AS is_me,
+        WITH pool AS (
+          SELECT r.id, r.name, r.email, r.kind, r.avatar_url, r.is_agent, r.last_seen_at,
+                 (r.user_id IS NOT NULL) AS is_team,
+                 ${asOwner ? tx`(r.user_id = ${owner!.userId}::uuid)` : tx`(r.id = ${session!.sub}::uuid)`} AS is_me,
+                 /*
+                  * ONE ROW PER PERSON, not per identity. A guest is a new
+                  * reviewer in every browser (the holder lives in that
+                  * browser's storage), so one client on a laptop, a phone and
+                  * a private window was "Morris" three times — and a colleague
+                  * who commented before signing in was there twice. Rows fold
+                  * by: the studio member they match (by email, or by name),
+                  * else their email, else their name, case and spacing aside.
+                  * Agents never fold: each token is its own writer.
+                  */
+                 CASE
+                   WHEN r.user_id IS NOT NULL THEN 'u:' || r.user_id
+                   WHEN r.is_agent THEN 'a:' || r.id
+                   WHEN m.user_id IS NOT NULL THEN 'u:' || m.user_id
+                   WHEN r.email IS NOT NULL AND r.email <> '' THEN 'e:' || lower(r.email)
+                   ELSE 'n:' || lower(btrim(r.name))
+                 END AS person
+          FROM reviewers r
+          LEFT JOIN LATERAL (
+            SELECT sm.user_id FROM reviewers sm
+             WHERE sm.project_id = r.project_id AND sm.user_id IS NOT NULL AND r.user_id IS NULL AND NOT r.is_agent
+               AND ((r.email IS NOT NULL AND lower(sm.email) = lower(r.email))
+                    OR lower(btrim(sm.name)) = lower(btrim(r.name)))
+             LIMIT 1
+          ) m ON true
+          WHERE r.project_id = ${p.id}::uuid
+            AND ${inPool(tx)}
+        ),
+        people AS (
+          -- The studio member's own row wins a fold, then the most recently
+          -- active identity: that is the one an assignment mail should reach.
+          SELECT DISTINCT ON (person) *
+            FROM pool
+           ORDER BY person, is_team DESC, is_me DESC, last_seen_at DESC
+        )
+        SELECT id, name, email, kind, avatar_url, is_agent, is_team, is_me,
                count(*) OVER () AS total
-        FROM reviewers r
-        WHERE r.project_id = ${p.id}::uuid
-          AND ${inPool(tx)}
-          ${q ? tx`AND (r.name ILIKE ${q + "%"} OR r.email ILIKE ${q + "%"})` : tx``}
+          FROM people
+         ${q ? tx`WHERE (name ILIKE ${q + "%"} OR email ILIKE ${q + "%"})` : tx``}
         -- The studio first (you assign to a colleague more often than to
         -- anyone else), then most recently active, which puts the person who
         -- just commented at the top of the list you opened because they did.
-        ORDER BY is_team DESC, r.last_seen_at DESC
-        LIMIT ${limit}
+         ORDER BY is_team DESC, is_agent ASC, last_seen_at DESC
+         LIMIT ${limit}
       `,
     );
     c.header("Cache-Control", "private, max-age=30");

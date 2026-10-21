@@ -52,7 +52,15 @@ export function accountRoutes(deps: { sql: postgres.Sql }): Hono<Env> {
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const name = typeof body?.name === "string" ? body.name.trim().slice(0, 120) : "";
-    await inOrg(sql, owner.orgId, (tx) => tx`UPDATE users SET name = ${name}, updated_at = now() WHERE id = ${owner.userId}`);
+    await inOrg(sql, owner.orgId, async (tx) => {
+      await tx`UPDATE users SET name = ${name}, updated_at = now() WHERE id = ${owner.userId}`;
+      // The member's reviewer row on every site carries a COPY of the name
+      // (studioReviewers.ts writes it once, falling back to the email), and
+      // the assignee menu, the widget and assignment mail all read that copy.
+      // Without this a member who set their name kept showing as their
+      // address everywhere but the account page.
+      await tx`UPDATE reviewers SET name = ${name || owner.email} WHERE user_id = ${owner.userId}`;
+    });
     return c.json({ user: { email: owner.email, name, role: owner.role } });
   });
 
