@@ -66,7 +66,7 @@ export function useChangePassword() {
 export function useCreateInvite() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { role: "owner" | "admin"; email?: string }) => api.createInvite(input),
+    mutationFn: (input: { role: "owner" | "admin" | "member"; email?: string }) => api.createInvite(input),
     onSuccess: () => void qc.invalidateQueries({ queryKey: q.invites().queryKey }),
   });
 }
@@ -99,7 +99,7 @@ export function useSetMemberRole() {
   const qc = useQueryClient();
   const key = q.members().queryKey;
   return useMutation({
-    mutationFn: (v: { email: string; role: "owner" | "admin" }) => api.setMemberRole(v.email, v.role),
+    mutationFn: (v: { email: string; role: "owner" | "admin" | "member" }) => api.setMemberRole(v.email, v.role),
     onMutate: async ({ email, role }) => {
       await qc.cancelQueries({ queryKey: key });
       const was = qc.getQueryData<{ data: Member[] }>(key);

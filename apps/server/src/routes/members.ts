@@ -1,6 +1,7 @@
 import { Hono, type Context } from "hono";
 import type postgres from "postgres";
 import type { MemberRole, OwnerClaims } from "./owner.ts";
+import { ASSIGNABLE_ROLES, can } from "@snagset/types/roles";
 import { maintenance } from "../db/scope.ts";
 
 /**
@@ -18,10 +19,18 @@ import { maintenance } from "../db/scope.ts";
  * ── WHAT IS WIRED, AND WHAT IS REFUSED ──
  *
  * `owner` and `admin`: identical powers, except that only an owner manages
- * members. `member` and `viewer` stay in the enum and are refused here with a
- * sentence, because a read-only studio seat means per-project visibility
- * rules (01 F-27) that are not designed, and a role the API accepts but the
- * product does not honour is a promise nobody can keep.
+ * members. `member`: a designer's seat — every site and every comment,
+ * status, assignees, rounds, their own words and their own agent tokens, and
+ * no settings; `can()` in `@snagset/types/roles` is the whole table. `viewer`
+ * stays in the enum and is refused here with a sentence, because a read-only
+ * studio seat means per-project visibility rules (01 F-27) that are not
+ * designed, and a role the API accepts but the product does not honour is a
+ * promise nobody can keep.
+ *
+ * Changing a role and removing somebody stay an OWNER's (`people`), for every
+ * role including member: an admin who could demote another admin to member,
+ * or remove them, would be managing their peers, and kept that with the
+ * owner. An admin brings members IN, through an invite (invites.ts).
  *
  * ── HOW A PERSON GETS IN ──
  *
@@ -52,21 +61,22 @@ function fail(c: Ctx, status: number, code: string, message: string) {
 function mustBeOwner(c: Ctx): OwnerClaims | Response {
   const owner = c.get("owner");
   if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
-  if (owner.role !== "owner") {
+  if (!can(owner.role, "people")) {
     return fail(c, 403, "forbidden", "Only an owner can change who is in the studio.");
   }
   return owner;
 }
 
-const WIRED: readonly MemberRole[] = ["owner", "admin"];
+const WIRED: readonly MemberRole[] = ASSIGNABLE_ROLES;
 
-function parseRole(v: unknown): MemberRole | string {
-  if (v !== "owner" && v !== "admin") {
-    return v === "member" || v === "viewer"
-      ? `"${v}" is not available yet — a read-only seat needs visibility rules that are not built. Use owner or admin.`
-      : "role must be owner or admin.";
+/** Exported so invites.ts says it the same way. */
+export function parseRole(v: unknown): MemberRole | string {
+  if (!WIRED.includes(v as MemberRole)) {
+    return v === "viewer"
+      ? `"viewer" is not available yet — a read-only seat needs visibility rules that are not built. Use owner, admin or member.`
+      : "role must be owner, admin or member.";
   }
-  return v;
+  return v as MemberRole;
 }
 
 export interface MemberRow {

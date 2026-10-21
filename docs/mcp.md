@@ -16,6 +16,12 @@ for Cursor, Claude Desktop and the rest, both copyable, so a 51-character
 secret is never retyped. The same card lists every token by name, by the first
 eight characters, and by what it may do in words, and revokes it.
 
+A studio **member** mints theirs from **You › Your agent tokens** instead, and
+sees and revokes only their own; owners and admins see every token in the
+studio, and the owner can revoke any of them. A member may tick every scope:
+none of them reaches past what a member can do, because an agent never
+resolves, assigns, makes a thread team-only or deletes, whoever minted it.
+
 Or on the machine running your instance:
 
 ```bash

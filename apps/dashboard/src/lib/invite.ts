@@ -1,3 +1,5 @@
+import { withArticle } from "@snagset/types/roles";
+
 /**
  * The invite page's two decisions, outside the component so they can be
  * proved without a browser.
@@ -39,7 +41,7 @@ export function inviteProblem(code: string | null): { title: string; signIn: boo
   }
 }
 
-/** "an owner" / "an admin" — the article is the one thing a template gets wrong. */
+/** "an owner" / "an admin" / "a member" — the article is the one thing a template gets wrong. */
 export function asRole(role: string): string {
-  return role === "owner" ? "an owner" : "an admin";
+  return withArticle(role);
 }

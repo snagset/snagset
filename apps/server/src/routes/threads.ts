@@ -24,6 +24,7 @@ import { briefMarkdown, type BriefThread } from "@snagset/types/brief";
 import { queueIntegrationEvent } from "../integrations/outbox.ts";
 import { inOrg } from "../db/scope.ts";
 import { isStudioModerator } from "../studioReviewers.ts";
+import { can } from "@snagset/types/roles";
 
 /**
  * The widget's routes, cut to what the walking skeleton needs:
@@ -681,9 +682,11 @@ export function threadRoutes(
   /**
    * Move threads to another round, the studio's filing act, and the
    * one exception to the "a thread never moves": automatic placement never
-   * moves a thread; only this explicit move does. Owner or admin, from the
-   * dashboard (cookie and CSRF pair, checked inline because the bearer
-   * middleware owns this path for the widget).
+   * moves a thread; only this explicit move does. Anyone who reviews in the
+   * studio — owner, admin or member — from the dashboard (cookie and
+   * CSRF pair, checked inline because the bearer middleware owns this path
+   * for the widget). Filing a comment where it belongs is the designers'
+   * everyday work; reshaping the rounds themselves stays an admin's.
    *
    * `{ ids: ["thr_…"], round: <number> }`. The target may be open or closed
    * — filing a stray comment into a finished round is a filing decision — but
@@ -702,8 +705,8 @@ export function threadRoutes(
     if (!p) return fail(c, 404, "project_not_found", "No project with that uid.");
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
-    if (owner.orgId !== p.org_id || (owner.role !== "owner" && owner.role !== "admin")) {
-      return fail(c, 403, "forbidden", "Only an owner or an admin can move comments between rounds.");
+    if (owner.orgId !== p.org_id || !can(owner.role, "review")) {
+      return fail(c, 403, "forbidden", "Your role in this studio cannot move comments between rounds.");
     }
     if (!csrfOk(c)) {
       return fail(c, 403, "csrf_failed", "That request could not be verified. Reload the dashboard and try again.");
@@ -1221,6 +1224,20 @@ export function threadRoutes(
     if (mcp && !asAgent) return scopeDenied(c, "threads:write");
     if (!asOwner && !asAgent && !session) {
       return fail(c, 401, "unauthorized", "Open your review link, or reload the page, and try again.");
+    }
+    if (asOwner) {
+      // Status, assignee and team-only are review acts — owner, admin
+      // and member alike; a viewer holds none. Said here rather than left to
+      // "any cookie of this org", which was the rule until the member seat
+      // made a cookie stop meaning admin.
+      if (!can(owner!.role, "review")) return fail(c, 403, "forbidden", "Your role in this studio cannot change comments.");
+      // The owner cookie's half of `requireOwner()`, run inline as the move
+      // and the DELETE below run it: `bearerAuth` owns this path for the
+      // widget, so the middleware cannot be mounted. A bearer request
+      // carries no cookie and needs no CSRF check.
+      if (!session && !asAgent && !csrfOk(c)) {
+        return fail(c, 403, "csrf_failed", "That request could not be verified. Reload the dashboard and try again.");
+      }
     }
     /**
      * For a GUEST the site's current setting is the answer, not the
@@ -1798,11 +1815,7 @@ export function threadRoutes(
         return fail(c, 403, "forbidden", "Only the studio can delete a comment thread.");
       }
     } else {
-      // The matrix: member, admin and owner may; a viewer may not. Nobody
-      // can be GIVEN a viewer seat yet (members.ts wires owner and admin only),
-      // so this is the rule written down where it applies, before the day the
-      // seat exists and every route has to be audited for it.
-      if (owner!.role === "viewer") {
+      if (!can(owner!.role, "review")) {
         return fail(c, 403, "forbidden", "A viewer cannot delete comments.");
       }
       // The owner cookie's half of `requireOwner()`, run inline — `bearerAuth`
@@ -1811,6 +1824,25 @@ export function threadRoutes(
       // A bearer request carries no cookie and needs no CSRF check.
       if (!csrfOk(c)) {
         return fail(c, 403, "csrf_failed", "That request could not be verified. Reload the dashboard and try again.");
+      }
+      /**
+       * Deleting a thread deletes everybody's words in it, which is
+       * moderation — an owner's or an admin's. A MEMBER deletes a thread the
+       * way a reviewer does in the widget: one they started, while every
+       * live comment in it is still theirs (their studio reviewer row, the
+       * one a dashboard reply and a widget sign-in both write under).
+       */
+      if (!can(owner!.role, "moderate") && threadRow) {
+        const [t] = await inOrg(sql, p.org_id, (tx) => tx<{ all_mine: boolean; any: boolean }[]>`
+          SELECT bool_and(r.user_id IS NOT DISTINCT FROM ${owner!.userId}::uuid) AS all_mine, count(c.id) > 0 AS any
+            FROM threads t
+            JOIN comments c ON c.thread_id = t.id AND c.deleted_at IS NULL
+            JOIN reviewers r ON r.id = c.author_id
+           WHERE t.id = ${threadRow}::uuid AND t.project_id = ${p.id}::uuid AND t.deleted_at IS NULL
+        `);
+        if (t?.any && !t.all_mine) {
+          return fail(c, 403, "forbidden", "Only an owner or an admin can delete a thread somebody else has written in.");
+        }
       }
     }
 

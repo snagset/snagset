@@ -61,6 +61,7 @@ import { Palette, usePalette } from "@/components/app/Palette";
 import { useMe } from "@/lib/me";
 import { q } from "@/lib/query";
 import { useCurrentSite, type Site } from "@/lib/site";
+import { can, useForgetOnRoleChange } from "@/lib/roles";
 import { readTheme, setTheme, type Theme } from "@/lib/theme";
 import { checkForUpdate, type UpdateResult } from "@/lib/update";
 
@@ -79,13 +80,14 @@ export function Shell({ children }: { children: ReactNode }) {
   const me = useMe();
   const site = useCurrentSite(me);
   const [palette, setPalette] = usePalette();
+  useForgetOnRoleChange();
   return (
     <SidebarProvider>
       <AppSidebar me={me} site={site} />
       <SidebarInset className="min-w-0">
         <Header onSearch={() => setPalette(true)} />
         <DatabaseBehind names={me.pendingMigrations ?? []} owner={me.user.role === "owner"} />
-        {me.regionMismatch && (me.user.role === "owner" || me.user.role === "admin") && <FarFromDatabase {...me.regionMismatch} />}
+        {me.regionMismatch && can(me.user.role, "settings") && <FarFromDatabase {...me.regionMismatch} />}
         <div className="min-h-0 flex-1">{children}</div>
       </SidebarInset>
       {/* ⌘K from anywhere signed in, including the screens with no search box of their own. */}
@@ -148,6 +150,10 @@ function FarFromDatabase({ functions, database, suggest }: { functions: string; 
 function AppSidebar({ me, site }: { me: Me; site: Site | null }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const on = (prefix: string) => path === prefix || path.startsWith(prefix + "/");
+  // A member's sidebar is the work — comments, reviewers, sites,
+  // activity. The settings screens are an admin's, and not drawn rather than
+  // drawn disabled: a row of locked doors is a page about what you cannot do.
+  const admin = can(me.user.role, "settings");
   return (
     <Sidebar>
       <SidebarHeader className="px-3 pb-1 pt-3">
@@ -178,15 +184,17 @@ function AppSidebar({ me, site }: { me: Me; site: Site | null }) {
                     <span>Reviewers</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    isActive={on(`/s/${site.uid}/settings`)}
-                    render={<Link to="/s/$site/settings" params={{ site: site.uid }} />}
-                  >
-                    <SlidersHorizontalIcon />
-                    <span>Settings</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                {admin && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      isActive={on(`/s/${site.uid}/settings`)}
+                      render={<Link to="/s/$site/settings" params={{ site: site.uid }} />}
+                    >
+                      <SlidersHorizontalIcon />
+                      <span>Settings</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           )}
@@ -207,24 +215,28 @@ function AppSidebar({ me, site }: { me: Me; site: Site | null }) {
                   <span>Activity</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton isActive={on("/studio/members")} render={<Link to="/studio/members" />}>
-                  <UsersIcon />
-                  <span>Members</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton isActive={on("/studio/integrations")} render={<Link to="/studio/integrations" />}>
-                  <BlocksIcon />
-                  <span>Integrations</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton isActive={path === "/studio"} render={<Link to="/studio" />}>
-                  <Building2Icon />
-                  <span>General</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {admin && (
+                <>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton isActive={on("/studio/members")} render={<Link to="/studio/members" />}>
+                      <UsersIcon />
+                      <span>Members</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton isActive={on("/studio/integrations")} render={<Link to="/studio/integrations" />}>
+                      <BlocksIcon />
+                      <span>Integrations</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton isActive={path === "/studio"} render={<Link to="/studio" />}>
+                      <Building2Icon />
+                      <span>General</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -274,7 +286,10 @@ function StudioHeader({ me }: { me: Me }) {
       </span>
     </>
   );
+  const admin = can(me.user.role, "settings");
   if (me.orgs.length <= 1 && !me.signupOpen) {
+    // A member has no studio settings to open: the name is a label.
+    if (!admin) return <div className="flex items-center gap-2.5 px-1 py-0.5 text-foreground">{block}</div>;
     return (
       <Link to="/studio" className="flex items-center gap-2.5 rounded-md px-1 py-0.5 text-foreground hover:bg-sidebar-accent" aria-label={`${me.org.name} — studio settings`}>
         {block}
@@ -317,11 +332,13 @@ function StudioHeader({ me }: { me: Me }) {
               </DropdownMenuItem>
             ))}
           </DropdownMenuGroup>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => void navigate({ to: "/studio" })}>
-            <SlidersHorizontalIcon />
-            Studio settings
-          </DropdownMenuItem>
+          {(admin || me.signupOpen) && <DropdownMenuSeparator />}
+          {admin && (
+            <DropdownMenuItem onClick={() => void navigate({ to: "/studio" })}>
+              <SlidersHorizontalIcon />
+              Studio settings
+            </DropdownMenuItem>
+          )}
           {me.signupOpen && (
             <DropdownMenuItem onClick={() => setMaking(true)}>
               <PlusIcon />
@@ -395,10 +412,12 @@ function SiteSwitcher({ me, site }: { me: Me; site: Site | null }) {
           ))}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => void navigate({ to: "/sites", search: { add: true } })}>
-          <PlusIcon />
-          Add a site
-        </DropdownMenuItem>
+        {can(me.user.role, "settings") && (
+          <DropdownMenuItem onClick={() => void navigate({ to: "/sites", search: { add: true } })}>
+            <PlusIcon />
+            Add a site
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={() => void navigate({ to: "/sites" })}>
           <LayoutGridIcon />
           All sites

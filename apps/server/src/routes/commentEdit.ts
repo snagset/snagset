@@ -3,6 +3,7 @@ import type postgres from "postgres";
 import { ID_PREFIX } from "@snagset/types/names";
 import type { SessionClaims } from "../session.ts";
 import { csrfOk, type OwnerClaims } from "./owner.ts";
+import { can } from "@snagset/types/roles";
 import { isStudioModerator } from "../studioReviewers.ts";
 import { maintenance } from "../db/scope.ts";
 
@@ -21,8 +22,8 @@ import { maintenance } from "../db/scope.ts";
  * ── WHO MAY ──
  *
  * *"Guests can edit and delete only their own comments, within 15 minutes
- * of creation."* An OWNER of the org may delete anything, and may not edit
- * anyone else's words — putting text in somebody's mouth under their name is
+ * of creation."* An OWNER or ADMIN of the org may delete anything, a MEMBER
+ * only their own, and none of them may edit anyone else's words — putting text in somebody's mouth under their name is
  * not a moderation power, it is a forgery, and the honest tool for an unwanted
  * comment is deletion.
  *
@@ -146,18 +147,28 @@ export function commentEditRoutes(deps: CommentEditDeps): Hono<Env> {
 
     if (asOwner) {
       /**
-       * An owner may DELETE anything and EDIT only their own.
+       * An owner or an admin may DELETE anything and EDIT only their own; a
+       * member edits and deletes only their own — deleting somebody
+       * else's words is moderation (`moderate`), and a viewer does neither.
        *
        * Editing somebody else's words while their name stays on them is not a
        * moderation power, it is a forgery — and the honest tool for a comment
        * the studio does not want is the one next to it.
        */
-      if (action === "delete" || isAuthor) return null;
+      if (!can(owner!.role, "review")) return fail(c, 403, "forbidden", "Your role in this studio cannot change comments.");
+      if (isAuthor) return null;
+      if (action === "delete") {
+        return can(owner!.role, "moderate")
+          ? null
+          : fail(c, 403, "forbidden", "Only an owner or an admin can delete somebody else's comment.");
+      }
       return fail(
         c,
         403,
         "forbidden",
-        "You can delete this comment, but not rewrite it — it would still carry its author's name.",
+        can(owner!.role, "moderate")
+          ? "You can delete this comment, but not rewrite it — it would still carry its author's name."
+          : "You can only change your own comments.",
       );
     }
 

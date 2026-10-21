@@ -20,9 +20,10 @@ import { Brief } from "@/components/app/Brief";
 import { InstallTag } from "@/components/app/InstallTag";
 import { EmptyState, StatusPill } from "@/components/app/parts";
 import { MoveToRound, RoundMenu } from "@/components/app/RoundMenu";
-import type { Reviewer, Round, Thread } from "@/lib/api";
+import type { Reviewer, Round, Thread, Tracker } from "@/lib/api";
 import { STATUSES, STATUS_LABEL, ago, initials, isStatus, type Status } from "@/lib/labels";
 import { useMe } from "@/lib/me";
+import { can } from "@/lib/roles";
 import { q } from "@/lib/query";
 import {
   threadsQuery,
@@ -183,8 +184,14 @@ function Comments() {
   const filtered = statusSet.size > 0 || !!s.page || !!s.q || !!s.assignee;
   const others = menuRounds.filter((r) => r.number !== activeRound && r.unresolved > 0);
   // Where a comment may be filed — open or closed, never archived, never
-  // the round on screen. Owners and admins only; the server says the same.
-  const canMove = me.user.role === "owner" || me.user.role === "admin";
+  // the round on screen. Anyone who reviews, members included; the
+  // server says the same.
+  const canMove = can(me.user.role, "review");
+  // Deleting somebody else's words is an owner's or an admin's. A member
+  // deletes their own comment, and a thread only while every live word in it
+  // is theirs — the server's rule, drawn so the control never fails.
+  const moderator = can(me.user.role, "moderate");
+  const allMine = (t: Thread) => !!myId && t.comments.every((c) => c.body === null || c.author.id === myId);
   const moveTargets = canMove ? menuRounds.filter((r) => !r.archived && r.number !== activeRound) : [];
   const moveTo = (ids: string[], round: number) =>
     moveThreads.mutate(
@@ -441,14 +448,17 @@ function Comments() {
               onAssign={(assignee) => setAssignee.mutate({ id: selected.id, assignee })}
               onAddPerson={(input) => addPerson.mutateAsync(input)}
               trackers={(trackers.data?.data ?? []).map((t) => t.provider)}
-              onCreateIssue={(provider) => createIssue.mutate({ id: selected.id, provider })}
+              // Making an issue speaks with the studio's tracker token: an admin's.
+              {...(can(me.user.role, "settings") ? { onCreateIssue: (provider: Tracker) => createIssue.mutate({ id: selected.id, provider }) } : {})}
               creatingIssue={createIssue.isPending ? createIssue.variables?.provider : undefined}
               onEditComment={(commentId, body) => editComment.mutateAsync({ threadId: selected.id, commentId, body })}
               onDeleteComment={(commentId) => deleteComment.mutateAsync({ threadId: selected.id, commentId })}
-              // The matrix: everyone in the studio but a viewer. The server
-              // enforces it; this only keeps a control that would fail out of
-              // the header.
-              {...(me.user.role !== "viewer"
+              moderator={moderator}
+              // The matrix, narrowed: an owner or an admin any
+              // thread, a member one that is all theirs, a viewer none. The
+              // server enforces it; this only keeps a control that would fail
+              // out of the header.
+              {...(moderator || (can(me.user.role, "review") && allMine(selected))
                 ? {
                     onDeleteThread: async () => {
                       await deleteThread.mutateAsync(selected.id);

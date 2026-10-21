@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import type postgres from "postgres";
 import { hashPassword, verifyPassword, type OwnerClaims } from "./owner.ts";
 import { inOrg } from "../db/scope.ts";
+import { can } from "@snagset/types/roles";
 
 /**
  * The studio's own settings, and yours — the three things the Studio
@@ -36,7 +37,7 @@ export function accountRoutes(deps: { sql: postgres.Sql }): Hono<Env> {
   app.patch("/api/v1/org", async (c) => {
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
-    if (owner.role !== "owner") return fail(c, 403, "forbidden", "Only an owner can rename the studio.");
+    if (!can(owner.role, "studio")) return fail(c, 403, "forbidden", "Only an owner can rename the studio.");
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const name = typeof body?.name === "string" ? body.name.trim() : "";
     if (!name) return fail(c, 400, "validation_failed", "The studio needs a name.");

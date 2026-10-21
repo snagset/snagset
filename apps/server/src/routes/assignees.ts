@@ -4,7 +4,8 @@ import type postgres from "postgres";
 import { ID_PREFIX } from "@snagset/types/names";
 import type { ProjectCache } from "../projectCache.ts";
 import type { SessionClaims } from "../session.ts";
-import type { OwnerClaims } from "./owner.ts";
+import { csrfOk, type OwnerClaims } from "./owner.ts";
+import { can } from "@snagset/types/roles";
 
 /**
  * The assignee pool — (routes 19b and 19c).
@@ -195,6 +196,13 @@ export function assigneeRoutes(deps: AssigneeDeps): Hono<Env> {
     const asOwner = !!owner && owner.orgId === p.org_id;
     if (!asOwner) {
       return fail(c, 403, "forbidden", "Adding a person to assign to is done from the dashboard.");
+    }
+    // Assigning is a review act, so adding somebody to assign to is
+    // too — owner, admin, member. And the CSRF half of `requireOwner()`,
+    // inline, because `bearerAuth` owns this path for the pool's widget read.
+    if (!can(owner!.role, "review")) return fail(c, 403, "forbidden", "Your role in this studio cannot assign comments.");
+    if (!csrfOk(c)) {
+      return fail(c, 403, "csrf_failed", "That request could not be verified. Reload the dashboard and try again.");
     }
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const name = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";

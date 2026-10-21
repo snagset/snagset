@@ -5,6 +5,7 @@ import { ID_PREFIX } from "@snagset/types/names";
 import type { ProjectCache } from "../projectCache.ts";
 import type { SessionClaims } from "../session.ts";
 import { csrfOk, type OwnerClaims } from "./owner.ts";
+import { can } from "@snagset/types/roles";
 import type { McpClaims } from "./mcpToken.ts";
 import {
   mcpAllows,
@@ -208,6 +209,11 @@ export function commentRoutes(deps: CommentDeps): Hono<Env> {
     // posts to. Every branch that reaches here is a mutation (POST-only route).
     if (asOwner && !csrfOk(c)) {
       return fail(c, 403, "csrf_failed", "That request could not be verified. Reload the dashboard and try again.");
+    }
+    // Replying is a review act — owner, admin, member. Written down
+    // rather than left to "any cookie of this org", which a viewer would hold.
+    if (asOwner && !asSession && !asAgent && !can(owner!.role, "review")) {
+      return fail(c, 403, "forbidden", "Your role in this studio cannot comment.");
     }
 
     // TEAM-ONLY REPLY. Studio-only to set, same as a

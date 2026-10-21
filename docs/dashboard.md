@@ -34,8 +34,8 @@ saying how many are unresolved in the rounds you are not looking at, so a
 clean board is never a lost board. A comment filed in the wrong round can be
 moved: tick it (or open it) and choose **Move to round…**. It keeps its key,
 so links to it still work, and takes the next number in the round it moves
-to. Owners and admins can move comments, into an open or a closed round but
-not an archived one.
+to. Anyone in the studio can move comments, members included, into an open or
+a closed round but not an archived one.
 
 **The brief.** Open a comment and the right-hand panel is the brief: what was
 said, the element it was left on, the page, the environment, the browser, and
@@ -134,12 +134,30 @@ never come back to the screen. How often the owner is emailed — a daily digest
 or one email per comment — is set in the environment with `SNAGSET_MAIL_NOTIFY`
 (see [self-hosting](self-hosting#who-gets-email-and-how-often)).
 
-**Members** — the people in the studio, by email, with a role. Owners manage
-the members; admins see them. Both can connect sites to GitHub, Linear, Jira
-and Slack, and mint their own MCP tokens — an admin can revoke the tokens they
-made, the owner anyone's, and removing a member revokes theirs. People join through an **invite link**: an owner
-presses **Invite**, picks a role and, if they like, the person's email, and
-gets a link to send. Whoever opens it chooses their own name and password and
+**Members** — the people in the studio, by email, with a role. There are
+three:
+
+- **Owner** — everything, including who is in the studio, their roles, the
+  studio's name and what the instance is connected to.
+- **Admin** — everything about sites, rounds, integrations and comments, and
+  invites members. Admins see the list; only an owner changes a role or
+  removes somebody, and only an owner invites an owner or an admin.
+- **Member** — the seat for designers. Every site and every comment, team-only
+  ones included; replying, editing and deleting their own comments; status,
+  assignees, starting a round and moving comments between rounds; adding
+  reviewers; signing in from the widget; and their own MCP tokens, on **You**.
+  No settings: a member's sidebar has no site Settings, Members, Integrations
+  or General, and opening one by its address says only an admin can change
+  it. Deleting somebody else's comment, or a thread somebody else has written
+  in, is an owner's or an admin's, and so is revoking a reviewer's link,
+  because that signs everyone on the site out of the widget.
+
+Owners and admins connect sites to GitHub, Linear, Jira and Slack. Everyone
+mints their own MCP tokens; owners and admins see the studio's, a member only
+their own; each person revokes their own and the owner anyone's, and removing
+somebody revokes theirs. People join through an **invite link**: an owner or
+an admin presses **Invite**, picks a role (an admin's invites are for
+members) and, if they like, the person's email, and gets a link to send. Whoever opens it chooses their own name and password and
 lands signed in — nobody chooses a password for somebody else. A link works
 once, lasts seven days, and is shown only when it is made; lost, it is revoked
 from **Pending invites** on the same page and made again. Given an email, only
@@ -155,4 +173,5 @@ them@example.com`, which signs out every session that account had.
 The [integrations page](integrations) covers each; the MCP card also holds the
 switch for the remote transport, which the [MCP page](mcp) covers.
 
-**You** — your name, your password, and the theme.
+**You** — your name, your password, and the theme. A member's own MCP tokens
+are here too, since Integrations is not theirs.

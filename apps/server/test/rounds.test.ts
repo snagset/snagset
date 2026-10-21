@@ -355,7 +355,9 @@ test("the studio moves threads between rounds: new numbers in the target, keys k
   const poll = await app.request(`/api/v1/projects/${uid}/threads?round=3`, { headers: as(owner) });
   const since = ((await poll.json()) as { serverTime: string }).serverTime;
 
-  assert.equal((await move(member, [one.id!], 2)).status, 403, "a member cannot");
+  // A member may move comments too (member-role.test.ts moves one);
+  // here it only proves they get past the role check to the round's own rules.
+  assert.equal((await move(member, [one.id!], 4)).status, 404, "a member may move, not into a deleted round");
   const archived = await patch(owner, 1, { archived: true });
   assert.equal(archived.status, 200);
   assert.equal((await move(owner, [one.id!], 1)).status, 409, "never into an archived round");

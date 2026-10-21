@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LockIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { STATUS_COLOR, STATUS_LABEL, isStatus } from "@/lib/labels";
@@ -91,4 +92,21 @@ export function StatusPill({ status, className }: { status: string; className?: 
 /** A section's small uppercase title inside a brief or a card. */
 export function SectionTitle({ children }: { children: ReactNode }) {
   return <div className="text-[11.5px] font-medium uppercase tracking-wide text-muted-foreground">{children}</div>;
+}
+
+/**
+ * A page a member reached by its URL — a bookmark, a link a colleague
+ * pasted, the address bar. Their sidebar does not draw it, so arriving here
+ * is not a mistake to scold, and a broken page or a raw 403 would read as
+ * one: say what the page is, who changes it, and where to go instead.
+ */
+export function AdminsOnly({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <div className="flex flex-col p-7">
+      <PageHeader title={title} />
+      <EmptyState icon={<LockIcon className="size-5" />} title="Only admins can change this">
+        {children ?? <p className="m-0">Ask an owner or an admin of the studio if something here needs changing.</p>}
+      </EmptyState>
+    </div>
+  );
 }

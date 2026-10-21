@@ -680,6 +680,11 @@ export function createApp(deps: Deps): Hono<Env> {
   // The audience PATCH is dashboard-class too — but requireOwner cannot mount
   // on the bare :uid path, whose GETs belong to the widget. Method-scoped.
   app.on("PATCH", "/api/v1/projects/:uid", requireOwner());
+  // The site DELETE, for the same reason and in the same way. It had no CSRF
+  // check at all until the audit found it: SameSite=Lax and the absent
+  // CORS credentials kept a cross-site page out, but every sibling mutation
+  // carries the pair and this one should not be the exception.
+  app.on("DELETE", "/api/v1/projects/:uid", requireOwner());
   /**
    * One-click unsubscribe (B2). Mounted OUTSIDE `/api/v1`, with no auth
    * middleware in front of it, and both facts are the design: the person

@@ -33,6 +33,7 @@ import { applyGitHubIssueEvent, applyIssueState, verifyGitHubSignature, type App
 import { queueResolvedNotice } from "../mail/notify.ts";
 import { drainNow, queueIntegrationEvent, type PushDeps } from "../integrations/outbox.ts";
 import { inOrg } from "../db/scope.ts";
+import { can } from "@snagset/types/roles";
 
 /**
  * Integrations from the dashboard — 05 endpoint 25 shaped for a self-host
@@ -86,9 +87,12 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
     // Owners and admins: connecting a site to the team's tracker is everyday
-    // studio work, and an admin is a trusted teammate.
-    if (owner.role !== "owner" && owner.role !== "admin") {
-      return fail(c, 403, "forbidden", "Only an owner or an admin can change what a site is connected to.");
+    // studio work, and an admin is a trusted teammate. Not a member:
+    // a connection holds the studio's token for somebody's repository, and
+    // making an issue with it — "Create … issue" on the brief, which also
+    // comes here — speaks in the studio's name outside Snagset.
+    if (!can(owner.role, "settings")) {
+      return fail(c, 403, "forbidden", "Only an owner or an admin can use or change what a site is connected to.");
     }
     return owner;
   };
@@ -134,9 +138,12 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     return new Map(rows.map((p) => [p.id, p]));
   };
 
+  // Studio › Integrations' own reads: an admin's page, so an admin's
+  // reads. The per-site list below stays open to the whole studio — the
+  // brief names the trackers a comment's issue lives in from it.
   app.get("/api/v1/integrations", async (c) => {
-    const owner = c.get("owner");
-    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    const owner = mustBeOwner(c);
+    if (owner instanceof Response) return owner;
     const byId = await sites(owner.orgId);
     const rows = await listIntegrations(sql, keys, owner.orgId);
     return c.json({
@@ -157,16 +164,16 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
 
   /** The manifest the operator creates the Slack app from — one link, scopes pre-filled. */
   app.get("/api/v1/integrations/slack/manifest", async (c) => {
-    const owner = c.get("owner");
-    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    const owner = mustBeOwner(c);
+    if (owner instanceof Response) return owner;
     const [org] = await inOrg(sql, owner.orgId, (tx) => tx<{ name: string }[]>`SELECT name FROM orgs WHERE id = ${owner.orgId}::uuid`);
     const manifest = slackManifest(org?.name ?? "Snagset");
     return c.json({ manifest, url: `https://api.slack.com/apps?new_app=1&manifest_json=${encodeURIComponent(JSON.stringify(manifest))}` });
   });
 
   app.get("/api/v1/projects/:uid/integrations/:provider", async (c) => {
-    const owner = c.get("owner");
-    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    const owner = mustBeOwner(c);
+    if (owner instanceof Response) return owner;
     const pv = provider(c);
     if (pv instanceof Response) return pv;
     const p = await site(c, owner);

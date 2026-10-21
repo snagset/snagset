@@ -10,6 +10,7 @@ import { inOrg } from "../db/scope.ts";
 import { studioReviewerId } from "../studioReviewers.ts";
 import { allowedOrigins, originPermitted } from "./cors.ts";
 import { sameSite } from "../domain.ts";
+import { can } from "@snagset/types/roles";
 import type { OwnerClaims } from "./owner.ts";
 
 /**
@@ -621,8 +622,10 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
         permissions: MEMBER_PERMISSIONS,
         // Owners and admins may delete anyone's comment from the widget, as in
         // the dashboard — a hint for which controls to draw; the delete routes
-        // read the membership themselves (isStudioModerator).
-        moderator: owner.role === "owner" || owner.role === "admin",
+        // read the membership themselves (isStudioModerator). A member
+        // holds the same session and permissions, and is not a moderator:
+        // their own words only, as in the dashboard.
+        moderator: can(owner.role, "moderate"),
         origin,
         serverTime: now().toISOString(),
       },
@@ -678,7 +681,7 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
     // 404, not 403, for another studio's site — reviewLinks.ts's rule: a uid
     // existing at all is not information another org gets to learn.
     if (project.org_id !== owner.orgId) return fail(c, 404, "project_not_found", "No project with that uid.");
-    if (owner.role === "viewer") {
+    if (!can(owner.role, "review")) {
       return fail(c, 403, "forbidden", "Your role in this studio cannot comment.");
     }
 
@@ -773,7 +776,7 @@ export function sessionRoutes(deps: SessionDeps): Hono<Env> {
     const project = await live(c, uid);
     if (project instanceof Response) return project;
     if (project.org_id !== owner.orgId) return fail(c, 404, "project_not_found", "No project with that uid.");
-    if (owner.role === "viewer") {
+    if (!can(owner.role, "review")) {
       return fail(c, 403, "forbidden", "Your role in this studio cannot comment.");
     }
     if (!originPermitted(await allowedOrigins(sql, project.id), project.domain, origin)) {

@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { SettingsRow } from "@/components/app/parts";
 import type { Round } from "@/lib/api";
 import { useMe } from "@/lib/me";
+import { can } from "@/lib/roles";
 import { q } from "@/lib/query";
 import { useDeleteRound, useEditRound } from "@/lib/threads";
 
@@ -24,7 +25,7 @@ import { useDeleteRound, useEditRound } from "@/lib/threads";
 export function RoundsSettings({ uid }: { uid: string }) {
   const me = useMe();
   const rounds = useQuery(q.rounds(uid));
-  const manager = me.user.role === "owner" || me.user.role === "admin";
+  const manager = can(me.user.role, "settings");
   const list = rounds.data?.data ?? [];
   const live = list.filter((r) => !r.closed && !r.archived).length;
 

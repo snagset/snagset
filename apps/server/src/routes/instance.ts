@@ -5,6 +5,7 @@ import type postgres from "postgres";
 import type { Config } from "../config.ts";
 import type { Keyring } from "../keys.ts";
 import type { OwnerClaims } from "./owner.ts";
+import { can } from "@snagset/types/roles";
 import { connectBucket, disconnectBucket, envBucketConfig, storageStatus } from "../storage/settings.ts";
 import { clearSetting, writeSetting } from "../instance/settings.ts";
 import { describeMailUrl, invalidateMailer, resolveMailer } from "../mail/resolve.ts";
@@ -58,7 +59,7 @@ export function instanceRoutes(deps: InstanceDeps): Hono<Env> {
   const mustBeOwner = (c: Ctx): OwnerClaims | Response => {
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
-    if (owner.role !== "owner") return fail(c, 403, "forbidden", "Only an owner can change what this instance is connected to.");
+    if (!can(owner.role, "studio")) return fail(c, 403, "forbidden", "Only an owner can change what this instance is connected to.");
     return owner;
   };
 
@@ -97,6 +98,11 @@ export function instanceRoutes(deps: InstanceDeps): Hono<Env> {
   app.get("/api/v1/instance", async (c) => {
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    // Owners change it and admins see it. A member does neither
+    // the bucket's endpoint, the mail host and the sender are the
+    // operator's plumbing, not a designer's, and Studio › General is not
+    // drawn for them.
+    if (!can(owner.role, "settings")) return fail(c, 403, "forbidden", "Only an owner or an admin can see what this instance is connected to.");
     return c.json(await snapshot());
   });
 

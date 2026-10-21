@@ -16,9 +16,11 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { CopyButton } from "@/components/app/CopyButton";
 import { NativeSelect } from "@/components/app/NativeSelect";
-import { PageHeader, SectionTitle } from "@/components/app/parts";
+import { AdminsOnly, PageHeader, SectionTitle } from "@/components/app/parts";
 import type { Invite, Member, MintedInvite } from "@/lib/api";
 import { asRole } from "@/lib/invite";
+import { ASSIGNABLE_ROLES } from "@snagset/types/roles";
+import { can, invitable, ROLE_SUMMARY, type AssignableRole } from "@/lib/roles";
 import { initials } from "@/lib/labels";
 import { useMe } from "@/lib/me";
 import { reason } from "@/lib/mutations";
@@ -27,8 +29,9 @@ import { useCreateInvite, useRemoveMember, useRevokeInvite, useSendInvite, useSe
 
 /**
  * Members — who is in the studio. Owners change the list; admins
- * it. The controls an admin cannot use are not drawn disabled, they are not
- * drawn — a greyed-out "Invite" is a question with no answer on the screen.
+ * it and invite members; a member is not shown this page at all. The
+ * controls somebody cannot use are not drawn disabled, they are not drawn —
+ * a greyed-out "Invite" is a question with no answer on the screen.
  *
  * People join through an invite link: the owner picks a role and,
  * optionally, the address; the link is shown once, to copy or to mail; the
@@ -38,16 +41,22 @@ import { useCreateInvite, useRemoveMember, useRevokeInvite, useSendInvite, useSe
  */
 export const Route = createFileRoute("/_app/studio/members")({
   loader: ({ context }) => {
-    void context.queryClient.prefetchQuery(q.members());
-    void context.queryClient.prefetchQuery(q.invites());
+    // Not asked for a member: the page is not theirs, and the invites answer 403.
+    if (can(context.queryClient.getQueryData(q.me().queryKey)?.user.role, "settings")) {
+      void context.queryClient.prefetchQuery(q.members());
+      void context.queryClient.prefetchQuery(q.invites());
+    }
     return { crumb: "Members" };
   },
-  component: Members,
+  component: () => (can(useMe().user.role, "settings") ? <Members /> : <AdminsOnly title="Members" />),
 });
 
 function Members() {
   const me = useMe();
-  const owner = me.user.role === "owner";
+  // Changing a role and removing somebody: an owner's. Inviting: an owner's
+  // any role, an admin's a member.
+  const owner = can(me.user.role, "people");
+  const roles = invitable(me.user.role);
   const members = useQuery(q.members());
   const invites = useQuery(q.invites());
   const [inviting, setInviting] = useState(false);
@@ -58,9 +67,9 @@ function Members() {
     <div className="p-7">
       <PageHeader
         title="Members"
-        sub={`${owner ? "Owners and admins can do everything; only owners change this list." : "Owners and admins can do everything. Ask an owner to change this list."}${cap !== null ? ` ${me.limits.members.used} of ${cap} members.` : ""}`}
+        sub={`${owner ? "Only owners change roles or remove people." : "Admins invite members. Ask an owner to change a role or remove someone."}${cap !== null ? ` ${me.limits.members.used} of ${cap} members.` : ""}`}
         actions={
-          owner ? (
+          roles.length ? (
             <Button onClick={() => setInviting(true)} disabled={full} title={full ? `This studio's plan allows ${cap} members.` : undefined}>
               <PlusIcon />
               Invite
@@ -85,20 +94,39 @@ function Members() {
           </TableBody>
         </Table>
       </Card>
-      {(invites.data?.data.length ?? 0) > 0 && <PendingInvites invites={invites.data!.data} owner={owner} />}
+      <RoleLegend />
+      {(invites.data?.data.length ?? 0) > 0 && <PendingInvites invites={invites.data!.data} roles={roles} />}
       <p className="m-0 mt-3 max-w-[1040px] text-[12.5px] text-muted-foreground">
         People join through an invite link and choose their own password. A forgotten one is reset on the server
         with <code className="font-mono text-[12px]">snagset passwd</code>.
       </p>
-      {owner && <InviteDialog open={inviting} onOpenChange={setInviting} mail={invites.data?.mail ?? false} />}
+      {roles.length > 0 && <InviteDialog open={inviting} onOpenChange={setInviting} mail={invites.data?.mail ?? false} roles={roles} />}
     </div>
   );
 }
 
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
-function PendingInvites({ invites, owner }: { invites: Invite[]; owner: boolean }) {
+const ROLE_LABEL: Record<AssignableRole, string> = { owner: "Owner", admin: "Admin", member: "Member" };
+
+/** What each role is, in a line — under the list, where the role column is read. */
+function RoleLegend() {
+  return (
+    <dl className="m-0 mt-3 grid max-w-[1040px] grid-cols-[70px_1fr] gap-x-3 gap-y-1 text-[12.5px]" aria-label="Roles">
+      {ASSIGNABLE_ROLES.map((r) => (
+        <div key={r} className="contents">
+          <dt className="font-medium">{ROLE_LABEL[r]}</dt>
+          <dd className="m-0 text-muted-foreground">{ROLE_SUMMARY[r]}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/** `roles`: what the viewer may invite, and so which invites they may withdraw — an admin a member's. */
+function PendingInvites({ invites, roles }: { invites: Invite[]; roles: AssignableRole[] }) {
   const revoke = useRevokeInvite();
+  const owner = roles.length > 0;
   return (
     <section className="mt-6 max-w-[1040px]" aria-labelledby="pending-invites">
       <div id="pending-invites" className="mb-2">
@@ -124,6 +152,7 @@ function PendingInvites({ invites, owner }: { invites: Invite[]; owner: boolean 
                 <TableCell className="text-muted-foreground">{day(i.expiresAt)}</TableCell>
                 {owner && (
                   <TableCell className="text-right">
+                    {(roles as string[]).includes(i.role) && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -133,6 +162,7 @@ function PendingInvites({ invites, owner }: { invites: Invite[]; owner: boolean 
                     >
                       Revoke
                     </Button>
+                    )}
                   </TableCell>
                 )}
               </TableRow>
@@ -169,10 +199,13 @@ function MemberRow({ m, owner }: { m: Member; owner: boolean }) {
           <NativeSelect
             aria-label={`Role for ${m.email}`}
             value={m.role}
-            onChange={(e) => setRole.mutate({ email: m.email, role: e.target.value as "owner" | "admin" })}
+            onChange={(e) => setRole.mutate({ email: m.email, role: e.target.value as AssignableRole })}
           >
-            <option value="owner">Owner</option>
-            <option value="admin">Admin</option>
+            {ASSIGNABLE_ROLES.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABEL[r]}
+              </option>
+            ))}
           </NativeSelect>
         ) : (
           <span className="capitalize">{m.role}</span>
@@ -206,7 +239,7 @@ function MemberRow({ m, owner }: { m: Member; owner: boolean }) {
 const form = z.object({
   // Optional: blank means the link is for whoever opens it.
   email: z.union([z.literal(""), z.string().trim().email("An email address, or leave it empty")]),
-  role: z.enum(["owner", "admin"]),
+  role: z.enum(ASSIGNABLE_ROLES),
 });
 type Form = z.infer<typeof form>;
 
@@ -216,13 +249,26 @@ type Form = z.infer<typeof form>;
  * says so, and closing it is the end of it; a lost link is revoked and
  * minted again.
  */
-function InviteDialog({ open, onOpenChange, mail }: { open: boolean; onOpenChange: (o: boolean) => void; mail: boolean }) {
+function InviteDialog({
+  open,
+  onOpenChange,
+  mail,
+  roles,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  mail: boolean;
+  /** What this person may invite: all three for an owner, member for an admin. */
+  roles: AssignableRole[];
+}) {
   const create = useCreateInvite();
   const send = useSendInvite();
   const [error, setError] = useState("");
   const [made, setMade] = useState<MintedInvite | null>(null);
   const [sent, setSent] = useState<string | null>(null);
-  const { register, handleSubmit, formState, reset } = useForm<Form>({ resolver: zodResolver(form), defaultValues: { role: "admin", email: "" } });
+  // Member first: the designer's seat is the invite a studio sends most.
+  const { register, handleSubmit, formState, reset, watch } = useForm<Form>({ resolver: zodResolver(form), defaultValues: { role: "member", email: "" } });
+  const picked = watch("role");
   const close = (o: boolean) => {
     onOpenChange(o);
     if (!o) {
@@ -277,9 +323,17 @@ function InviteDialog({ open, onOpenChange, mail }: { open: boolean; onOpenChang
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="invite-role">Role</Label>
                 <NativeSelect id="invite-role" className="w-full" {...register("role")}>
-                  <option value="admin">Admin</option>
-                  <option value="owner">Owner</option>
+                  {(["member", "admin", "owner"] as const)
+                    .filter((r) => roles.includes(r))
+                    .map((r) => (
+                      <option key={r} value={r}>
+                        {ROLE_LABEL[r]}
+                      </option>
+                    ))}
                 </NativeSelect>
+                <p className="m-0 text-[12px] text-muted-foreground" data-testid="invite-role-summary">
+                  {ROLE_SUMMARY[picked] ?? ""}
+                </p>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="invite-email">

@@ -39,18 +39,33 @@ function build(role: OwnerClaims["role"]) {
 }
 const json = { "content-type": "application/json" };
 
-test("an admin can read the list but not change it", async () => {
+test("an admin can read the list, invite members, and change nobody", async () => {
   const app = build("admin");
   assert.equal((await app.request("/api/v1/members")).status, 200);
   assert.equal((await app.request("/api/v1/members/invites")).status, 200, "admins see the pending invites too");
   const invite = await app.request("/api/v1/members/invites", { method: "POST", headers: json, body: JSON.stringify({ role: "admin" }) });
-  assert.equal(invite.status, 403, "only an owner invites");
-  assert.equal((await app.request("/api/v1/members/invites/00000000-0000-4000-8000-000000000000", { method: "DELETE" })).status, 403);
+  assert.equal(invite.status, 403, "only an owner invites an admin");
+  const owner = await app.request("/api/v1/members/invites", { method: "POST", headers: json, body: JSON.stringify({ role: "owner" }) });
+  assert.equal(owner.status, 403, "or an owner");
+  // A member invite gets past the role check (the stub database then mints it).
+  const member = await app.request("/api/v1/members/invites", { method: "POST", headers: json, body: JSON.stringify({ role: "member" }) });
+  assert.equal(member.status, 201, "an admin invites members");
   assert.equal((await app.request("/api/v1/members/x%40y.co", { method: "PATCH", headers: json, body: JSON.stringify({ role: "owner" }) })).status, 403);
+  assert.equal((await app.request("/api/v1/members/x%40y.co", { method: "PATCH", headers: json, body: JSON.stringify({ role: "member" }) })).status, 403, "role changes stay an owner's");
   assert.equal((await app.request("/api/v1/members/x%40y.co", { method: "DELETE" })).status, 403);
 });
 
-test("member and viewer are refused with a sentence, not accepted and ignored", async () => {
+test("a member reads the list and nothing else", async () => {
+  const app = build("member");
+  assert.equal((await app.request("/api/v1/members")).status, 200);
+  assert.equal((await app.request("/api/v1/members/invites")).status, 403);
+  assert.equal((await app.request("/api/v1/members/invites", { method: "POST", headers: json, body: JSON.stringify({ role: "member" }) })).status, 403);
+  assert.equal((await app.request("/api/v1/members/invites/00000000-0000-4000-8000-000000000000", { method: "DELETE" })).status, 403);
+  assert.equal((await app.request("/api/v1/members/x%40y.co", { method: "PATCH", headers: json, body: JSON.stringify({ role: "member" }) })).status, 403);
+  assert.equal((await app.request("/api/v1/members/x%40y.co", { method: "DELETE" })).status, 403);
+});
+
+test("viewer is refused with a sentence, not accepted and ignored", async () => {
   const app = build("owner");
   const res = await app.request("/api/v1/members/invites", { method: "POST", headers: json, body: JSON.stringify({ role: "viewer" }) });
   assert.equal(res.status, 400);

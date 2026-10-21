@@ -582,7 +582,7 @@ export const api = {
   testMail: () => call<{ to: string; id: string | null }>("POST", "/api/v1/instance/mail/test"),
   // People join through an invite link; the link is in the create response and nowhere else.
   invites: () => call<{ data: Invite[]; mail: boolean }>("GET", "/api/v1/members/invites"),
-  createInvite: (input: { role: "owner" | "admin"; email?: string }) => call<MintedInvite>("POST", "/api/v1/members/invites", input),
+  createInvite: (input: { role: "owner" | "admin" | "member"; email?: string }) => call<MintedInvite>("POST", "/api/v1/members/invites", input),
   revokeInvite: (id: string) => call<{ data: Invite[] }>("DELETE", `/api/v1/members/invites/${encodeURIComponent(id)}`),
   /** The token goes back with it: the server keeps only a hash, so it can mail a link only when shown the one it minted. */
   sendInvite: (id: string, token: string) => call<{ to: string }>("POST", `/api/v1/members/invites/${encodeURIComponent(id)}/send`, { token }),
@@ -590,7 +590,7 @@ export const api = {
   lookupInvite: (token: string) => call<InviteLookup>("POST", "/auth/invites/lookup", { token }),
   acceptInvite: (input: { token: string; name?: string; email?: string; password: string }) =>
     call<{ org: { name: string; slug: string }; user: { email: string; name: string }; role: string; csrfToken: string }>("POST", "/auth/invites/accept", input),
-  setMemberRole: (email: string, role: "owner" | "admin") =>
+  setMemberRole: (email: string, role: "owner" | "admin" | "member") =>
     call<{ data: Member[] }>("PATCH", `/api/v1/members/${encodeURIComponent(email)}`, { role }),
   removeMember: (email: string) => call<{ data: Member[] }>("DELETE", `/api/v1/members/${encodeURIComponent(email)}`),
 
@@ -615,7 +615,7 @@ export interface Member {
 /** A pending invite — never its token. */
 export interface Invite {
   id: string;
-  role: "owner" | "admin";
+  role: "owner" | "admin" | "member";
   /** Null when the invitee types their own. */
   email: string | null;
   createdAt: string;
@@ -634,7 +634,7 @@ export interface MintedInvite {
 /** What the invite page is told about its link. */
 export interface InviteLookup {
   org: { name: string };
-  role: "owner" | "admin";
+  role: "owner" | "admin" | "member";
   email: string | null;
   invitedBy: string | null;
   expiresAt: string;

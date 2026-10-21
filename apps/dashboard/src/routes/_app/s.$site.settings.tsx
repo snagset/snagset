@@ -11,7 +11,8 @@ import { CopyButton } from "@/components/app/CopyButton";
 import { InstallTag } from "@/components/app/InstallTag";
 import { RoundsSettings } from "@/components/app/RoundsSettings";
 import { Switch } from "@/components/ui/switch";
-import { PageHeader, SettingsRow } from "@/components/app/parts";
+import { AdminsOnly, PageHeader, SettingsRow } from "@/components/app/parts";
+import { can } from "@/lib/roles";
 import { SaveState } from "@/components/app/SaveState";
 import { useDeleteSite, useEditSite } from "@/lib/mutations";
 import { useMe } from "@/lib/me";
@@ -31,7 +32,16 @@ export const Route = createFileRoute("/_app/s/$site/settings")({
     void context.queryClient.prefetchQuery(q.rounds(context.site.uid));
     return { crumb: "Settings" };
   },
-  component: SiteSettings,
+  // Every control here is an owner's or an admin's, so a member who
+  // opens the URL is told so, not handed a page of controls the server refuses.
+  component: () =>
+    can(useMe().user.role, "settings") ? (
+      <SiteSettings />
+    ) : (
+      <AdminsOnly title="Settings">
+        <p className="m-0">A site's addresses, who may comment, the widget and its rounds are set by an owner or an admin of the studio.</p>
+      </AdminsOnly>
+    ),
 });
 
 /** The two modes a studio actually chooses between (`verified-only` has no UI). */
@@ -52,8 +62,9 @@ function SiteSettings() {
   const { site: uid } = Route.useParams();
   const me = useMe();
   const site = me.projects.find((p) => p.uid === uid)!;
-  // The switch is an owner's or an admin's, as the server enforces.
-  const manager = me.user.role === "owner" || me.user.role === "admin";
+  // The switch is an owner's or an admin's, as the server enforces — and
+  // now so is the whole page (the route above), so this is belt only.
+  const manager = can(me.user.role, "settings");
   const origins = useQuery(q.origins(uid));
   const edit = useEditSite(uid);
   const [savedAt, setSavedAt] = useState<number | null>(null);

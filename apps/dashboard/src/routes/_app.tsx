@@ -6,6 +6,7 @@ import { Waiting } from "@/components/app/Waiting";
 import { ApiFailure } from "@/lib/api";
 import { rememberAuth } from "@/lib/auth";
 import { q } from "@/lib/query";
+import { can } from "@/lib/roles";
 
 /**
  * Everything signed-in lives under this pathless layout. Its `beforeLoad` is
@@ -25,7 +26,11 @@ export const Route = createFileRoute("/_app")({
       // `/me` says so itself (`addressed`); asking `/origins` here put a
       // second request IN SERIES in front of every screen of a one-site
       // studio — the usual studio. Only a server older than the field is asked.
-      if (me.projects.length === 1) {
+      // Only for somebody who can answer it: the first run sets the site's
+      // name and address, which is an admin's. A member who joins a
+      // studio whose site is still bare lands on the work, not a form the
+      // server would refuse.
+      if (me.projects.length === 1 && can(me.user.role, "settings")) {
         const site = me.projects[0]!;
         const bare =
           site.addressed !== undefined

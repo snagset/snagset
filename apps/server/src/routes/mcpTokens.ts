@@ -6,6 +6,7 @@ import type { OwnerClaims } from "./owner.ts";
 import type { AddressSource } from "../instance/address.ts";
 import type { McpHttpSource } from "../instance/mcpHttp.ts";
 import { DEFAULT_SCOPES, MCP_SCOPES, mintMcpToken, type McpScope } from "./mcpToken.ts";
+import { can } from "@snagset/types/roles";
 
 /**
  * MCP tokens from the dashboard — 05 endpoint 32b. The M3 register's
@@ -18,8 +19,22 @@ import { DEFAULT_SCOPES, MCP_SCOPES, mintMcpToken, type McpScope } from "./mcpTo
  *   POST   /api/v1/mcp-tokens        mint one; the token comes back ONCE, in this answer
  *   DELETE /api/v1/mcp-tokens/:id    revoke; the row stays, for the audit trail
  *
- * Owners mint and revoke; admins see. The org is the session's — a self-host
- * has one — so the path carries no org id. The rules hold unchanged:
+ * Who sees and revokes what (`@snagset/types/roles`):
+ *
+ *   owner    mints; sees every token; revokes any
+ *   admin    mints; sees every token; revokes their own
+ *   member   mints; sees their own;   revokes their own
+ *
+ * A member's token is the designer's own coding agent, so a member mints
+ * with every scope there is: nothing an MCP token can do is beyond a member.
+ * The five scopes read threads (team-only ones included, which a member
+ * reads in the dashboard), read capture context, reply, mark a fix ready and
+ * map source — and an agent can neither resolve, assign, make anything
+ * team-only nor delete (threads.ts, comments.ts), so no scope reaches an
+ * admin's act. Removing a member revokes their tokens (members.ts).
+ *
+ * The org is the session's — a self-host has one — so the path carries no
+ * org id. The rules hold unchanged:
  * the default is read-only plus local source mapping, `context:read` is a
  * separate tick because it is the personal-data-bearing half, and only the
  * hash is stored, so a lost token is revoked and replaced, never shown again.
@@ -58,7 +73,7 @@ interface TokenRow {
   revoked_at: Date | null;
 }
 
-/** `viewer` decides `canRevoke`: an owner any token, an admin their own. */
+/** `viewer` decides `canRevoke`: an owner any token, everyone else their own. */
 const shape = (r: TokenRow, viewer: OwnerClaims) => ({
   id: r.id,
   name: r.name,
@@ -67,12 +82,15 @@ const shape = (r: TokenRow, viewer: OwnerClaims) => ({
   allowRemoteWrites: r.allow_remote_writes,
   site: r.project_uid ? { uid: r.project_uid, name: r.project_name ?? "" } : null,
   createdBy: r.created_by_name,
-  canRevoke: !r.revoked_at && (viewer.role === "owner" || (viewer.role === "admin" && r.created_by === viewer.userId)),
+  canRevoke: !r.revoked_at && (revokesAny(viewer) || (can(viewer.role, "review") && r.created_by === viewer.userId)),
   createdAt: r.created_at.toISOString(),
   lastUsedAt: r.last_used_at?.toISOString() ?? null,
   expiresAt: r.expires_at?.toISOString() ?? null,
   revokedAt: r.revoked_at?.toISOString() ?? null,
 });
+
+/** Revoking somebody else's token is the owner's: it is how a token is always cut off, whoever made it. */
+const revokesAny = (o: OwnerClaims): boolean => can(o.role, "people");
 
 export function mcpTokenRoutes(deps: McpTokenDeps): Hono<Env> {
   const { sql, projects } = deps;
@@ -84,20 +102,20 @@ export function mcpTokenRoutes(deps: McpTokenDeps): Hono<Env> {
     return owner;
   };
   /**
-   * Owners and admins mint tokens — each teammate wants one for their own
-   * coding agent. Revoking: an admin their own, an owner anyone's, so a
-   * token can always be cut off whoever made it (and removing a member
-   * revokes theirs, members.ts).
+   * Everyone who reviews mints — each teammate wants one for their own
+   * coding agent, designers included. Revoking: one's own, or an
+   * owner anyone's, so a token can always be cut off whoever made it.
    */
   const mayMint = (c: Ctx): OwnerClaims | Response => {
     const owner = signedIn(c);
     if (owner instanceof Response) return owner;
-    if (owner.role !== "owner" && owner.role !== "admin") {
-      return fail(c, 403, "forbidden", "Only an owner or an admin can mint an agent token.");
+    if (!can(owner.role, "review")) {
+      return fail(c, 403, "forbidden", "Your role in this studio cannot mint an agent token.");
     }
     return owner;
   };
-  const load = (orgId: string, id?: string) =>
+  /** `mine`: only the caller's own tokens — a member's list. */
+  const load = (orgId: string, id?: string, mine?: string) =>
     sql.begin(async (tx) => {
       await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
       return tx<TokenRow[]>`
@@ -107,6 +125,7 @@ export function mcpTokenRoutes(deps: McpTokenDeps): Hono<Env> {
           LEFT JOIN projects p ON p.id = t.project_id
           LEFT JOIN users u ON u.id = t.created_by
          WHERE t.org_id = ${orgId}::uuid ${id ? tx`AND t.id = ${id}::uuid` : tx``}
+           ${mine ? tx`AND t.created_by = ${mine}::uuid` : tx``}
          ORDER BY t.revoked_at IS NOT NULL, t.created_at DESC
       `;
     });
@@ -114,7 +133,9 @@ export function mcpTokenRoutes(deps: McpTokenDeps): Hono<Env> {
   app.get("/api/v1/mcp-tokens", async (c) => {
     const owner = signedIn(c);
     if (owner instanceof Response) return owner;
-    const rows = await load(owner.orgId);
+    // A member sees their own tokens; the studio's whole list (who has an
+    // agent reading what) is an owner's and an admin's.
+    const rows = await load(owner.orgId, undefined, can(owner.role, "tokens") ? undefined : owner.userId);
     // Whether POST /mcp is served, who decided, and where — the
     // card draws the switch from it and the dialog shows the remote config
     // only when it is on.
@@ -174,7 +195,7 @@ export function mcpTokenRoutes(deps: McpTokenDeps): Hono<Env> {
     if (owner instanceof Response) return owner;
     const id = c.req.param("id") ?? "";
     if (!UUID.test(id)) return fail(c, 404, "not_found", "No token with that id.");
-    const asOwner = owner.role === "owner";
+    const asOwner = revokesAny(owner);
     const done = await sql.begin(async (tx) => {
       await tx`SELECT set_config('app.org_id', ${owner.orgId}, true)`;
       return tx`UPDATE mcp_tokens SET revoked_at = now()

@@ -75,7 +75,9 @@ export async function studioReviewerId(
 /**
  * Whether a widget session belongs to a studio OWNER or ADMIN — a member who
  * signed in from the widget and may delete anyone's comment there, as
- * they may in the dashboard. Read from the membership at the moment of the
+ * they may in the dashboard. Not a `member`: the SQL below is the
+ * `moderate` row of `@snagset/types/roles`, kept in step by hand because it
+ * has to be read from the membership at the moment of the delete. Read from the membership at the moment of the
  * delete, never from the token: a demotion takes effect on the next request,
  * not at the next refresh. A guest's or link reviewer's row has no user_id
  * and is never one.

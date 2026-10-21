@@ -9,7 +9,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./names": "./src/names.ts",
-    "./brief": "./src/brief.ts"
+    "./brief": "./src/brief.ts",
+    "./roles": "./src/roles.ts"
   },
   "files": [
     "src",

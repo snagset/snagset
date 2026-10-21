@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InstanceRows } from "@/components/app/InstanceRows";
-import { PageHeader, SettingsRow } from "@/components/app/parts";
+import { AdminsOnly, PageHeader, SettingsRow } from "@/components/app/parts";
+import { can } from "@/lib/roles";
 import { SaveState } from "@/components/app/SaveState";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me";
@@ -20,11 +21,14 @@ import { Spinner } from "@/components/app/Pending";
 export const Route = createFileRoute("/_app/studio/")({
   loader: ({ context }) => {
     void context.queryClient.prefetchQuery(q.meta());
-    void context.queryClient.prefetchQuery(q.members());
-    void context.queryClient.prefetchQuery(q.instance());
+    // A member is shown the friendly state, and the instance answers them 403.
+    if (can(context.queryClient.getQueryData(q.me().queryKey)?.user.role, "settings")) {
+      void context.queryClient.prefetchQuery(q.members());
+      void context.queryClient.prefetchQuery(q.instance());
+    }
     return { crumb: "General" };
   },
-  component: General,
+  component: () => (can(useMe().user.role, "settings") ? <General /> : <AdminsOnly title="General" />),
 });
 
 function General() {
@@ -32,7 +36,7 @@ function General() {
   const meta = useQuery(q.meta());
   const members = useQuery(q.members());
   const rename = useRenameOrg();
-  const owner = me.user.role === "owner";
+  const owner = can(me.user.role, "studio");
   const [name, setName] = useState(me.org.name);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   useEffect(() => setName(me.org.name), [me.org.name]);

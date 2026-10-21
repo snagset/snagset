@@ -5,6 +5,7 @@ import { ID_PREFIX } from "@snagset/types/names";
 import type { ProjectCache } from "../projectCache.ts";
 import type { OwnerClaims } from "./owner.ts";
 import { inOrg } from "../db/scope.ts";
+import { can } from "@snagset/types/roles";
 
 /**
  * Review links — mint, list, revoke. And.
@@ -121,9 +122,16 @@ export function reviewLinkRoutes(deps: ReviewLinkDeps): Hono<Env> {
     return owner && owner.orgId === p.org_id ? p : null;
   };
 
+  /**
+   * Adding a reviewer is a review act — owner, admin and member. A link
+   * grants at most the team set (thread:create … thread:assign, sessions.ts),
+   * none of it beyond what a member does themselves, so a member handing one
+   * to a client gives away nothing they do not hold.
+   */
   app.post("/api/v1/projects/:uid/review-links", async (c) => {
     const project = await owned(c);
     if (!project) return fail(c, 404, "project_not_found", "No project with that uid.");
+    if (!can(c.get("owner")!.role, "review")) return fail(c, 403, "forbidden", "Your role in this studio cannot add reviewers.");
 
     const body = (await c.req.json().catch(() => null)) as Record<string, any> | null;
     const name = typeof body?.name === "string" ? body.name.trim().slice(0, 120) : "";
@@ -218,6 +226,9 @@ export function reviewLinkRoutes(deps: ReviewLinkDeps): Hono<Env> {
     // guessing/enumerating a `lnk_` id. `review_links.org_id` is denormalised
     // onto the row for exactly this filter.
     const owner = c.get("owner")!;
+    // Admin-only, unlike minting: revoking bumps the site's session epoch,
+    // which signs out EVERY widget reviewer on the site, not just this link's.
+    if (!can(owner.role, "settings")) return fail(c, 403, "forbidden", "Only an admin can revoke a reviewer — it signs everyone on this site out of the widget.");
     const [link] = await inOrg(sql, owner.orgId, (tx) => tx<{ id: string; project_id: string; uid: string; revoked_at: Date | null }[]>`
       SELECT rl.id, rl.project_id, p.uid, rl.revoked_at
       FROM review_links rl JOIN projects p ON p.id = rl.project_id

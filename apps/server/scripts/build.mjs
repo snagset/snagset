@@ -72,6 +72,8 @@ const VENDOR = [
   { spec: "@snagset/types/names", dir: "types", src: "packages/types/src", entry: "names.js" },
   // The brief formatter the dashboard, the MCP server and this package share.
   { spec: "@snagset/types/brief", dir: "types", src: "packages/types/src", entry: "brief.js" },
+  // Who may do what, read by the routes and the dashboard alike.
+  { spec: "@snagset/types/roles", dir: "types", src: "packages/types/src", entry: "roles.js" },
   { spec: "@snagset/adapters", dir: "adapters", src: "packages/adapters/src", entry: "index.js" },
   // The MCP server's view imports the sanitiser and the fence by subpath.
   // Same sources, same vendored directory, two more specifiers to rewrite.

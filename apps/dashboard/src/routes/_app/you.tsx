@@ -7,7 +7,9 @@ import { Label } from "@/components/ui/label";
 import { PageHeader, SettingsRow } from "@/components/app/parts";
 import { SaveState } from "@/components/app/SaveState";
 import { ThemeChoice } from "@/components/app/ThemeChoice";
+import { McpCard } from "@/components/app/McpTokens";
 import { useMe } from "@/lib/me";
+import { can } from "@/lib/roles";
 import { reason } from "@/lib/mutations";
 import { useChangePassword, useRenameMe } from "@/lib/studio";
 
@@ -63,6 +65,11 @@ function You() {
       <SettingsRow title="Password" description="Changing it keeps this session and ends every other one.">
         <PasswordForm />
       </SettingsRow>
+      {/* A member's own agent tokens. Admins keep theirs, and
+          everyone's, on Studio › Integrations, which a member is not shown. */}
+      {!can(me.user.role, "settings") && can(me.user.role, "review") && (
+        <McpCard owner mine instanceOwner={false} sites={me.projects} />
+      )}
       <SettingsRow title="Appearance" description="Also in your menu at the bottom of the sidebar.">
         <ThemeChoice
           items={[

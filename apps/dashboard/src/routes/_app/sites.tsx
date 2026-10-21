@@ -21,6 +21,7 @@ import { EmptyState, PageHeader } from "@/components/app/parts";
 import { api, ApiFailure } from "@/lib/api";
 import { ago } from "@/lib/labels";
 import { useMe } from "@/lib/me";
+import { can } from "@/lib/roles";
 
 /**
  * Sites — the home. A card per site with its newest screenshot as its face,
@@ -35,11 +36,14 @@ export const Route = createFileRoute("/_app/sites")({
 
 function Sites() {
   const me = useMe();
+  // Adding a site is an owner's or an admin's: for a member the button
+  // is not drawn and `?add` opens nothing.
+  const admin = can(me.user.role, "settings");
   const { add } = Route.useSearch();
-  const [adding, setAdding] = useState(!!add);
+  const [adding, setAdding] = useState(!!add && admin);
   useEffect(() => {
-    if (add) setAdding(true);
-  }, [add]);
+    if (add && admin) setAdding(true);
+  }, [add, admin]);
   const open = me.projects.reduce((n, p) => n + p.unresolved, 0);
   // The count against the number, where one exists.
   const cap = me.limits.projects.limit;
@@ -57,10 +61,12 @@ function Sites() {
               : undefined
         }
         actions={
-          <Button onClick={() => setAdding(true)} disabled={full} title={full ? `This studio's plan allows ${cap} sites.` : undefined}>
-            <PlusIcon />
-            Add a site
-          </Button>
+          admin ? (
+            <Button onClick={() => setAdding(true)} disabled={full} title={full ? `This studio's plan allows ${cap} sites.` : undefined}>
+              <PlusIcon />
+              Add a site
+            </Button>
+          ) : undefined
         }
       />
       {me.projects.length === 0 ? (
@@ -69,13 +75,17 @@ function Sites() {
             icon={<LayoutGridIcon className="size-5" />}
             title="No sites yet"
             action={
-              <Button onClick={() => setAdding(true)}>
-                <PlusIcon />
-                Add a site
-              </Button>
+              admin ? (
+                <Button onClick={() => setAdding(true)}>
+                  <PlusIcon />
+                  Add a site
+                </Button>
+              ) : undefined
             }
           >
-            A site is one client website. Add it, paste the tag, and comments start arriving here.
+            {admin
+              ? "A site is one client website. Add it, paste the tag, and comments start arriving here."
+              : "A site is one client website. An owner or an admin adds it, and its comments appear here."}
           </EmptyState>
         </Card>
       ) : (

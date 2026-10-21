@@ -3,6 +3,7 @@ import type postgres from "postgres";
 import { createProject, validateOrigins } from "../projects.ts";
 import { LimitReached, planLimitReached, usage, type LimitsSource } from "../plan.ts";
 import type { OwnerClaims } from "./owner.ts";
+import { can } from "@snagset/types/roles";
 import type { ProjectCache } from "../projectCache.ts";
 import { normaliseDomain } from "../domain.ts";
 import { inOrg, maintenance } from "../db/scope.ts";
@@ -29,6 +30,15 @@ import { effectiveWriteMode } from "./sessions.ts";
  * opened a link — must never be able to add a site to somebody's org, and the
  * review-link route's own comment records what happens when only CORS stands
  * between `curl` and a write.
+ *
+ * ── AND AN ADMIN'S, SAID BY EACH ROUTE ──
+ *
+ * A signed-in cookie no longer means an admin. Adding a site, deleting
+ * one, and every setting on one (name, domain, addresses, audience, widget
+ * switch, guest status) is `settings` — an owner's or an admin's — and each
+ * mutation here asks `settings()` before it reads anything. A member reads
+ * the origins (the Comments page builds its permalinks from them) and
+ * nothing here writes for them.
  */
 
 type Env = {
@@ -65,6 +75,14 @@ function fail(c: Ctx, status: number, code: string, message: string) {
   return c.json({ error: { code, message, requestId: c.get("requestId") } }, status as 400);
 }
 
+/** The signed-in admin, or the refusal: 401 with no cookie, 403 for a member. */
+function settings(c: Ctx): OwnerClaims | Response {
+  const owner = c.get("owner");
+  if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+  if (!can(owner.role, "settings")) return fail(c, 403, "forbidden", "Only an owner or an admin can change a site's settings.");
+  return owner;
+}
+
 export function siteRoutes(deps: SiteDeps): Hono<Env> {
   const app = new Hono<Env>();
   const { sql } = deps;
@@ -79,6 +97,7 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
   app.post("/api/v1/projects", async (c) => {
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    if (!can(owner.role, "settings")) return fail(c, 403, "forbidden", "Only an owner or an admin can add a site.");
 
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const name = typeof body?.["name"] === "string" ? body["name"].trim() : "";
@@ -171,8 +190,8 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
    * who noticed does not have.
    */
   app.post("/api/v1/projects/:uid/origins", async (c) => {
-    const owner = c.get("owner");
-    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    const owner = settings(c);
+    if (owner instanceof Response) return owner;
 
     const [project] = await maintenance(sql, (tx) => tx<{ id: string; org_id: string }[]>`
       SELECT id, org_id FROM projects WHERE uid = ${c.req.param("uid")} AND deleted_at IS NULL
@@ -233,8 +252,8 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
    * this product's most mysterious bug report.
    */
   app.patch("/api/v1/projects/:uid", async (c) => {
-    const owner = c.get("owner");
-    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    const owner = settings(c);
+    if (owner instanceof Response) return owner;
     const [project] = await maintenance(sql, (tx) => tx<{ id: string; org_id: string; domain: string | null }[]>`
       SELECT id, org_id, settings->>'domain' AS domain
       FROM projects WHERE uid = ${c.req.param("uid")} AND deleted_at IS NULL
@@ -313,18 +332,13 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
     }
 
     /**
-     * Whether guests may change a comment's status. Who may do what on
-     * the site is the same register as rounds' rename and archive, so the
-     * same roles: an owner or an admin. The other fields keep the route's
-     * existing gate (any member of the studio).
+     * Whether guests may change a comment's status. An owner's or an
+     * admin's, like every field on this route (`settings()` above).
      */
     let guests: boolean | undefined;
     if (rawGuests !== undefined) {
       if (typeof rawGuests !== "boolean") {
         return fail(c, 400, "validation_failed", "guestsCanChangeStatus must be true or false.");
-      }
-      if (owner.role !== "owner" && owner.role !== "admin") {
-        return fail(c, 403, "forbidden", "Only an owner or an admin can change what guests may do.");
       }
       guests = rawGuests;
     }
@@ -434,6 +448,7 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
   app.delete("/api/v1/projects/:uid", async (c) => {
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    if (!can(owner.role, "settings")) return fail(c, 403, "forbidden", "Only an owner or an admin can delete a site.");
     const [project] = await maintenance(sql, (tx) => tx<{ id: string; org_id: string }[]>`
       SELECT id, org_id FROM projects WHERE uid = ${c.req.param("uid")} AND deleted_at IS NULL
     `);

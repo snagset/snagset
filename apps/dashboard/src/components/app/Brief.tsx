@@ -64,6 +64,7 @@ export function Brief({
   onDeleteComment,
   onDeleteThread,
   move,
+  moderator = true,
 }: {
   thread: Thread;
   site: { name: string; origin?: string };
@@ -88,8 +89,10 @@ export function Brief({
   onEditComment?: (commentId: string, body: string) => Promise<unknown>;
   onDeleteComment?: (commentId: string) => Promise<unknown>;
   onDeleteThread?: () => Promise<unknown>;
-  /** The rounds this thread may be moved to, and the move. Absent ⇒ not drawn (a member or viewer). */
+  /** The rounds this thread may be moved to, and the move. Absent ⇒ not drawn (a viewer). */
   move?: { rounds: Round[]; onMove: (round: number) => void; busy: boolean };
+  /** Whether Delete is drawn on somebody else's comment — an owner's or an admin's. A member's own always have it. */
+  moderator?: boolean;
 }) {
   const anchor = (thread.anchor ?? {}) as Record<string, any>;
   const ctx = (thread.context ?? {}) as Record<string, any>;
@@ -200,7 +203,7 @@ export function Brief({
               reply={c !== thread.comments[0]}
               mine={canEditComment(c, myId)}
               {...(onEditComment ? { onEdit: (next: string) => onEditComment(c.id, next) } : {})}
-              {...(onDeleteComment ? { onDelete: () => onDeleteComment(c.id) } : {})}
+              {...(onDeleteComment && (moderator || canEditComment(c, myId)) ? { onDelete: () => onDeleteComment(c.id) } : {})}
             />
           ))}
           <form
@@ -370,8 +373,9 @@ export function Brief({
  *   · **Edit** only on the person's own live comments (`mine`). The server
  *     refuses an owner rewriting anybody else's words, and a menu item that
  *     can only fail should not be in the menu.
- *   · **Delete** on every live comment: the studio may remove anything said
- *     on its site, behind a confirm that says what survives.
+ *   · **Delete** on every live comment for an owner or an admin, who may
+ *     remove anything said on the site; on their own for a member
+ *     behind a confirm that says what survives.
  *
  * A tombstone (`body: null`) keeps its author's name and its place in
  * the conversation, and says what happened instead of what was said. It has

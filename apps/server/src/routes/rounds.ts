@@ -6,6 +6,7 @@ import type { ProjectCache } from "../projectCache.ts";
 import type { OwnerClaims } from "./owner.ts";
 import { inOrg } from "../db/scope.ts";
 import { softDeleteThreads } from "./threads.ts";
+import { can } from "@snagset/types/roles";
 
 /**
  * Rounds.
@@ -34,7 +35,7 @@ import { softDeleteThreads } from "./threads.ts";
  * the site's Settings: rename, close and reopen, archive and restore (put
  * away, threads untouched), and delete (the round AND its threads, softly,
  * after typing its name). Those are owner and admin acts; starting a round is
- * open to anyone signed in to the studio, as it always was. One guard holds
+ * open to anyone who reviews in the studio, members included. One guard holds
  * across all of them: the last open, unarchived round cannot be closed,
  * archived or deleted, because the next comment would have nowhere to go.
  */
@@ -88,10 +89,11 @@ const shape = (r: Row) => ({
 
 /**
  * Rename, close, reopen, archive, restore and delete: an owner's or an
- * admin's. A member or a viewer may start a round and switch between them,
- * never reshape the list everybody else is working in.
+ * admin's (`settings`). A member may start a round and switch between
+ * them, never reshape the list everybody else is working in; a viewer may
+ * not even start one (`review`).
  */
-const manages = (owner: OwnerClaims): boolean => owner.role === "owner" || owner.role === "admin";
+const manages = (owner: OwnerClaims): boolean => can(owner.role, "settings");
 
 const LAST_OPEN = "Open another round first. This is the last open round, and new comments would have nowhere to go.";
 
@@ -146,6 +148,7 @@ export function roundRoutes(deps: RoundDeps): Hono<Env> {
     const body = (await c.req.json().catch(() => null)) as { name?: unknown } | null;
     const name = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";
     const owner = c.get("owner")!;
+    if (!can(owner.role, "review")) return fail(c, 403, "forbidden", "Your role in this studio cannot start a round.");
 
     const row = await sql.begin(async (tx) => {
       await tx`SELECT set_config('app.org_id', ${p.org_id}, true)`;

@@ -17,6 +17,8 @@ import { EmptyState, PageHeader } from "@/components/app/parts";
 import { type MintedLink, type ReviewLink } from "@/lib/api";
 import { ago } from "@/lib/labels";
 import { reason, useMintLink, useRevokeLink } from "@/lib/mutations";
+import { useMe } from "@/lib/me";
+import { can } from "@/lib/roles";
 import { q } from "@/lib/query";
 import { cn } from "@/lib/utils";
 
@@ -121,6 +123,8 @@ function Reviewers() {
 
 function ReviewerRow({ link, uid, onRevoked }: { link: ReviewLink; uid: string; onRevoked: () => void }) {
   const revoke = useRevokeLink(uid);
+  // Revoking signs every widget reviewer on the site out, so it is an admin's.
+  const mayRevoke = can(useMe().user.role, "settings");
   const [confirming, setConfirming] = useState(false);
   const revoked = !!link.revokedAt;
   const expired = !revoked && new Date(link.expiresAt).getTime() <= Date.now();
@@ -146,7 +150,7 @@ function ReviewerRow({ link, uid, onRevoked }: { link: ReviewLink; uid: string; 
       <TableCell>{link.useCount}</TableCell>
       <TableCell className="text-muted-foreground">{link.lastUsedAt ? ago(link.lastUsedAt) : "never"}</TableCell>
       <TableCell className="text-right">
-        {!revoked && (
+        {!revoked && mayRevoke && (
           <Button variant="ghost" size="sm" onClick={() => setConfirming(true)}>
             Revoke
           </Button>

@@ -7,6 +7,7 @@ import { studiosOf } from "../orgs.ts";
 import { inOrg, maintenance } from "../db/scope.ts";
 import { effectiveWriteMode } from "./sessions.ts";
 import { pendingMigrations } from "../db/migrate.ts";
+import type { StudioRole } from "@snagset/types/roles";
 
 /**
  * Owner auth.
@@ -36,7 +37,8 @@ type Env = {
 };
 type Ctx = Context<Env>;
 
-export type MemberRole = "owner" | "admin" | "member" | "viewer";
+/** The enum 0001 made, named once in the shared table (the `@snagset/types/roles`). */
+export type MemberRole = StudioRole;
 
 export interface OwnerClaims {
   userId: string;
@@ -45,9 +47,10 @@ export interface OwnerClaims {
   name: string;
   sessionId: string;
   /** From `memberships.role`, which 0001 has carried since day one and nothing
-   *  read until members existed. `owner` and `admin` are wired; the other two
-   *  are in the enum and refused by the API until a client needs a read-only
-   *  studio seat (01 F-27 ties visibility to roles, and that is not designed). */
+   *  read until members existed. `owner`, `admin` and `member` are
+   *  wired; what each may do is `can()` in `@snagset/types/roles`, never a
+   *  compare here. `viewer` stays in the enum and holds nothing until a
+   *  read-only seat is designed (01 F-27). */
   role: MemberRole;
 }
 

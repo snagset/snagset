@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { STATUS_LABEL, isStatus } from "@/lib/labels";
 import { useMe } from "@/lib/me";
+import { can } from "@/lib/roles";
 import { Spinner } from "./Pending";
 
 /**
@@ -63,16 +64,22 @@ export function Palette({ open, onOpenChange }: { open: boolean; onOpenChange: (
     }
   }, [open]);
 
+  // The sidebar's own rule: a member is not offered the admin screens here either.
+  const admin = can(me.user.role, "settings");
   const screens: Item[] = useMemo(
     () => [
       { id: "s:sites", label: "Sites", icon: <LayoutGridIcon className="size-4" />, go: () => void navigate({ to: "/sites" }) },
       { id: "s:activity", label: "Activity", hint: "every site, newest first", icon: <ActivityIcon className="size-4" />, go: () => void navigate({ to: "/activity" }) },
-      { id: "s:members", label: "Members", icon: <UsersIcon className="size-4" />, go: () => void navigate({ to: "/studio/members" }) },
-      { id: "s:integrations", label: "Integrations", icon: <BlocksIcon className="size-4" />, go: () => void navigate({ to: "/studio/integrations" }) },
-      { id: "s:studio", label: "Studio settings", icon: <Building2Icon className="size-4" />, go: () => void navigate({ to: "/studio" }) },
+      ...(admin
+        ? [
+            { id: "s:members", label: "Members", icon: <UsersIcon className="size-4" />, go: () => void navigate({ to: "/studio/members" }) },
+            { id: "s:integrations", label: "Integrations", icon: <BlocksIcon className="size-4" />, go: () => void navigate({ to: "/studio/integrations" }) },
+            { id: "s:studio", label: "Studio settings", icon: <Building2Icon className="size-4" />, go: () => void navigate({ to: "/studio" }) },
+          ]
+        : []),
       { id: "s:you", label: "You", icon: <UserIcon className="size-4" />, go: () => void navigate({ to: "/you" }) },
     ],
-    [navigate],
+    [navigate, admin],
   );
 
   const sites: Item[] = useMemo(

@@ -6,6 +6,8 @@ import { hashPassword, setSessionCookies, verifyPassword, type MemberRole, type 
 import { LimitReached, planLimitReached, usage, type LimitsSource } from "../plan.ts";
 import { openSession, SESSION_S } from "../orgs.ts";
 import { inOrg, maintenance } from "../db/scope.ts";
+import { parseRole } from "./members.ts";
+import { can, invitable, withArticle } from "@snagset/types/roles";
 import { isConfigured, type MailerStatus } from "../mail/index.ts";
 import type { AddressSource } from "../instance/address.ts";
 
@@ -17,10 +19,15 @@ import type { AddressSource } from "../instance/address.ts";
  * password for somebody else and tell it to them; now an owner mints a link,
  * and whoever opens it chooses their own.
  *
- *   POST   /api/v1/members/invites            owner: mint one — the link appears ONCE
- *   GET    /api/v1/members/invites            any member: the pending ones
- *   DELETE /api/v1/members/invites/:id        owner: withdraw one
- *   POST   /api/v1/members/invites/:id/send   owner: mail it, holding the link
+ *   POST   /api/v1/members/invites            owner, or admin for a member: mint one — the link appears ONCE
+ *   GET    /api/v1/members/invites            owner or admin: the pending ones
+ *   DELETE /api/v1/members/invites/:id        owner, or admin for a member: withdraw one
+ *   POST   /api/v1/members/invites/:id/send   owner, or admin for a member: mail it, holding the link
+ *
+ * An admin brings designers in. They invite MEMBERS only — making an
+ * owner or an admin is giving away powers the owner kept for themselves
+ * (members.ts), so it stays the owner's — and the invite they can withdraw
+ * or mail is one for a member, whoever minted it. A member invites nobody.
  *   POST   /auth/invites/lookup               public: what is this link?
  *   POST   /auth/invites/accept               public: join, and be signed in
  *
@@ -107,16 +114,6 @@ export function inviteUrl(base: string, token: string): string {
   return `${base.replace(/\/+$/, "")}/invite#${token}`;
 }
 
-/** The rule, said the same way members.ts says it. */
-function parseRole(v: unknown): MemberRole | string {
-  if (v !== "owner" && v !== "admin") {
-    return v === "member" || v === "viewer"
-      ? `"${v}" is not available yet — a read-only seat needs visibility rules that are not built. Use owner or admin.`
-      : "role must be owner or admin.";
-  }
-  return v;
-}
-
 interface Row {
   id: string;
   role: MemberRole;
@@ -195,12 +192,18 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
     return !!origin && !ours.has(origin);
   };
 
-  const mustBeOwner = (c: Ctx): OwnerClaims | Response => {
+  /** Owners and admins; which invites an admin may touch is `mayTouch` below. */
+  const mayInvite = (c: Ctx): OwnerClaims | Response => {
     const owner = c.get("owner");
     if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
-    if (owner.role !== "owner") return fail(c, 403, "forbidden", "Only an owner can change who is in the studio.");
+    if (!can(owner.role, "invite")) return fail(c, 403, "forbidden", "Only an owner or an admin can invite people to the studio.");
     return owner;
   };
+  /** An admin acts on member invites only; an owner on any. Null when allowed. */
+  const mayTouch = (c: Ctx, owner: OwnerClaims, role: MemberRole): Response | null =>
+    can(owner.role, "people") || (invitable(owner.role) as MemberRole[]).includes(role)
+      ? null
+      : fail(c, 403, "forbidden", `Only an owner can invite ${withArticle(role)}. An admin invites members.`);
 
   const canMail = async (): Promise<boolean> => isConfigured(await deps.mailer().catch(() => ({ kind: "none" as const, reason: "" })));
 
@@ -217,19 +220,21 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
   // ── The studio's side ───────────────────────────────────────────────────
 
   app.get("/api/v1/members/invites", async (c) => {
-    const owner = c.get("owner");
-    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    const owner = mayInvite(c);
+    if (owner instanceof Response) return owner;
     // `mail` rides along so the dialog knows whether to offer sending before
     // it is asked — the same answer Studio › General's mail row gives.
     return c.json({ data: (await pending(owner.orgId)).map(shape), mail: await canMail() });
   });
 
   app.post("/api/v1/members/invites", async (c) => {
-    const owner = mustBeOwner(c);
+    const owner = mayInvite(c);
     if (owner instanceof Response) return owner;
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
     const role = parseRole(body?.role);
-    if (role !== "owner" && role !== "admin") return fail(c, 400, "validation_failed", role);
+    if (role !== "owner" && role !== "admin" && role !== "member") return fail(c, 400, "validation_failed", role);
+    const refused = mayTouch(c, owner, role);
+    if (refused) return refused;
     const raw = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
     if (raw && !EMAIL.test(raw)) return fail(c, 400, "validation_failed", "That does not look like an email address.", { field: "email" });
     const email = raw || null;
@@ -276,10 +281,21 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
   });
 
   app.delete("/api/v1/members/invites/:id", async (c) => {
-    const owner = mustBeOwner(c);
+    const owner = mayInvite(c);
     if (owner instanceof Response) return owner;
     const id = c.req.param("id");
     if (!UUID.test(id)) return fail(c, 404, "not_found", "No pending invite with that id.");
+    if (!can(owner.role, "people")) {
+      // An admin: the invite's role decides, read before the write so the
+      // refusal can say why rather than pretending the invite is not there.
+      const [inv] = await inOrg(sql, owner.orgId, (tx) => tx<{ role: MemberRole }[]>`
+        SELECT role FROM member_invites WHERE id = ${id} AND org_id = ${owner.orgId}
+      `);
+      if (inv) {
+        const refused = mayTouch(c, owner, inv.role);
+        if (refused) return refused;
+      }
+    }
     // Org-scoped in the WHERE as well as by the claim: on a role that
     // bypasses RLS (every dev machine) the claim alone filters nothing.
     const [hit] = await inOrg(sql, owner.orgId, (tx) => tx<{ id: string }[]>`
@@ -305,7 +321,7 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
    * on trust would let an owner mail a link to an invite it does not name.
    */
   app.post("/api/v1/members/invites/:id/send", async (c) => {
-    const owner = mustBeOwner(c);
+    const owner = mayInvite(c);
     if (owner instanceof Response) return owner;
     const id = c.req.param("id");
     const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
@@ -317,6 +333,8 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
        WHERE i.id = ${id} AND i.org_id = ${owner.orgId}
     `);
     if (!row || gone(row, new Date(now()))) return fail(c, 404, "not_found", "No pending invite with that id.");
+    const refused = mayTouch(c, owner, row.role);
+    if (refused) return refused;
     const want = sha256(token);
     if (!token || !timingSafeEqual(want, row.token_hash)) {
       return fail(c, 403, "forbidden", "That is not this invite's link. Copy it from the invite you just made.");
@@ -332,7 +350,7 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
         to: row.email,
         subject: `${who} invited you to ${studio}`,
         text:
-          `${who} has invited you to join ${studio} as ${row.role === "owner" ? "an owner" : "an admin"}.\n\n` +
+          `${who} has invited you to join ${studio} as ${withArticle(row.role)}.\n\n` +
           `Open this link to choose your password and sign in:\n${url}\n\n` +
           `It works once and expires on ${row.expires_at.toISOString().slice(0, 10)}. ` +
           `If you were not expecting it, you can ignore this email.\n`,
