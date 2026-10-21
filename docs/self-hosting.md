@@ -384,6 +384,25 @@ third-party CDN in the path, which is the answer to a security team that will
 not allow one. `/widget/manifest.json` lists a `sha384` for every file if you
 need an integrity hash.
 
+**How it is cached.** The tag you pasted always loads `snag.js` from the same
+address, so browsers keep that one file for a minute. Everything it loads
+after that carries the build's id in the address (`snag.runtime.js?cv=…`), so
+those files are kept for a year and never fetched twice — and a new release
+changes every one of those addresses at once.
+
+| Path | `Cache-Control` |
+|---|---|
+| `/snag.js`, `/widget/snag.js`, `/widget/v{major}/snag.js`, `/widget/manifest.json` | `public, max-age=60, s-maxage=300` |
+| `/widget/<this version>/snag.js` | `public, max-age=31536000, s-maxage=31536000, immutable` |
+| any chunk, `?cv=` this build's id | `public, max-age=31536000, s-maxage=31536000, immutable` |
+| any chunk with another build's `cv` or none; anything under another version's path | `no-store` |
+
+**If you put a CDN in front of your instance**, it has to keep the query
+string in its cache key (most do; check yours), and it can keep `snag.js` for
+up to the five minutes `s-maxage` allows. Purge it on a deploy if you want
+reviewers to see a release sooner. Vercel needs nothing: each deployment
+starts its edge cache empty.
+
 ## Upgrade
 
 ```bash
@@ -392,6 +411,11 @@ pnpm update @snagset/server --latest
 
 Then restart (`pnpm start`), or redeploy on Vercel. Migrations run on boot,
 and there is no build step to redo.
+
+Reviewers get the new widget on their next page load **once a minute has
+passed since their last one** — the time a browser keeps `snag.js`. No hard
+refresh, nothing to clear. A reviewer with a page already open keeps the
+widget they loaded until they reload it.
 
 `--latest` is not optional. The scaffold pins `@snagset/server` to an exact
 version deliberately — so that `create-snagset@X` gives everyone a repository

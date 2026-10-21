@@ -19,7 +19,8 @@
   "scripts": {
     "build:stub": "vite build --mode stub",
     "build:chunks": "vite build --mode chunks",
-    "build": "pnpm run build:stub && pnpm run build:runtime && pnpm run build:panels && pnpm run build:capture && pnpm run build:anchor-ext && pnpm run build:dock && pnpm run build:crumbs && pnpm run build:screenshot && pnpm run build:anchor-fuzzy && pnpm run build:text",
+    "build": "pnpm run build:stub && pnpm run build:runtime && pnpm run build:panels && pnpm run build:capture && pnpm run build:anchor-ext && pnpm run build:dock && pnpm run build:crumbs && pnpm run build:screenshot && pnpm run build:anchor-fuzzy && pnpm run build:text && pnpm run build:id",
+    "build:id": "node scripts/build-id.mjs",
     "size": "size-limit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --experimental-strip-types --test test/*.test.ts",

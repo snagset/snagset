@@ -281,48 +281,128 @@ test("a reply after a deleted reply posts — seq never reuses a deleted one's",
   assert.equal(new Set(seqs.map((r) => r.seq)).size, seqs.length, "every seq distinct");
 });
 
-test("commentCount follows a reply, a private reply and a delete — for a guest and for the studio", { skip }, async () => {
+/** The detail route's whole answer, for checking the count against the array beside it. */
+async function detail(headers: Record<string, string>): Promise<{ status: number; body: Record<string, any> }> {
+  const res = await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { headers });
+  return { status: res.status, body: await json(res) };
+}
+
+/** What `commentCount` promises to be: the live entries of the `comments` this reader got. */
+const liveIn = (t: Record<string, any>) => (t.comments as { body: string | null }[]).filter((c) => c.body !== null).length;
+
+test("commentCount follows a reply, a private reply and a delete — public for a guest, everything for the studio", { skip }, async () => {
   /**
    * The count used to be two stored columns bumped by hand (reply +1, delete
    * -1, the private case decrementing one and not the other). It is counted
    * on read now, so this is the regression net for the three writes that used
    * to keep it right.
    *
-   * THE SAME NUMBER FOR BOTH READERS, on purpose: every reader got the
-   * PUBLIC total before (the owner's list read `comment_count_public` too),
-   * and this change keeps it. The studio sees the private reply in
-   * `comments`; it is not in `commentCount` for anyone.
+   * TWO NUMBERS, ONE RULE. A guest is told the public total, exactly as
+   * before. The studio reads team-only replies in `comments`, so its count
+   * includes them: whichever reader it is, the count is the live length of
+   * the array that reader was sent, and every assertion below checks both.
    */
   const guest = { Authorization: `Bearer ${bearer}` };
   const owner = { Cookie: ownerAuth.cookie, [HTTP_HEADER.csrf]: ownerAuth.csrf };
   const post = (body: Record<string, unknown>) =>
     app.request(path(), { method: "POST", headers: { "content-type": "application/json", ...owner }, body: JSON.stringify(body) });
+  const agree = async (headers: Record<string, string>, expected: number, why: string) => {
+    const { status, body } = await detail(headers);
+    assert.equal(status, 200, JSON.stringify(body));
+    assert.equal(body.commentCount, expected, why);
+    assert.equal(body.commentCount, liveIn(body), `${why} — and it is the length of the comments this reader got`);
+  };
   const start = await wireCount(guest);
-  assert.equal(await wireCount(owner), start, "both readers start from the same public total");
+  await agree(guest, start, "the guest's public total");
+  await agree(owner, start, "nothing private yet, so the studio's total is the same");
 
   const reply = await post({ body: "a public reply" });
   assert.equal(reply.status, 201);
-  assert.equal(await wireCount(guest), start + 1, "a reply counts");
-  assert.equal(await wireCount(owner), start + 1);
+  await agree(guest, start + 1, "a reply counts");
+  await agree(owner, start + 1, "for the studio too");
 
   const priv = await post({ body: "team only", private: true });
   const pb = await json(priv);
   assert.equal(priv.status, 201, JSON.stringify(pb));
-  assert.equal(await wireCount(guest), start + 1, "a private reply is not in the guest's count");
-  assert.equal(await wireCount(owner), start + 1, "nor the studio's: commentCount is the public total for everyone");
-  const ownerView = await json(await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { headers: owner }));
+  await agree(guest, start + 1, "a private reply is not in the guest's count");
+  await agree(owner, start + 2, "it is in the studio's, which reads it");
   assert.ok(
-    (ownerView.comments as { id: string }[]).some((c) => c.id === pb.id),
-    "while the studio still reads the private reply itself",
+    ((await detail(owner)).body.comments as { id: string }[]).some((c) => c.id === pb.id),
+    "the studio reads the private reply itself",
   );
 
   const del = await app.request(`/api/v1/projects/${uid}/comments/${(await json(reply)).id}`, { method: "DELETE", headers: owner });
   assert.ok(del.status === 200 || del.status === 204, `delete: ${del.status}`);
-  assert.equal(await wireCount(guest), start, "a deleted reply stops counting");
-  assert.equal(await wireCount(owner), start);
+  await agree(guest, start, "a deleted reply stops counting");
+  // The studio's array keeps the deleted reply as a tombstone (body null),
+  // which is a hole in the conversation, not a comment: it does not count.
+  await agree(owner, start + 1, "for the studio too, though it still holds the tombstone");
 
-  // And the list route agrees with the detail route.
-  const list = await json(await app.request(`/api/v1/projects/${uid}/threads?key=SN-1`, { headers: guest }));
-  const rows = (list.data ?? list.threads) as { commentCount: number }[];
-  assert.equal(rows[0]!.commentCount, start);
+  // The list route agrees with the detail route, for each reader.
+  for (const [who, expected] of [[guest, start], [owner, start + 1]] as const) {
+    const list = await json(await app.request(`/api/v1/projects/${uid}/threads?key=SN-1`, { headers: who }));
+    const rows = (list.data ?? list.threads) as Record<string, any>[];
+    assert.equal(rows[0]!.commentCount, expected);
+    assert.equal(rows[0]!.commentCount, liveIn(rows[0]!), "the list's count is its own array's length");
+  }
+});
+
+test("a deleted OPENING comment reaches a client as an empty placeholder, never promoting a reply", { skip }, async () => {
+  /**
+   * Clients are sent no deleted comments, so a deleted opener used to vanish
+   * and the widget drew the first reply as the opening comment, one reply
+   * short. It now comes as a placeholder with no words and no name; deleted
+   * replies stay absent.
+   */
+  const guest = { Authorization: `Bearer ${bearer}` };
+  const owner = { Cookie: ownerAuth.cookie, [HTTP_HEADER.csrf]: ownerAuth.csrf };
+  const before = (await detail(owner)).body.comments as { id: string; body: string | null }[];
+  const opener = before[0]!;
+  assert.ok(opener.body !== null, "the opener is live before the delete");
+  const del = await app.request(`/api/v1/projects/${uid}/comments/${opener.id}`, { method: "DELETE", headers: owner });
+  assert.ok(del.status === 200 || del.status === 204, `delete: ${del.status}`);
+
+  for (const who of [guest, owner]) {
+    const { body } = await detail(who);
+    const cs = body.comments as { id: string; body: string | null; author: { name: string } }[];
+    assert.equal(cs[0]!.id, opener.id, "the opener keeps its place");
+    assert.equal(cs[0]!.body, null);
+    assert.equal(cs[0]!.author.name, "", "and carries no name");
+    assert.equal(body.commentCount, liveIn(body), "the placeholder is not counted");
+  }
+  const g = (await detail(guest)).body.comments as { body: string | null }[];
+  assert.equal(g.filter((c) => c.body === null).length, 1, "a client sees only the opener's placeholder, no deleted replies");
+});
+
+test("a private thread counts 0 for a guest (who cannot see it) and every live comment for the studio", { skip }, async () => {
+  const guest = { Authorization: `Bearer ${bearer}` };
+  const owner = { Cookie: ownerAuth.cookie, [HTTP_HEADER.csrf]: ownerAuth.csrf };
+  const before = (await detail(owner)).body;
+  const patch = (priv: boolean) =>
+    app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json", ...owner },
+      body: JSON.stringify({ private: priv }),
+    });
+
+  // The PATCH response is a thread like any other, counted for its reader.
+  const flipped = await patch(true);
+  const fb = await json(flipped);
+  assert.equal(flipped.status, 200, JSON.stringify(fb));
+  assert.equal(fb.commentCount, before.commentCount, "going private hides nothing from the studio");
+  assert.equal(fb.commentCount, liveIn(fb));
+  const after = (await detail(owner)).body;
+  assert.equal(after.commentCount, liveIn(after), "and the detail route says the same");
+  assert.equal((await detail(guest)).status, 404, "while a guest cannot see the thread at all");
+
+  const list = await json(await app.request(`/api/v1/projects/${uid}/threads?key=SN-1`, { headers: owner }));
+  const rows = (list.data ?? list.threads) as Record<string, any>[];
+  assert.equal(rows[0]!.commentCount, liveIn(rows[0]!));
+
+  // Back to public for whatever runs after; the replies stay team-only (the
+  // flip does not un-private them), so the guest's count is what is public.
+  const back = await patch(false);
+  assert.equal(back.status, 200);
+  const g = (await detail(guest)).body;
+  assert.equal(g.commentCount, liveIn(g), "the guest's count is still exactly what it can read");
 });

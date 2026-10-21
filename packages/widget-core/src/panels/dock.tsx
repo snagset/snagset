@@ -172,7 +172,9 @@ const STATUS_ORDER = Object.keys(STATUS) as Status[];
  * somewhere else.
  */
 /** The replies worth showing. A deleted reply is gone from the conversation —
- *  no name, no "deleted" line — so it is not drawn and not counted. */
+ *  no name, no "deleted" line — so it is not drawn and not counted. A deleted
+ *  OPENING comment is not a reply either: the row and the card draw it as a
+ *  pin with no words ("(no comment)", and no author). */
 const replies = (s: Snag) => s.comments.slice(1).filter((c) => c.body !== null);
 
 function Danger({
@@ -1614,7 +1616,12 @@ function Detail({
   };
 
   if (!snag) return null;
-  const first = snag.comments[0];
+  // A deleted opening comment (`body: null`, which an adapter may hand over
+  // as a tombstone) is drawn as NO opening comment: the pin with no words,
+  // as a thread created without one is. Its author's name, its time and a
+  // "deleted" line would all be the deleted comment speaking; the replies
+  // still follow, through replies(), which skips it by position.
+  const first = snag.comments[0]?.body == null ? undefined : snag.comments[0];
   // The number ON THE PIN, which is its position within its own page — not its
   // index in a list that spans the whole round.
   // The pin's number comes from the UNFILTERED round — the circle here

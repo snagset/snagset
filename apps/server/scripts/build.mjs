@@ -205,6 +205,13 @@ if (!chunks.some((f) => f === "snag.js")) {
   throw new Error("the widget build has no snag.js — the stub is the one file every install loads");
 }
 for (const file of chunks) cpSync(join(widgetSrc, file), join(widgetOut, file));
+// The build's id (widget-core scripts/build-id.mjs). Without it the routes
+// cannot tell a current `?cv=` from a stale one and serve every chunk
+// `no-store` — correct, but every activation would cross to the function.
+if (!existsSync(join(widgetSrc, "build.json"))) {
+  throw new Error("the widget build has no build.json — run `pnpm build:widget`, which stamps it");
+}
+cpSync(join(widgetSrc, "build.json"), join(widgetOut, "build.json"));
 
 // 4. The dashboard, built into `static/dashboard` by its own Vite build.
 const dashboard = join(SERVER, "static", "dashboard");

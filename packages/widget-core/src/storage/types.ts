@@ -494,6 +494,13 @@ export interface StorageAdapter {
    * on the local adapter, whose list is already in this browser.
    */
   cached?(): Snag[] | null;
+  /**
+   * The runtime's list after a write the server accepted (or a rollback of
+   * one it refused), so what `cached` paints next follows local changes.
+   * The adapter decides whether it may be stored at all; absent where
+   * `cached` is.
+   */
+  remember?(list: Snag[]): void;
   listAssignees?(q?: string): Promise<Reviewer[]>;
   /**
    * Anchor outcome reporting. Present only where `capabilities

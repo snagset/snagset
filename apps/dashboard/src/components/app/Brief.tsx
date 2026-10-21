@@ -186,15 +186,18 @@ export function Brief({
         </div>
 
         <section className="flex flex-col gap-3">
-          {thread.comments.length === 0 && <p className="m-0 text-muted-foreground">A pin with no words — the element says what it is about.</p>}
-          {/* A deleted reply leaves nothing behind — no name, no "deleted" line.
-              Only the opening comment keeps its place, since the thread hangs
-              off it. */}
-          {thread.comments.filter((c, i) => i === 0 || c.body !== null).map((c, i) => (
+          {/* A deleted comment leaves nothing behind: no name, no "deleted"
+              line, opening comment included. A thread whose opener is gone
+              reads as the pin it now is, a pin with no words, and its replies
+              follow under that line. The tombstone is still in the data (the
+              server sends it to the studio so a poll can place it); it is
+              just not something to show anyone. */}
+          {!thread.comments[0]?.body && <p className="m-0 text-muted-foreground">A pin with no words — the element says what it is about.</p>}
+          {thread.comments.filter((c) => c.body !== null).map((c) => (
             <CommentItem
               key={c.id}
               comment={c}
-              reply={i > 0}
+              reply={c !== thread.comments[0]}
               mine={canEditComment(c, myId)}
               {...(onEditComment ? { onEdit: (next: string) => onEditComment(c.id, next) } : {})}
               {...(onDeleteComment ? { onDelete: () => onDeleteComment(c.id) } : {})}
@@ -382,7 +385,7 @@ function CommentItem({
   onDelete,
 }: {
   comment: Comment;
-  /** A reply vanishes when deleted; the opening comment leaves its tombstone. */
+  /** Only for the confirm's sentence: deleting the opener leaves the pin. */
   reply: boolean;
   mine: boolean;
   onEdit?: (body: string) => Promise<unknown>;
@@ -393,9 +396,8 @@ function CommentItem({
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const dead = c.body === null;
   const canEdit = mine && !!onEdit;
-  const canDelete = !dead && !!onDelete;
+  const canDelete = !!onDelete;
 
   const save = async () => {
     const next = draft.trim();
@@ -420,14 +422,14 @@ function CommentItem({
     <div className="flex gap-2.5">
       <Avatar className="size-6 shrink-0">
         <AvatarFallback
-          className={cn("text-[10px] font-semibold", dead || c.author.kind === "agent" ? "bg-muted text-ink-soft" : "bg-brand-soft text-brand")}
+          className={cn("text-[10px] font-semibold", c.author.kind === "agent" ? "bg-muted text-ink-soft" : "bg-brand-soft text-brand")}
         >
           {initials(c.author.name, "?")}
         </AvatarFallback>
       </Avatar>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 text-[12px] text-muted-foreground">
-          <b className={cn("text-[13px] font-semibold", dead ? "text-muted-foreground" : "text-foreground")}>{c.author.name || "Anonymous"}</b>
+          <b className="text-[13px] font-semibold text-foreground">{c.author.name || "Anonymous"}</b>
           {c.author.kind === "agent" && <span className="rounded-sm bg-muted px-1 text-[10.5px] font-medium uppercase tracking-wide">agent</span>}
           <span>{ago(c.createdAt)}</span>
           {(canEdit || canDelete) && !editing && (
@@ -466,10 +468,7 @@ function CommentItem({
             </DropdownMenu>
           )}
         </div>
-        {dead ? (
-          // A tombstone is `body: null` and says so.
-          <p className="m-0 text-[13.5px] italic leading-normal text-muted-foreground">Comment deleted</p>
-        ) : editing ? (
+        {editing ? (
           <form
             className="mt-1 flex flex-col gap-2"
             onSubmit={(e) => {
@@ -515,7 +514,7 @@ function CommentItem({
           open={confirming}
           onOpenChange={setConfirming}
           title="Delete this comment?"
-          description={reply ? "The reply is removed for everyone." : "Its author's name stays; the text is removed."}
+          description={reply ? "The reply is removed for everyone." : "The comment is removed for everyone. The pin and its replies stay."}
           confirmLabel="Delete comment"
           busy={deleting}
           onConfirm={async () => {

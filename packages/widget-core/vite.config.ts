@@ -1,4 +1,5 @@
 import { defineConfig, transformWithEsbuild, type Plugin } from "vite";
+import { placeholder } from "./scripts/build-id.mjs";
 
 /**
  * Strip comments out of the CSS template literals — at BUILD time only.
@@ -288,6 +289,24 @@ function stripCssComments(): Plugin {
 }
 
 /**
+ * `src/build.ts`, as the artefacts see it: the release version and a
+ * placeholder for the content hash, which `scripts/build-id.mjs` writes over
+ * the placeholder after the last pass. A module swap rather than a
+ * `define` — retired build-time defines — so the source holds an
+ * ordinary export and nothing the build alone can see.
+ */
+function buildId(): Plugin {
+  return {
+    name: "snagset:build-id",
+    enforce: "pre",
+    transform(_code, id) {
+      if (!/[\\/]src[\\/]build\.ts$/.test(id)) return null;
+      return { code: `export const VERSION = ${JSON.stringify(placeholder())};`, map: null };
+    },
+  };
+}
+
+/**
  * One build pass PER ARTEFACT (Vite over esbuild/tsup for
  * chunk-filename control).
  *
@@ -324,7 +343,7 @@ export default defineConfig(({ mode }) => {
   const chunk = ENTRIES[mode as keyof typeof ENTRIES];
 
   return {
-    plugins: [stripCssComments(), stripCatalogueComments(), stripLineComments(), minifyWhitespace()],
+    plugins: [buildId(), stripCssComments(), stripCatalogueComments(), stripLineComments(), minifyWhitespace()],
     // JSX compiles straight to Preact — no React compatibility layer anywhere.
     esbuild: { jsx: "automatic", jsxImportSource: "preact" },
     build: {

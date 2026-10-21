@@ -307,7 +307,7 @@ test("an owner edits their own reply, and only their own", { skip }, async () =>
   assert.equal(theirs.status, 403, "an owner may delete a reviewer's words, never rewrite them");
 });
 
-test("the owner deletes a reviewer's comment and still sees where it was; the widget does not", { skip }, async () => {
+test("a deleted opening comment leaves a nameless placeholder, for the owner and the widget alike", { skip }, async () => {
   const res = await app.request(`/api/v1/comments/cmt_${adaCommentId}`, { method: "DELETE", headers: asOwner() });
   assert.equal(res.status, 200, await res.clone().text());
 
@@ -317,10 +317,15 @@ test("the owner deletes a reviewer's comment and still sees where it was; the wi
   assert.ok(hole, "the tombstone is on the owner's copy");
   assert.equal(hole.body, null);
   assert.ok(hole.deletedAt);
-  assert.deepEqual(hole.author, { name: "Ada" }, "the name survives, nothing else does");
+  // No name either: nobody is shown as the author of something that is gone.
+  assert.deepEqual(hole.author, { name: "" }, "nothing of the comment survives but its place");
 
+  // Ada's is the OPENING comment, so the widget gets the same placeholder
+  // rather than losing it — losing it promoted the first reply into its place.
   const guest = await app.request(`/api/v1/projects/${uid}/threads`, { headers: asGuest() });
-  const rows = ((await guest.json()) as { data: { key: string; comments: { id: string }[] }[] }).data;
+  const rows = ((await guest.json()) as { data: { key: string; comments: { id: string; body: string | null; author: { name: string } }[] }[] }).data;
   const kept = rows.find((r) => r.key === "SN-2")!;
-  assert.ok(!kept.comments.some((c) => c.id === `cmt_${adaCommentId}`), "a reviewer's copy simply loses it");
+  assert.equal(kept.comments[0]!.id, `cmt_${adaCommentId}`, "the opener keeps its place");
+  assert.equal(kept.comments[0]!.body, null);
+  assert.equal(kept.comments[0]!.author.name, "");
 });

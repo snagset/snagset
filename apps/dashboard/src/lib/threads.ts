@@ -162,8 +162,9 @@ export function useEditComment(key: ListKey) {
 
 /**
  * Deleting a comment — any comment, as the studio. Waits behind its confirm
- * like every delete here, and lands as the tombstone in place: the
- * author's name stays, the words go.
+ * like every delete here, and lands as the tombstone in place. The
+ * tombstone stays in the data and is never drawn: the brief shows neither
+ * its words nor its author's name, opening comment included.
  */
 export function useDeleteComment(key: ListKey) {
   const qc = useQueryClient();

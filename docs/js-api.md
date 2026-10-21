@@ -29,7 +29,7 @@ await window.Snagset.activate();
 
 | Property | Type | Meaning |
 |---|---|---|
-| `version` | `string` | Semver of the loaded stub. |
+| `version` | `string` | Semver of the loaded stub, with the build's content hash as build metadata — `0.1.34+3fa9c1`. Compare releases on the part before the `+`. |
 | `state` | `string` | `inert`, `booting`, `dormant`, `degraded`, `active` or `destroyed`. |
 | `pointerMode` | `string` | `browse`, `comments` or `add`. Always `browse` unless `state` is `active`. |
 | `config` | `object` | The resolved configuration, frozen. |

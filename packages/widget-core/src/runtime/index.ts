@@ -134,14 +134,13 @@ export interface RuntimeMount {
 const GUEST: Reviewer = { id: "rev_local", name: format("author.unknown"), kind: "guest" };
 
 /**
- * This chunk's own version, for the `?cv=`.
+ * This build's id, for the `?cv=` on the panels URL.
  *
- * Declared here rather than imported from the stub: the two are separate
- * artefacts by construction, and the runtime must be able to state its own
- * version without reaching across that boundary. The R7 is precisely the
- * case where they DISAGREE.
+ * Compiled in from `src/build.ts`, not imported from the stub at run time: the
+ * two are separate artefacts by construction, and the runtime states the
+ * build it came from without reaching across that boundary.
  */
-const VERSION = "0.0.0";
+import { VERSION } from "../build.ts";
 
 /**
  * Who is writing. The composer asks once and stores the answer; a reply made
@@ -1202,6 +1201,9 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
       // putting the substitutions there renders "that {item}" verbatim.
       all = before;
       paint();
+      // Another write may have confirmed while this one was in flight and
+      // cached the list with THIS change in it; the rollback goes there too.
+      storage.remember?.(all);
       // One word for every caller. "change" is true of an edit, a deletion, a
       // removed thread, a status and an assignee, and a literal per caller for
       // one sentence is that many literals in a chunk with a byte budget.
@@ -1708,7 +1710,12 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
 
   async function guard<T>(write: () => Promise<T>): Promise<T | null> {
     try {
-      return await write();
+      const r = await write();
+      // Every write comes through here, so this is the one place the cached
+      // list learns about it — once the server has said yes, never on the
+      // optimistic paint (optimistic() rewrites it after a rollback).
+      storage.remember?.(all);
+      return r;
     } catch (e) {
       if (e instanceof AdapterError && e.code === "local_quota_exceeded") {
         // F-02, and it is now ON SCREEN rather than in a console the reviewer

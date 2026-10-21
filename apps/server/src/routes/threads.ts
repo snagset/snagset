@@ -127,14 +127,24 @@ function commentsJson(tx: postgres.TransactionSql, asOwner: boolean) {
                 THEN json_build_object(
                   'id', cm.id, 'body', cm.body, 'createdAt', cm.created_at,
                   'author', json_build_object('id', cr.id, 'name', cr.name, 'kind', cr.kind))
+                -- A deleted comment carries no words and no name: nobody
+                -- is shown who wrote something that is gone.
                 ELSE json_build_object(
                   'id', cm.id, 'body', NULL::text, 'createdAt', cm.created_at, 'deletedAt', cm.deleted_at,
-                  'author', json_build_object('name', cr.name))
+                  'author', json_build_object('name', ''))
               END
               ORDER BY cm.seq)
        FROM comments cm JOIN reviewers cr ON cr.id = cm.author_id
       WHERE cm.thread_id = t.id
-        ${asOwner ? tx`` : tx`AND cm.deleted_at IS NULL AND cm.private = false`}),
+        ${asOwner
+          ? tx``
+          : // Deleted replies are simply absent for a client. The OPENING
+            // comment is the exception: dropping it would promote the first
+            // reply into its place, so it comes as the empty placeholder above
+            // and the widget draws the pin with no words.
+            tx`AND cm.private = false
+               AND (cm.deleted_at IS NULL
+                    OR cm.seq = (SELECT min(c0.seq) FROM comments c0 WHERE c0.thread_id = t.id))`}),
     '[]'::json)`;
 }
 
@@ -154,18 +164,33 @@ function commentsJson(tx: postgres.TransactionSql, asOwner: boolean) {
  * 100-thread list within noise of the stored column). 0.1.32 stopped
  * reading and writing the stored columns and 0013 dropped them.
  *
- * THE SAME NUMBER FOR EVERYONE, and that is not an oversight. The stored
- * column every reader used was the PUBLIC total -- the owner's list read it
- * too -- because it is what a client may be told (05 section 3.5,
- * section A4: a client told "4 replies" who can read two has learned that
- * two exist). Live comments only; team-only ones never. And a private
- * thread counts 0, which is what a CHECK on the stored column used to
- * force. Its comments are all private anyway (the flip makes them so and the
- * reply route forces it), so the CASE is a guarantee, not a change.
+ * THE NUMBER THE READER CAN COUNT. A client gets the PUBLIC total, because
+ * it is what a client may be told (05 section 3.5, section A4: a
+ * client told "4 replies" who can read two has learned that two exist). Live
+ * comments only; team-only ones never. And a private thread counts 0 for
+ * them, which is what a CHECK on the stored column used to force. Its
+ * comments are all private anyway (the flip makes them so and the reply
+ * route forces it), so the CASE is a guarantee, not a change.
+ *
+ * The studio used to get that same public total, because the stored
+ * column every reader used could only hold one number. But the studio reads
+ * team-only replies and private threads in `comments`, so its list said "2
+ * replies" above a conversation of four. `seesPrivate` is the SAME decision
+ * that picks commentsJson's view -- callers pass the one boolean to both --
+ * so the count is always the number of live entries in the `comments` array
+ * that reader receives, tombstones excluded. One rule, not two that agree.
+ *
+ * Its index is `comments_thread` (thread_id, seq) rather than the partial
+ * `comments_thread_public`, whose predicate no longer matches; EXPLAINed when
+ * this landed, still an index probe per thread and no seq scan.
  *
  * Over an alias `t` that carries `id` and `private`.
  */
-function commentTotal(tx: postgres.TransactionSql) {
+export function commentTotal(tx: postgres.TransactionSql, seesPrivate: boolean) {
+  if (seesPrivate) {
+    return tx`(SELECT count(*)::int FROM comments cc
+                WHERE cc.thread_id = t.id AND cc.deleted_at IS NULL)`;
+  }
   return tx`(CASE WHEN t.private THEN 0 ELSE (
               SELECT count(*)::int FROM comments cc
                WHERE cc.thread_id = t.id AND cc.deleted_at IS NULL AND cc.private = false
@@ -525,7 +550,7 @@ export function threadRoutes(
               )`;
       return tx<Record<string, unknown>[]>`
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx)} AS comment_total,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, asOwner)} AS comment_total,
                t.route, e.key AS environment_key, rd.number AS round, rd.name AS round_name,
                r.name AS created_by_name, r.kind AS created_by_kind, r.id AS created_by_id,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -1044,8 +1069,11 @@ export function threadRoutes(
       if (code === "23505") {
         const [existing] = await inOrg(sql, p.org_id, async (tx) =>
           tx<Record<string, unknown>[]>`
+            -- false: this copy's comments below are the public ones for
+            -- every caller (it answers whoever retried, as the first 201 did),
+            -- and the count has to be the length of the array it sits beside.
             SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-                   t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx)} AS comment_total,
+                   t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, false)} AS comment_total,
                    t.route, e.key AS environment_key, rd.number AS round, rd.name AS round_name,
                    r.id AS created_by_id, r.name AS created_by_name, r.kind AS created_by_kind,
                    ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -1131,7 +1159,7 @@ export function threadRoutes(
     const [row] = await inOrg(sql, p.org_id, async (tx) =>
       tx<Record<string, unknown>[]>`
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx)} AS comment_total,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, asOwner)} AS comment_total,
                t.route, e.key AS environment_key, rd.number AS round, rd.name AS round_name,
                r.id AS created_by_id, r.name AS created_by_name, r.kind AS created_by_kind,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -1495,7 +1523,7 @@ export function threadRoutes(
                     route, created_by, environment_id, assignee_id
         )
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx)} AS comment_total,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, asOwner)} AS comment_total,
                t.route, e.key AS environment_key,
                r.name AS created_by_name, r.kind AS created_by_kind, r.id AS created_by_id,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,

@@ -31,8 +31,7 @@ import { holderId } from "./storage/identity.ts";
 import { installEarly, type EarlyCrumbs } from "./loader/crumbs-early.ts";
 import type { Emit, Listener, Mode, Phase, RuntimeModule, SnagsetApi } from "./api.ts";
 import type { RuntimeMount } from "./runtime/index.ts";
-
-const VERSION = "0.0.0";
+import { VERSION } from "./build.ts";
 
 /**
  * Taken at load, once, before anything else can run. Held in
@@ -134,7 +133,7 @@ function readConfig(el: HTMLScriptElement | null, global?: ConfigGlobal): Config
  * → the stub's own <script src>. The last one is what makes the zero-attribute
  * paste snippet work: the stub resolves its own runtime with nothing configured.
  */
-/** Every chunk URL carries the stub's own version. */
+/** Every chunk URL carries this build's id, so a release renames it. */
 function chunkUrl(file: string, base: string): string {
   const u = new URL(file, base);
   u.searchParams.set("cv", VERSION);
@@ -411,12 +410,14 @@ function makeApi(
         /**
          * The `?cv=` cache-buster, on BOTH chunk URLs.
          *
-         * *"The stub appends `?cv=<VERSION>` to the runtime and panels URLs.
-         * Each chunk compares its own VERSION against `cv`; on mismatch it emits
-         * one console.warn naming both versions and continues."* R7's whole
-         * scenario is version skew across the floating major alias — a CDN
-         * edge holding an old `snag.runtime.js` against a fresh `snag.js`, which
-         * is a confusing half-hour with no other signal at all.
+         * `VERSION` is this build's id, `<release>+<content hash>`
+         * (scripts/build-id.mjs). It was the literal "0.0.0" until a reviewer
+         * kept running the previous release after a deploy: a buster that
+         * never changes busts nothing. Now every build names its chunks
+         * differently, the server caches a chunk immutable ONLY under the
+         * current id, and an old id is answered `no-store` — so R7's skew
+         * (an old `snag.js` against fresh chunks) can no longer be pinned into
+         * a cache, at the edge or in the browser.
          *
          * It is an ASSET-URL parameter and explicitly not a page one, so
          * does not govern it and it is not in the registry.

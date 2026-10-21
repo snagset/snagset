@@ -2,6 +2,7 @@ import { Hono, type Context } from "hono";
 import type postgres from "postgres";
 import { ID_PREFIX } from "@snagset/types/names";
 import type { OwnerClaims } from "./owner.ts";
+import { commentTotal } from "./threads.ts";
 
 /**
  * Activity across every site, and the last thing.
@@ -101,12 +102,13 @@ export function activityRoutes(sql: postgres.Sql): Hono<Env> {
       await tx`SELECT set_config('app.org_id', ${owner.orgId}, true)`;
       return tx<Row[]>`
         SELECT t.id, t.key, t.status, t.route, t.updated_at, t.created_at,
-               -- The public reply total, counted (commentTotal in threads.ts,
-               -- which the per-site list uses: the two screens must agree).
-               -- No private-thread CASE here because the WHERE below already
-               -- leaves private threads out of this feed.
-               (SELECT count(*)::int FROM comments cc
-                 WHERE cc.thread_id = t.id AND cc.deleted_at IS NULL AND cc.private = false) AS comment_total,
+               -- The reply total the studio's own per-site list shows
+               -- (commentTotal in threads.ts, as the studio reads it: every
+               -- live comment, team-only ones included), so the two screens
+               -- agree and a line here matches the thread it opens. The feed
+               -- still leaves private THREADS out, in the WHERE below, and
+               -- still never quotes a team-only reply; a number is not words.
+               ${commentTotal(tx, true)} AS comment_total,
                p.uid AS project_uid, p.name AS project_name, e.key AS environment_key,
                r.name AS created_by_name, r.kind AS created_by_kind,
                ar.name AS assignee_name,

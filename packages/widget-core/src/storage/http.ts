@@ -268,9 +268,31 @@ export function createHttpAdapter(
    */
   const cls = (): ListClass => (session?.member ? "member" : "guest");
   const slot = (): string => `${env ?? ""}:${session?.round ?? ""}`;
+  /**
+   * The class and slot of the last list this adapter read AND cached, or ""
+   * — what `remember` checks the runtime's list against. The runtime's list
+   * carries no note of the credential it was read with, so this is that
+   * note. After a sign-out the runtime still holds the member's list until
+   * the guest's arrives, and a write landing in that window must not file
+   * the member's private threads under the guest's key: the class no longer
+   * matches, and every session ending and refused list clears this anyway,
+   * so nothing recreates a key that was just dropped.
+   */
+  let listed = "";
+  /**
+   * Store a list for the class and slot in force — the fresh one from
+   * `listThreads`, or the runtime's after a write the server took, so the
+   * next page load paints the edit, the reply or the deletion rather than
+   * the copy from before it. Only over the list it was read as: `listed`
+   * checked NOW, which also covers a round switch whose list has not landed.
+   */
+  const remember = (d: Snag[]): void => {
+    if (listed == cls() + slot()) writeList(uid, cls(), slot(), d);
+  };
   /** Every session ending goes through here, and takes both cached lists with
    *  it: a list must never outlive the credential that read it. */
   const end = (): void => {
+    listed = "";
     clearSession(uid);
     dropList(uid, "member");
     dropList(uid, "guest");
@@ -767,6 +789,7 @@ export function createHttpAdapter(
         /* see readSession */
       }
     },
+    remember,
     // A session past its cap is about to be ended, and a member's may come
     // back a guest's — so it reads as "nothing cached" rather than painting
     // a list its holder may no longer see.
@@ -898,14 +921,17 @@ export function createHttpAdapter(
       ).catch((e: unknown) => {
         // Refused (401, 403, `link_required`): what this browser cached is no
         // longer this reviewer's to see. A network failure keeps it.
-        if (e instanceof HttpAdapterError && (e.status === 401 || e.status === 403)) dropList(uid, c);
+        if (e instanceof HttpAdapterError && (e.status === 401 || e.status === 403)) dropList(uid, c), (listed = "");
         throw e;
       });
       const data = list.data.map((w) => toSnag(w, env, base));
-      // A member's list is only written while they are still the member: a
-      // sign-out that landed mid-flight dropped the cache, and this must not
-      // put it back. A guest's list is safe in the guest's store either way.
-      if (c === "guest" || session?.member) writeList(uid, c, at, data);
+      // Noted as read with `c` for `at`, and stored only if that is still
+      // the credential and slot in force: a member's list is only written
+      // while they are still the member (a sign-out that landed mid-flight
+      // dropped the cache, and this must not put it back), and a guest whose
+      // sign-in landed mid-flight has a member's list coming instead.
+      listed = c + at;
+      remember(data);
       return {
         data,
         ...(list.nextCursor ? { nextCursor: list.nextCursor } : {}),

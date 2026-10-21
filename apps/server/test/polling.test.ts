@@ -396,7 +396,9 @@ test("going private hides the replies too, and zeroes the public count", { skip 
     SELECT private FROM threads WHERE id = ${row}::uuid`;
   assert.equal(thread!.private, true);
   // Through the API: the count is derived on read now, not stored.
-  assert.equal((await threadById(t.id)).commentCount, 0, "a private thread has no public replies to count");
+  // The studio reads a private thread's comments, so it counts them; a
+  // client cannot see the thread at all (the 404 and deleted[] tests).
+  assert.equal((await threadById(t.id)).commentCount, 2, "the studio's count is every live comment it reads");
 
   const [pub] = await sql<{ n: number }[]>`
     SELECT count(*)::int AS n FROM comments WHERE thread_id = ${row}::uuid AND private = false`;
@@ -416,7 +418,9 @@ test("making it public again does NOT un-private the replies", { skip }, async (
   const [priv] = await sql<{ n: number }[]>`
     SELECT count(*)::int AS n FROM comments WHERE thread_id = ${row}::uuid AND private = true`;
   assert.equal(priv!.n, 2, "both the root comment and the reply stay team-only");
-  assert.equal((await threadById(t.id)).commentCount, 0, "and the count agrees with them");
+  // threadById reads as the studio, which counts team-only replies too; the
+  // public count, which these two no longer reach, is the query above.
+  assert.equal((await threadById(t.id)).commentCount, 2, "and the studio's count still holds both");
 });
 
 // ── the input ────────────────────────────────────────────────────────────

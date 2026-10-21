@@ -187,6 +187,11 @@ test("a private thread and a team-only reply stay out of the feed", { skip }, as
   const six = rows.find((r) => r.key === "SN-6");
   assert.ok(six, "the thread itself is present");
   assert.equal(six.latest, null, "its team-only reply is not quoted");
+  // But it is counted, as the studio's own list counts it: the line and the
+  // thread it opens must not disagree about how many comments there are.
+  assert.equal(six.commentCount, 1, "the team-only comment is in the studio's count");
+  const site = (await json(await app.request(`/api/v1/projects/${sites[1]!.uid}/threads?key=SN-6`, { headers: as(owner) })))["data"] as any[];
+  assert.equal(six.commentCount, site[0].commentCount, "and Activity agrees with the site's own list");
 });
 
 test("?q= searches the key, the element and the words — the same three the site's own search does", { skip }, async () => {

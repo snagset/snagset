@@ -256,6 +256,27 @@ check(
   `stub: suspiciously many literal "${reg.brand.long}" occurrences — should come from the registry`,
 );
 
+// ── the build is named, and every eager artefact carries the name ──────────
+// `?cv=` was the literal "0.0.0" in three files, so every release requested
+// the same chunk URLs as the last and reviewers ran the old widget until their
+// cache expired. widget-core's scripts/build-id.mjs stamps `<release>+<hash>`
+// over a placeholder; an unstamped artefact (the placeholder still present) or
+// a stub and runtime naming different builds is a build that cannot bust.
+{
+  const info = existsSync(join(DIST, "build.json")) ? JSON.parse(read("build.json")) : null;
+  check(info !== null, "dist/build.json is missing — the build-id stamp did not run");
+  if (info) {
+    check(/^\d+\.\d+\.\d+\+[0-9a-f]{6}$/.test(info.cv), `build.json cv ${JSON.stringify(info.cv)} is not <semver>+<6 hex>`);
+    check(stub.includes(`"${info.cv}"`), `${d.artifacts.stub} does not carry this build's id ${info.cv}`);
+    check(runtime.includes(`"${info.cv}"`), `${d.artifacts.runtime} does not carry this build's id ${info.cv}`);
+  }
+  for (const [id] of built) {
+    const file = d.artifacts[id];
+    if (existsSync(join(DIST, file))) check(!read(file).includes("+~~~~~~"), `${file} still carries the unstamped build-id placeholder`);
+  }
+  check(!/"0\.0\.0"/.test(stub), `${d.artifacts.stub} still names version "0.0.0"`);
+}
+
 if (failures.length) {
   console.error("✗ verify-dist failed:\n" + failures.map((f) => "  · " + f).join("\n"));
   process.exit(1);

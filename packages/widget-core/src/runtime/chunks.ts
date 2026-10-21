@@ -1,4 +1,5 @@
 import { ARTIFACT } from "@snagset/types/names";
+import { VERSION } from "../build.ts";
 
 /**
  * ONE loader for every lazy artefact — the contract.
@@ -12,8 +13,9 @@ import { ARTIFACT } from "@snagset/types/names";
  *     without touching the network (R5). Retries vary the URL with a
  *     per-chunk monotonic `?r=N` — safe because chunks are self-contained
  *     no baked specifier anywhere cares which generation loaded.
- *   · Every URL carries `?cv=<version>`, so a CDN edge cannot serve
- *     a stale chunk against a fresh runtime without the URL saying so.
+ *   · Every URL carries `?cv=<build id>` (src/build.ts), so a
+ *     release renames every chunk and a cache can never hand a fresh runtime
+ *     a stale chunk under the same URL.
  *   · The base resolves against the DOCUMENT first: `new URL(x, "/widget/")`
  *     throws, and a host that mounts the runtime directly may pass a
  *     root-relative base.
@@ -24,10 +26,6 @@ import { ARTIFACT } from "@snagset/types/names";
  * exception. One automatic retry happens here; anything beyond that is the
  * caller's Retry button, which calls again and gets a fresh URL.
  */
-
-/** This chunk's own version — kept in lockstep with the loader's by the
- *  release process; the R7 covers the case where they disagree. */
-const VERSION = "0.0.0";
 
 export type ChunkName = keyof typeof CHUNK_FILE;
 

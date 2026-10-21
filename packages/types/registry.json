@@ -263,18 +263,18 @@
         "$comment": "Always loaded, and budgets it on its own row \u2014 NOT inside the runtime envelope. envelope:false is what keeps it out of that sum; it is still counted in the total-activation row."
       },
       "runtime": {
-        "budgetKb": 20,
+        "budgetKb": 20.5,
         "lazy": false,
         "built": true,
         "enforced": false,
-        "$comment": "Part of the runtime envelope, which is the gate. This per-file number is the own estimate of how the 40 KB would divide and is REPORTED, not enforced \u2014 the product divided it 19.5/20.4."
+        "$comment": "Part of the runtime envelope, which is the gate. This per-file number is the own estimate of how the 40 KB would divide and is REPORTED, not enforced \u2014 the product divided it 19.5/20.4. Raised 20 -> 20.5 at 0.1.34, which moves the total-activation row (the sum of the eager budgets) from 48 to 48.5 KB: the cached list now follows confirmed edits (+52 B) and every chunk URL carries the real build id instead of 0.0.0 (+13 B), and the total sat 21 B under 48 KB before either. The runtime envelope stays at 44 KB."
       },
       "panels": {
-        "budgetKb": 20,
+        "budgetKb": 20.5,
         "lazy": false,
         "built": true,
         "enforced": false,
-        "$comment": "Part of the runtime envelope, which is the gate. This per-file number is the own estimate of how the 40 KB would divide and is REPORTED, not enforced \u2014 the product divided it 19.5/20.4."
+        "$comment": "Part of the runtime envelope, which is the gate. This per-file number is the own estimate of how the 40 KB would divide and is REPORTED, not enforced \u2014 the product divided it 19.5/20.4. Raised 20 -> 20.5 at 0.1.34, which moves the total-activation row (the sum of the eager budgets) from 48 to 48.5 KB: the cached list now follows confirmed edits (+52 B) and every chunk URL carries the real build id instead of 0.0.0 (+13 B), and the total sat 21 B under 48 KB before either. The runtime envelope stays at 44 KB."
       },
       "crumbs": {
         "budgetKb": 8,
