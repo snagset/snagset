@@ -102,8 +102,14 @@ function fail(c: Ctx, status: number, code: string, message: string, details?: u
  *
  * ── TEAM-ONLY ──
  *
- * A `private` reply is for the studio's eyes and never reaches a reviewer
- * session or an agent. The owner sees all of them.
+ * A `private` reply is for the studio's eyes and never reaches a client's
+ * session or an agent. A reader who sees private content (`seesPrivate`
+ * below: the owner cookie, or a session minted with `thread:private`) gets
+ * every one of them, each marked `private: true` -- the widget draws its
+ * "Team only" badge from that, so a designer signed in on the client's site
+ * never takes an internal note for one the client can read. Nobody
+ * else's copy carries the field at all, so a client cannot even see that
+ * the word exists.
  *
  * ── TOMBSTONES, FOR THE OWNER ONLY ──
  *
@@ -121,13 +127,16 @@ function fail(c: Ctx, status: number, code: string, message: string, details?: u
  * a hole is placed in time by when it was written. `seq` stays server-side
  * for the reason, and the author's id and kind go with the words.
  */
-function commentsJson(tx: postgres.TransactionSql, asOwner: boolean) {
+function commentsJson(tx: postgres.TransactionSql, seesPrivate: boolean, asOwner: boolean) {
   return tx`COALESCE(
     (SELECT json_agg(
               CASE WHEN cm.deleted_at IS NULL
                 THEN json_build_object(
                   'id', cm.id, 'body', cm.body, 'createdAt', cm.created_at,
-                  'author', json_build_object('id', cr.id, 'name', cr.name, 'kind', cr.kind))
+                  'author', json_build_object('id', cr.id, 'name', cr.name, 'kind', cr.kind)
+                  -- Only in a view that may hold a private reply; shape()
+                  -- keeps the key only when it is true.
+                  ${seesPrivate ? tx`, 'private', cm.private` : tx``})
                 -- A deleted comment carries no words and no name: nobody
                 -- is shown who wrote something that is gone.
                 ELSE json_build_object(
@@ -137,17 +146,54 @@ function commentsJson(tx: postgres.TransactionSql, asOwner: boolean) {
               ORDER BY cm.seq)
        FROM comments cm JOIN reviewers cr ON cr.id = cm.author_id
       WHERE cm.thread_id = t.id
+        -- Two questions, two answers: who may read team-only replies, and
+        -- who is shown tombstones. They were one boolean while only the
+        -- dashboard could see private content; a member's widget session
+        -- sees the replies but, like any widget reader, not the holes.
+        ${seesPrivate ? tx`` : tx`AND cm.private = false`}
         ${asOwner
           ? tx``
-          : // Deleted replies are simply absent for a client. The OPENING
-            // comment is the exception: dropping it would promote the first
-            // reply into its place, so it comes as the empty placeholder above
-            // and the widget draws the pin with no words.
-            tx`AND cm.private = false
-               AND (cm.deleted_at IS NULL
+          : // Deleted replies are simply absent outside the dashboard. The
+            // OPENING comment is the exception: dropping it would promote the
+            // first reply into its place, so it comes as the empty placeholder
+            // above and the widget draws the pin with no words.
+            tx`AND (cm.deleted_at IS NULL
                     OR cm.seq = (SELECT min(c0.seq) FROM comments c0 WHERE c0.thread_id = t.id))`}),
     '[]'::json)`;
 }
+
+/**
+ * WHO SEES TEAM-ONLY CONTENT -- the one decision every thread read takes
+ * (05 section 6.4a's `canSeePrivate`), and the PATCH response with them.
+ *
+ * It was `asOwner` alone, true only with a dashboard cookie, so a studio
+ * member signed in from the widget -- whose session is minted WITH
+ * `thread:private` (sessions.ts MEMBER_PERMISSIONS) -- was handed the
+ * client's view: no team-only threads, no team-only replies, while
+ * docs/identity.md promised them both. The permission is the whole answer,
+ * as section 4.4 says it is: computed once at exchange from the credential,
+ * never from the request. That includes a TEAM link -- a review link whose
+ * stored permissions carry `thread:private` (section 3.4) -- which is the
+ * studio reviewing from the live site by design.
+ *
+ * Agents keep their rule (the list's note on `asAgent`): an MCP token never
+ * sees private content, whatever else the request carries.
+ */
+export function seesPrivate(asOwner: boolean, session: SessionClaims | undefined, asAgent: boolean): boolean {
+  return asOwner || (!asAgent && !!session?.perm.includes("thread:private"));
+}
+
+/**
+ * The Cache-Control on any response that may carry team-only content. No
+ * thread read set one before, and none was cached anywhere -- Vercel's edge
+ * stores a function's response only when told to (s-maxage), and a browser
+ * caches heuristically only with a Last-Modified these never send -- but
+ * "nothing said, so nothing kept" is a default, and this edge has replayed a
+ * per-origin response before (the config route's note). Said explicitly
+ * rather than relied on, for exactly the responses that need it; a client's
+ * view is left as it was.
+ */
+const PRIVATE_READ = "private, no-store";
 
 /**
  * THE REPLY COUNT, COUNTED. `commentCount` on the wire, as `comment_total`
@@ -345,7 +391,7 @@ export function threadRoutes(
    *
    * | Caller           | Environment | Routes | Private | Order    |
    * |------------------|-------------|--------|---------|----------|
-   * | reviewer session | the one asked for, else default | the one asked for | never | oldest first, so pins paint in creation order |
+   * | reviewer session | the one asked for, else default | the one asked for | only with `thread:private` | oldest first, so pins paint in creation order |
    * | owner cookie     | every one, unless asked | every one, unless asked | included | NEWEST first — an inbox is read from the top |
    *
    * A widget caller cannot reach the dashboard scope by asking: the branch is
@@ -388,6 +434,10 @@ export function threadRoutes(
     const mcp = c.get("mcp");
     const asAgent = mcpAllows(mcp, p.org_id, "threads:read");
     const asStudio = asOwner || asAgent;
+    // The studio's PRIVACY without its filters or its order: a member's or a
+    // team link's widget session reads like a reviewer and sees like the
+    // studio (seesPrivate above).
+    const withPrivate = seesPrivate(asOwner, c.get("session"), asAgent);
 
     // A token that presented itself and lacks the scope is REFUSED, not
     // quietly served the anonymous view. This route answers without any
@@ -463,7 +513,7 @@ export function threadRoutes(
      * deliberately IGNORES the round and environment defaults: the caller
      * named a specific thread, which is a stronger statement of intent than
      * any default. Privacy is not ignored — a private thread is absent for a
-     * non-owner, which reads as "no such key" rather than confirming it exists
+     * reader who may not see private content, which reads as "no such key" rather than confirming it exists
      * (the rule for `GET /threads/{id}`).
      */
     const key = c.req.query("key")?.trim().toUpperCase();
@@ -551,7 +601,8 @@ export function threadRoutes(
               )`;
       return tx<Record<string, unknown>[]>`
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, asOwner)} AS comment_total,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, withPrivate)} AS comment_total,
+               ${withPrivate ? tx`t.private` : tx`false`} AS private_seen,
                t.route, e.key AS environment_key, rd.number AS round, rd.name AS round_name,
                r.name AS created_by_name, r.kind AS created_by_kind, r.id AS created_by_id,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -563,7 +614,7 @@ export function threadRoutes(
                   FROM external_refs x
                   WHERE x.thread_id = t.id AND x.status <> 'detached'),
                  '[]'::json) AS refs,
-               ${commentsJson(tx, asOwner)} AS comments,
+               ${commentsJson(tx, withPrivate, asOwner)} AS comments,
                COALESCE(
                  (SELECT json_agg(json_build_object(
                      'id', a.id, 'kind', a.kind, 'contentType', a.content_type,
@@ -576,7 +627,7 @@ export function threadRoutes(
                -- VISIBLE, computed rather than filtered. See the note above
                -- the query: a thread that becomes private must be TOMBSTONED,
                -- and a WHERE clause can only make it vanish.
-               (t.deleted_at IS NULL AND ${asOwner ? tx`true` : tx`t.private = false`}
+               (t.deleted_at IS NULL AND ${withPrivate ? tx`true` : tx`t.private = false`}
                 AND ${since && inRound ? inRound : tx`true`}) AS visible
         FROM threads t
         JOIN reviewers r ON r.id = t.created_by
@@ -596,7 +647,7 @@ export function threadRoutes(
           -- thread that just became invisible still comes back and can be
           -- tombstoned. On a full list they stay here, where they cost nothing.
           ${since ? tx`AND t.updated_at > ${since}` : tx`AND t.deleted_at IS NULL`}
-          ${since || asOwner ? tx`` : tx`AND t.private = false`}
+          ${since || withPrivate ? tx`` : tx`AND t.private = false`}
           -- KEY OVERRIDES EVERY OTHER FILTER, and that is the contract: the
           -- caller named one thread, which is a stronger statement of intent
           -- than any default or any filter left over in a URL. It returns that
@@ -671,6 +722,7 @@ export function threadRoutes(
       .filter((r) => r["visible"] === false)
       .map((r) => ID_PREFIX.thread + String(r["id"]));
 
+    if (withPrivate) c.header("Cache-Control", PRIVATE_READ);
     return c.json({
       data: visible.map(shape),
       nextCursor: null,
@@ -1138,9 +1190,10 @@ export function threadRoutes(
   /**
    * Endpoint 8 — one thread — and the brief: the same row as
    * `text/markdown` when the id ends in `.md`, for curl, an agent's shell or
-   * a ticket body. The privacy rule is the list's: a private thread is absent
-   * for a non-owner, which reads as "no such thread" rather than confirming
-   * one exists, and team-only replies stay out of a client's copy.
+   * a ticket body. The privacy rule is the list's (`seesPrivate`): a private
+   * thread is absent for a client, which reads as "no such thread" rather
+   * than confirming one exists, and team-only replies stay out of a
+   * client's copy.
    */
   app.get("/api/v1/projects/:uid/threads/:id", async (c) => {
     const p = await project(c.req.param("uid"));
@@ -1154,6 +1207,7 @@ export function threadRoutes(
     if (!asOwner && !asAgent && !session) {
       return fail(c, 401, "unauthorized", "Open your review link, or reload the page, and try again.");
     }
+    const withPrivate = seesPrivate(asOwner, session, asAgent);
     const raw = c.req.param("id");
     const wantMarkdown = raw.endsWith(".md");
     const threadRow = rowId(wantMarkdown ? raw.slice(0, -3) : raw, ID_PREFIX.thread);
@@ -1162,7 +1216,8 @@ export function threadRoutes(
     const [row] = await inOrg(sql, p.org_id, async (tx) =>
       tx<Record<string, unknown>[]>`
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, asOwner)} AS comment_total,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, withPrivate)} AS comment_total,
+               ${withPrivate ? tx`t.private` : tx`false`} AS private_seen,
                t.route, e.key AS environment_key, rd.number AS round, rd.name AS round_name,
                r.id AS created_by_id, r.name AS created_by_name, r.kind AS created_by_kind,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -1174,7 +1229,7 @@ export function threadRoutes(
                   FROM external_refs x
                   WHERE x.thread_id = t.id AND x.status <> 'detached'),
                  '[]'::json) AS refs,
-               ${commentsJson(tx, asOwner)} AS comments,
+               ${commentsJson(tx, withPrivate, asOwner)} AS comments,
                COALESCE(
                  (SELECT json_agg(json_build_object(
                      'id', a.id, 'kind', a.kind, 'contentType', a.content_type,
@@ -1191,11 +1246,13 @@ export function threadRoutes(
          WHERE t.id = ${threadRow}::uuid
            AND t.project_id = ${p.id}::uuid
            AND t.deleted_at IS NULL
-           AND ${asOwner ? tx`true` : tx`t.private = false`}
+           AND ${withPrivate ? tx`true` : tx`t.private = false`}
       `,
     );
     if (!row) return fail(c, 404, "thread_not_found", "No such thread in this project.");
     const shaped = shape(row);
+    // The brief too: its Markdown is the same thread, team-only replies and all.
+    if (withPrivate) c.header("Cache-Control", PRIVATE_READ);
     if (!wantMarkdown) return c.json(shaped);
     const md = briefMarkdown(shaped as unknown as BriefThread, { name: p.name, dashboardOrigin: await baseUrl() });
     return c.text(md, 200, { "content-type": "text/markdown; charset=utf-8" });
@@ -1222,6 +1279,9 @@ export function threadRoutes(
      */
     const asAgent = mcpAllows(mcp, p.org_id, "threads:write");
     if (mcp && !asAgent) return scopeDenied(c, "threads:write");
+    // The RESPONSE's view, the list's rule: a member who just made a thread
+    // team-only gets it back with its replies, not emptied as a client would.
+    const withPrivate = seesPrivate(asOwner, session, asAgent);
     if (!asOwner && !asAgent && !session) {
       return fail(c, 401, "unauthorized", "Open your review link, or reload the page, and try again.");
     }
@@ -1373,6 +1433,16 @@ export function threadRoutes(
 
     const threadRow = rowId(c.req.param("id"), ID_PREFIX.thread);
     if (!threadRow) return fail(c, 404, "thread_not_found", "No such thread in this project.");
+
+    // A team-only thread does not exist for a reader who cannot see it — the
+    // detail route already says 404. Without this, a client holding the id
+    // from before the thread went private could still change its status and
+    // read its key, anchor and assignee back from the response.
+    if (!withPrivate) {
+      const [hidden] = await inOrg(sql, p.org_id, (tx) => tx<{ x: number }[]>`
+        SELECT 1 AS x FROM threads WHERE id = ${threadRow}::uuid AND project_id = ${p.id}::uuid AND private`);
+      if (hidden) return fail(c, 404, "thread_not_found", "No such thread in this project.");
+    }
 
     // The agent half of the two rules above, now that the status is known.
     if (asAgent && !asOwner) {
@@ -1540,7 +1610,8 @@ export function threadRoutes(
                     route, created_by, environment_id, assignee_id
         )
         SELECT t.id, t.key, t.status, t.version, t.anchor, t.anchor_state, t.context, t.round_number,
-               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, asOwner)} AS comment_total,
+               t.created_at, t.updated_at, t.resolved_at, ${commentTotal(tx, withPrivate)} AS comment_total,
+               ${withPrivate ? tx`t.private` : tx`false`} AS private_seen,
                t.route, e.key AS environment_key,
                r.name AS created_by_name, r.kind AS created_by_kind, r.id AS created_by_id,
                ar.id AS assignee_id, ar.name AS assignee_name, ar.kind AS assignee_kind,
@@ -1552,7 +1623,7 @@ export function threadRoutes(
                   FROM external_refs x
                   WHERE x.thread_id = t.id AND x.status <> 'detached'),
                  '[]'::json) AS refs,
-               ${commentsJson(tx, asOwner)} AS comments,
+               ${commentsJson(tx, withPrivate, asOwner)} AS comments,
                COALESCE(
                  (SELECT json_agg(json_build_object(
                      'id', a.id, 'kind', a.kind, 'contentType', a.content_type,
@@ -1706,6 +1777,7 @@ export function threadRoutes(
       });
     }
 
+    if (withPrivate) c.header("Cache-Control", PRIVATE_READ);
     return c.json(shape(row));
   });
 
@@ -1940,8 +2012,14 @@ function shape(r: Record<string, any>) {
     anchorState: r.anchor_state,
     context: r.context,
     roundNumber: r.round_number,
-    comments: (r.comments ?? []).map((c: Record<string, any>) => ({
+    // `private: true` ONLY, and only where the query put it there (a view
+    // that sees private content): `false` would tell every other
+    // reader of that view nothing, and a key that is sometimes absent and
+    // sometimes false is two shapes for one fact.
+    ...(r.private_seen ? { private: true } : {}),
+    comments: (r.comments ?? []).map(({ private: pv, ...c }: Record<string, any>) => ({
       ...c,
+      ...(pv ? { private: true } : {}),
       id: wireId_(c.id, ID_PREFIX.comment),
       // A tombstone's author is a name and nothing else (commentsJson), so
       // there is no id to prefix — and prefixing `undefined` would put the

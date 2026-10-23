@@ -57,7 +57,9 @@ export const dockStrings = {
   "filter.assignee": "Assigned to",
   "filter.assignee.anyone": "Anyone",
   "filter.assignee.none": "Unassigned",
-  "filter.assignee.unknown": "Unknown",
+  // A facet still set to someone no longer in the round — the
+  // "Assigned to" and "Comments by" selects both.
+  "filter.unknown": "Unknown",
   "filter.pages": "Pages",
   "filter.pages.all": "All pages",
   "filter.pageonly": "Show comments on this page only",
@@ -116,6 +118,10 @@ export const dockStrings = {
   "comment.edit": "Edit this comment",
   "comment.delete": "Delete this comment and its pin",
   "reply.delete": "Delete this reply",
+  // On team-only threads and replies, for a studio member reading them
+  // on the client's site.
+  "team.only": "Team only",
+  "team.only.title": "Only the studio sees this, not the client",
   "time.now": "just now",
   "who.name": "Your name",
   "who.email": "Email, so we can reply",

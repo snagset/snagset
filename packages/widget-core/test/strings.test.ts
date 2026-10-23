@@ -73,7 +73,7 @@ test("the key set is stable — adding or removing one is a deliberate act", () 
     "export.device", "export.heading", "export.json", "export.md", "export.nobody",
     "export.on", "export.screenshot", "export.selector", "export.summary.many", "export.summary.one", "export.title",
     "field.assignee", "field.status", "field.status.locked",
-    "filter.assignee", "filter.assignee.anyone", "filter.assignee.none", "filter.assignee.unknown", "filter.button", "filter.button.n", "filter.by", "filter.by.anyone", "filter.clear", "filter.new", "filter.new.markread", "filter.new.none", "filter.new.on", "filter.pageonly", "filter.pages", "filter.pages.all", "filter.read", "filter.read.all", "filter.read.read", "filter.read.unread", "filter.selectall", "filter.status", "highlight.chip", "highlight.chip.unnamed", "hint.coarse", "hint.fine",
+    "filter.assignee", "filter.assignee.anyone", "filter.assignee.none", "filter.button", "filter.button.n", "filter.by", "filter.by.anyone", "filter.clear", "filter.new", "filter.new.markread", "filter.new.none", "filter.new.on", "filter.pageonly", "filter.pages", "filter.pages.all", "filter.read", "filter.read.all", "filter.read.read", "filter.read.unread", "filter.selectall", "filter.status", "filter.unknown", "highlight.chip", "highlight.chip.unnamed", "hint.coarse", "hint.fine",
     "label.button", "label.image", "label.link", "label.tag", "label.text",
     "nav.announce",
     // Detection and the pause were built and the
@@ -84,7 +84,9 @@ test("the key set is stable — adding or removing one is a deliberate act", () 
     "reply.send",
     // T10/ — the dock's round selector.
     "round.closed", "round.label",
-    "search.aria", "search.placeholder", "shot.aria", "shot.close", "shot.open", "sort.button", "sort.newest", "sort.oldest", "sort.page", "status.open", "status.progress", "status.resolved", "status.review", "time.now",
+    "search.aria", "search.placeholder", "shot.aria", "shot.close", "shot.open", "sort.button", "sort.newest", "sort.oldest", "sort.page", "status.open", "status.progress", "status.resolved", "status.review",
+    // The dock's Team only badge.
+    "team.only", "team.only.title", "time.now",
     "toolbar.add", "toolbar.add.draft", "toolbar.aria", "toolbar.browse",
     // The decision removed "toolbar.pick.element" and "toolbar.pick.text" with the
     // picker sub-segment they named.

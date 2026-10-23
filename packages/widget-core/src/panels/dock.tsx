@@ -526,6 +526,27 @@ function Where({ snag }: { snag: Snag }) {
 }
 
 /**
+ * TEAM ONLY. The studio's internal threads and replies, marked where a
+ * studio member reads them on the client's site. Without it an internal note
+ * and a reply the client can read looked identical, and the mistake it
+ * invites ("I told the client that?") is the expensive one.
+ *
+ * A word AND a lock, on a tinted ground: colour alone is never the signal
+ * and the tint is the accent's rather than a status colour,
+ * because status owns those. It only ever renders for a reader the server
+ * already decided may see the content — a client's list never carries the
+ * field (threads.ts commentsJson) — so there is no guard to forget here.
+ */
+const Team = (): VNode => (
+  <span class="snag-dk-team" title={format("team.only.title")}>
+    <svg width="8" height="10" viewBox="0 0 8 10" aria-hidden="true">
+      <path d="M2 4.5V3a2 2 0 0 1 4 0v1.5M.6 4.5h6.8v5H.6z" fill="none" stroke="currentColor" stroke-width="1.2" />
+    </svg>
+    {format("team.only")}
+  </span>
+);
+
+/**
  * The number on the pin — which is the number WITHIN that comment's own page.
  *
  * The list spans every page now, so its index is not the pin's number. Getting
@@ -641,6 +662,7 @@ function Row({ snag: s, n, here, unread, onOpen, onHover }: {
           </span>
         </span>
         <DeviceGlyph snag={s} />
+        {s.private && <Team />}
         {replies(s).length > 0 && (
           // Labelled, not a bare numeral: on its own the badge reads as "3" to a
           // screen reader, next to a row that already starts with the pin number.
@@ -875,6 +897,13 @@ function FilterBar({
                     {authors.map(([id, name]) => (
                       <option value={id}>{name}</option>
                     ))}
+                    {/* The Unknown, for this facet too: an author whose
+                        every thread left the round (moved, deleted) is still
+                        filtering, and a select with no matching option shows
+                        its first one — Anyone, over a list it is emptying. */}
+                    {filter.by && !authors.some(([id]) => id === filter.by) && (
+                      <option value={filter.by}>{format("filter.unknown")}</option>
+                    )}
                   </select>
                 </label>
                 {(holders.length > 0 || held !== undefined) && (
@@ -895,7 +924,7 @@ function FilterBar({
                         <option value={id}>{name}</option>
                       ))}
                       {held && !holders.some(([id]) => id === held) && (
-                        <option value={held}>{format("filter.assignee.unknown")}</option>
+                        <option value={held}>{format("filter.unknown")}</option>
                       )}
                     </select>
                   </label>
@@ -1711,6 +1740,9 @@ function Detail({
           </span>
           <strong>{first?.author.name ?? format("author.unknown")}</strong>
           <span class="snag-dk-dim">{snag.key}</span>
+          {/* The pin on the page is unchanged; this circle is its double in
+              the panel, so a team-only thread says so right beside it. */}
+          {snag.private && <Team />}
           {first && <When iso={first.createdAt} />}
           <CopyLink snag={snag} />
         </div>
@@ -1814,8 +1846,11 @@ function Detail({
       {replies(snag).length > 0 && (
         <ul class="snag-dk-replies-list">
           {replies(snag).map((c) => (
-            <li key={c.id}>
-              <strong>{c.author.name}</strong> <When iso={c.createdAt} />
+            // Every private reply carries its own badge, the private thread's
+            // included: a long conversation's first line is not on screen
+            // when its tenth reply is.
+            <li key={c.id} class={c.private ? "snag-dk-teamli" : undefined}>
+              <strong>{c.author.name}</strong> <When iso={c.createdAt} /> {c.private && <Team />}
               {renderMarkdown(c.body ?? "")}
               {(mine(c.author) || canModerate) && (
                 <CommentActions
@@ -2352,6 +2387,9 @@ const CSS = `
 .snag-dk-dim{color:${t.muted}}
 .snag-dk-moved{color:${t.anchorOrphan};font-weight:600}
 .snag-dk-replies{background:${t.surface};border-radius:999px;padding:1px 7px;font-size:11px;flex:0 0 auto}
+/* The Team only badge: the accent's tint, never a status colour. */
+.snag-dk-team{display:inline-flex;align-items:center;gap:3px;flex:0 0 auto;padding:1px 6px;border-radius:999px;
+  font-size:11px;font-weight:600;white-space:nowrap;color:${t.fg};background:color-mix(in srgb,${t.accent} 16%,transparent)}
 /* Loading. The skeleton row is a real row's box — dot slot, number, two lines
    — so the list arriving swaps contents, not layout. A pulse, not a sweep:
    cheaper, and calmer on a client's page. Reduced motion keeps the blocks
@@ -2452,6 +2490,7 @@ const CSS = `
   overflow-wrap:anywhere;user-select:text}
 .snag-dk-replies-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .snag-dk-replies-list li{background:${t.sunken};border-radius:${t.radius};padding:9px;overflow-wrap:anywhere}
+.snag-dk-replies-list .snag-dk-teamli{border-inline-start:3px solid ${t.accent}}
 /* Edit and Delete, behind one ellipsis.
    They used to rest at opacity:0 and appear on :hover or :focus-within. The
    restraint was right — a panel showing two destructive-looking words beside

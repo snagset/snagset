@@ -70,6 +70,10 @@ snagset link prj_… "Ana at Acme"
 | `thread:private` | — |
 | `thread:assign` | — |
 
+A link carrying `thread:private` is a **team link**: whoever opens it sees
+team-only threads and replies in the widget, with the same **Team only**
+badge a signed-in studio member gets. Keep those links inside the studio.
+
 Guests have no link to carry permissions, so they get the default set, and
 whether that includes changing status is the site's choice: **Guests can
 change status** in the site's settings, on unless you turn it off. It applies
@@ -111,7 +115,11 @@ Press **Continue** and the window closes. The comment box stops asking for a
 name and an email and says **Commenting as** your name instead.
 
 What you write from the widget is under the same author as your replies in the
-dashboard, and you see what you see there — team-only threads included. Owners
+dashboard, and you see what you see there — team-only threads and team-only
+replies included, each marked with a **Team only** badge so an internal note
+is never mistaken for one the client can read. The client's view never
+contains them at all: they are left out on the server, not hidden in the
+page. Owners
 and admins can also **delete anyone's comment or snag** from the widget, as
 they can in the dashboard; nobody can edit somebody else's words, so a
 client's comment is never rewritten under their name. The
@@ -127,7 +135,9 @@ opens on it at once while the fresh one loads. It is kept where the sign-in is
 and it goes when the sign-in does: on **Sign out**, when a session ends or is
 refused, or when someone else signs in. A member's copy, which can include
 team-only threads, is never shown to anyone who is not signed in as that
-member.
+member, and opening a review link never opens on the copy from before it —
+a member checking a client's link sees the client's view from the first
+frame.
 
 Three things keep it safe on somebody else's page:
 
@@ -171,7 +181,7 @@ made it.
 ## What a reviewer can never do
 
 - See a site they were not given a link to
-- See a thread marked team-only
+- See a thread or reply marked team-only (unless their link is a team link)
 - Reach the dashboard
 - Add a site, mint a link, or change a setting
 - Act on another project, even holding a valid credential for this one

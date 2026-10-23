@@ -18,6 +18,12 @@ import type { Snag } from "./types.ts";
  * never reads a member's copy — it is in a different store under a different
  * key, not merely filtered on the way out.
  *
+ * A TEAM link's session sees studio-private threads too and is still
+ * the `guest` class: it lives in `sessionStorage`, so its copy does, and the
+ * adapter drops both classes whenever a different reviewer's session takes
+ * over the tab (http.ts `end()`), and paints nothing while a new link is
+ * being presented (`cached()`). The class names the store, not the view.
+ *
  * ONE key per project and class, holding every env/round slot, so dropping a
  * class on sign-out is one `removeItem` rather than a scan of the store.
  */

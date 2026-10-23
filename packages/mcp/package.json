@@ -1,6 +1,6 @@
 {
   "name": "@snagset/mcp",
-  "version": "0.1.38",
+  "version": "0.1.39",
   "private": false,
   "type": "module",
   "description": "Read your Snagset review threads from a coding agent \u2014 the pin, the element, the route and the console with each one.",

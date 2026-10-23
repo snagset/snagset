@@ -104,6 +104,10 @@ export interface Comment {
   body: string | null;
   author: Reviewer;
   createdAt: string;
+  /** Team-only: present, and `true`, only in a list read by
+   *  someone who may see it — a studio member's or a team link's session.
+   *  A client's list never holds the reply at all, so never the field. */
+  private?: true;
 }
 
 /**
@@ -153,6 +157,9 @@ export interface Snag {
    * it, and the dock shows the field only when one does.
    */
   assignee?: Reviewer | null;
+  /** The whole thread is team-only — the same rule as
+   *  `Comment.private`: only ever `true`, only for a reader who sees it. */
+  private?: true;
   comments: Comment[];
   createdBy: Reviewer;
   createdAt: string;

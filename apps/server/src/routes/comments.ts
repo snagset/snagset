@@ -18,6 +18,7 @@ import {
 import { studioReviewerId } from "../studioReviewers.ts";
 import { queueCommentNotice } from "../mail/notify.ts";
 import { inOrg, maintenance } from "../db/scope.ts";
+import { seesPrivate } from "./threads.ts";
 
 /**
  * Comments — endpoint 11, the slice: `POST …/threads/{id}/comments`.
@@ -441,6 +442,10 @@ export function commentRoutes(deps: CommentDeps): Hono<Env> {
           name: created.author.name,
           kind: created.author.kind,
         },
+        // As the list marks it (threads.ts commentsJson), and only for
+        // a writer who may read it back: a reply forced private because its
+        // thread is private must not tell a client session the thread is.
+        ...(wantPrivate && seesPrivate(asOwner, session, asAgent && !asOwner && !asSession) ? { private: true } : {}),
       },
       201,
     );

@@ -62,7 +62,11 @@ interface Wire {
   anchor: Snag["anchor"];
   anchorState: Snag["anchorState"];
   context: Snag["context"];
-  comments: { id: string; body: string; createdAt: string; author: Reviewer }[];
+  /** `private: true` on a reply only for a reader who sees team-only
+   *  content (threads.ts commentsJson); passed through as it is. */
+  comments: { id: string; body: string; createdAt: string; author: Reviewer; private?: true }[];
+  /** The same, for a thread that is team-only as a whole. */
+  private?: true;
   createdBy: Reviewer;
   /** Always present on an instance from on, null for nobody. */
   assignee?: Reviewer | null;
@@ -136,6 +140,9 @@ function toSnag(w: Wire, env: string | undefined, base: string): Snag {
     // Null kept as null: a PATCH response merged over a row must be able to
     // CLEAR the name, which an absent key cannot.
     assignee: w.assignee ?? null,
+    // The dock's "Team only" badge. Copied only when set, so a client's
+    // snag (whose wire never has the key) is the object it always was.
+    ...(w.private ? { private: true } : {}),
     createdAt: w.createdAt,
     updatedAt: w.updatedAt,
     ...(w.resolvedAt ? { resolvedAt: w.resolvedAt } : {}),
@@ -797,8 +804,15 @@ export function createHttpAdapter(
     // An explicit pick of the round the server was ALREADY serving by default
     // (the newest open one, as the dock's selector assumes) falls back to the
     // copy read under no round at all — the same list under two names.
+    //
+    // And nothing while a review link is being PRESENTED: the session in
+    // hand is whoever held this tab before the link, and a studio member
+    // opening a client's link to see the client's view must not be
+    // painted their own team-only threads first, for even a frame (05
+    // section 6.4a). The link's own list arrives a moment later, as on a
+    // first visit.
     cached(): Snag[] | null {
-      if (session && isFinished(session)) return null;
+      if (linkToken || (session && isFinished(session))) return null;
       const c = cls();
       return (
         readList(uid, c, slot()) ??
