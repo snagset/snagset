@@ -55,6 +55,8 @@ const search = z.object({
   round: z.number().int().positive().optional(),
   /** `unassigned`, `me`, or a reviewer id — client-side, like status. */
   assignee: z.string().optional(),
+  /** Who opened the thread: "me", or a person by name (see `personKey`). */
+  by: z.string().optional(),
   /** The board is a VIEW, never the default ("not taken"). */
   view: z.enum(["board"]).optional(),
 });
@@ -168,9 +170,14 @@ function Comments() {
     if (s.assignee === "unassigned") v = v.filter((t) => !t.assignee);
     else if (s.assignee === "me") v = v.filter((t) => !!myId && t.assignee?.id === myId);
     else if (s.assignee) v = v.filter((t) => t.assignee?.id === s.assignee);
+    // Comments by: the thread's author, matched by name rather than reviewer
+    // id, because a client who reviewed from two browsers is two reviewer rows
+    // and one person — the assignee menu folds them the same way.
+    if (s.by === "me") v = v.filter((t) => !!myId && t.createdBy.id === myId);
+    else if (s.by) v = v.filter((t) => personKey(t.createdBy.name) === s.by);
     if (s.sort === "oldest") v = [...v].reverse();
     return v;
-  }, [rows, statusSet, s.sort, s.assignee, myId]);
+  }, [rows, statusSet, s.sort, s.assignee, s.by, myId]);
   const groups = useMemo(() => {
     const g = new Map<string, Thread[]>();
     for (const t of visible) {
@@ -181,7 +188,17 @@ function Comments() {
     return [...g.entries()];
   }, [visible]);
   const selected = s.thread ? rows.find((t) => t.key === s.thread) ?? null : null;
-  const filtered = statusSet.size > 0 || !!s.page || !!s.q || !!s.assignee;
+  const filtered = statusSet.size > 0 || !!s.page || !!s.q || !!s.assignee || !!s.by;
+  // Everyone who opened a thread in this round, once each, by name.
+  const authors = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const t of rows) {
+      if (t.createdBy.id && t.createdBy.id === myId) continue;
+      const k = personKey(t.createdBy.name);
+      if (k && !seen.has(k)) seen.set(k, t.createdBy.name.trim());
+    }
+    return [...seen].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [rows, myId]);
   const others = menuRounds.filter((r) => r.number !== activeRound && r.unresolved > 0);
   // Where a comment may be filed — open or closed, never archived, never
   // the round on screen. Anyone who reviews, members included; the
@@ -322,6 +339,23 @@ function Comments() {
               </DropdownMenu>
             )}
             <DropdownMenu>
+              <DropdownMenuTrigger render={<button type="button" className={chipClass(!!s.by)} aria-label="Filter by who commented" />}>
+                {s.by === "me" ? "By me" : s.by ? `By ${authors.find(([k]) => k === s.by)?.[1] ?? "someone"}` : "Comments by"}
+                <ChevronDownIcon className="size-3 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuRadioGroup value={s.by ?? "any"} onValueChange={(v) => go({ by: v === "any" ? undefined : v })}>
+                  <DropdownMenuRadioItem value="any">Anyone</DropdownMenuRadioItem>
+                  {myId && <DropdownMenuRadioItem value="me">Me</DropdownMenuRadioItem>}
+                  {authors.map(([k, name]) => (
+                    <DropdownMenuRadioItem key={k} value={k}>
+                      {name}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <DropdownMenu>
               <DropdownMenuTrigger render={<button type="button" className={chipClass(!!s.assignee)} aria-label="Filter by assignee" />}>
                 {assigneeLabel(s.assignee, people)}
                 <ChevronDownIcon className="size-3 text-muted-foreground" />
@@ -388,7 +422,7 @@ function Comments() {
             <EmptyState
               title="Nothing matches"
               action={
-                <Button variant="outline" size="sm" onClick={() => go({ status: undefined, page: undefined, q: undefined, assignee: undefined })}>
+                <Button variant="outline" size="sm" onClick={() => go({ status: undefined, page: undefined, q: undefined, assignee: undefined, by: undefined })}>
                   Show all
                 </Button>
               }
@@ -487,6 +521,11 @@ function assigneeLabel(sel: string | undefined, people: Reviewer[]): string {
   if (sel === "unassigned") return "Unassigned";
   if (sel === "me") return "Me";
   return people.find((r) => r.id === sel)?.name ?? "Assignee";
+}
+
+/** One person per name, whatever the case or spacing — the filter's key. */
+function personKey(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 function pageOf(t: Thread): string {
