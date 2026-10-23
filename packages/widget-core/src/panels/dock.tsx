@@ -719,6 +719,12 @@ function FilterBar({
   };
   const facets = activeFacets(filter);
   const authors = [...new Map(round.map((s) => [s.createdBy.id, s.createdBy.name]))];
+  // The people snags are WITH, read off the round itself — no
+  // permission needed, unlike listAssignees (thread:assign only). Offered
+  // when anyone in the round holds a snag, or while the facet is set, so a
+  // filter carried in from another round can always be taken off.
+  const holders = [...new Map(round.flatMap((s) => (s.assignee ? [[s.assignee.id, s.assignee.name] as const] : [])))];
+  const held = filter.assignee;
   const routes = [...new Set(round.map((s) => s.route))].sort();
   // F-07b: unknown statuses get a neutral, non-interactive chip with the raw
   // value — visible in the totals, never hidden by a filter they cannot match.
@@ -871,6 +877,29 @@ function FilterBar({
                     ))}
                   </select>
                 </label>
+                {(holders.length > 0 || held !== undefined) && (
+                  <label>
+                    {format("filter.assignee")}
+                    <select
+                      // "~" stands for Unassigned (`null`): no reviewer id is "~", and
+                      // "" is already Anyone.
+                      value={held === null ? "~" : held ?? ""}
+                      onChange={(e) => {
+                        const v = (e.currentTarget as HTMLSelectElement).value;
+                        set({ assignee: v === "~" ? null : v || undefined });
+                      }}
+                    >
+                      <option value="">{format("filter.assignee.anyone")}</option>
+                      <option value="~">{format("filter.assignee.none")}</option>
+                      {holders.map(([id, name]) => (
+                        <option value={id}>{name}</option>
+                      ))}
+                      {held && !holders.some(([id]) => id === held) && (
+                        <option value={held}>{format("filter.assignee.unknown")}</option>
+                      )}
+                    </select>
+                  </label>
+                )}
                 <label>
                   {format("filter.pages")}
                   <select
@@ -934,7 +963,8 @@ function List({
   const numbers = numbering(snags);
   const ordered = groups.flatMap((g) => g.snags);
   const filterActive =
-    statusNarrows(filter.statuses) || !!filter.by || !!filter.page || !!filter.q?.trim() ||
+    statusNarrows(filter.statuses) || !!filter.by || filter.assignee !== undefined || !!filter.page ||
+    !!filter.q?.trim() ||
     filter.pageOnly || filter.newOnly || filter.read !== "all";
   // The count the pill carries: whole-round unseen, like the status chips —
   // not the narrowed list, or reading one thread would change the number that

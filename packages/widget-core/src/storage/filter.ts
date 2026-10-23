@@ -6,17 +6,20 @@ import type { Snag, Status } from "./types.ts";
  * exists, defaults per the spec, and the one-code-path promise holds
  * from here on.
  *
- * THE SPLIT IS THE RULE: `statuses`, `read`, `by`, `page` govern
- * the list AND the pins — they are properties of a comment, and a statement
- * about which comments matter should be true on the page as well as in the
- * panel. `q`, `pageOnly`, `newOnly`, `sort` are ways of narrowing
+ * THE SPLIT IS THE RULE: `statuses`, `read`, `by`, `assignee`,
+ * `page` govern the list AND the pins — they are properties of a comment,
+ * and a statement about which comments matter should be true on the page as
+ * well as in the panel. `q`, `pageOnly`, `newOnly`, `sort` are ways of narrowing
  * what you are reading right now and NEVER touch the pins — applying them
  * to the page would make the pins flicker while someone types in a search
  * box. Asserts the split on the rendered bytes.
  *
- * NOTHING HERE PERSISTS. Defers filter persistence
- * .6 registers a key, and the design forbids inventing one — filter state resets
- * on reload, deliberately, and the storage diff is the enforcement.
+ * PERSISTED PER TAB, under the registered `snag:filter:<uid>:<env>`
+ * (filterstore.ts). Before it, deferred persistence
+ * .6 had a key, and the filter reset on every document load — which on a
+ * multi-page site meant opening a comment on another page threw the chips
+ * away. sessionStorage, so a new tab or a restart still starts from the
+ * defaults, and the registry diff still governs what is written.
  *
  * One SOURCE module: the runtime bundles only the pin-governing
  * predicate; the dock chunk bundles the list machinery. Rollup keeps what
@@ -29,6 +32,12 @@ export interface ListFilter {
   read: "all" | "unread" | "read";
   /** Reviewer id. */
   by?: string;
+  /**
+   * Who the snag is WITH — a reviewer id, or `null` for "Unassigned".
+   * Absent means anyone. Options come from the round's own snags, not from
+   * `listAssignees`, which only a session holding thread:assign can call.
+   */
+  assignee?: string | null;
   /** PageRef.route — never the raw URL, NEVER origin. */
   page?: string;
   /** Substring over body + author, client-side, list only. */
@@ -77,6 +86,7 @@ export function pinPass(s: Snag, f: ListFilter, seenAt?: ReadonlyMap<string, num
     return false;
   }
   if (f.by && s.createdBy.id !== f.by) return false;
+  if (f.assignee !== undefined && (s.assignee?.id ?? null) !== f.assignee) return false;
   if (f.page && s.route !== f.page) return false;
   if (f.read !== "all" && seenAt) {
     const unread = isUnread(s, seenAt);
@@ -149,7 +159,8 @@ export function countStatuses(snags: Snag[]): StatusCounts {
   return { all: snags.length, byStatus };
 }
 
-/** The Filter button's `· n` — active facets of ITS panel (Marked as / by / Pages). */
+/** The Filter button's `· n` — active facets of ITS panel (Marked as / by /
+ *  Assigned to / Pages). */
 export function activeFacets(f: ListFilter): number {
-  return (f.read !== "all" ? 1 : 0) + (f.by ? 1 : 0) + (f.page ? 1 : 0);
+  return (f.read !== "all" ? 1 : 0) + (f.by ? 1 : 0) + (f.assignee !== undefined ? 1 : 0) + (f.page ? 1 : 0);
 }

@@ -11,6 +11,7 @@ import { createPausedNotice, type PausedNotice } from "./paused.ts";
 import { watchPage, type PageWatcher } from "./watch.ts";
 import { takeHandoff, writeHandoff } from "./jump.ts";
 import { defaultFilter, isUnread, pinPass, statusNarrows, type ListFilter } from "../storage/filter.ts";
+import { readFilter, writeFilter } from "../storage/filterstore.ts";
 import { glueChrome } from "./vv.ts";
 import { LAYER } from "./theme.ts";
 import { normalisePath, redactRoute, routeWithHint } from "./route.ts";
@@ -401,15 +402,18 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
   let clusterIds: string[] | null = null;
 
   /**
-   * The round's ListFilter — owned HERE because its first
-   * four fields govern the pins, and pins outlive the dock chunk. Never
-   * persisted: defers persistence .6 registers a
-   * key, and the design forbids inventing one.
+   * The round's ListFilter — owned HERE because its
+   * pin-governing fields govern the pins, and pins outlive the dock chunk.
+   * Read back from this tab's `snag:filter` at mount, before anything
+   * paints, so a reviewer who opened a comment on another page lands with
+   * the pins and the list already filtered as they left them. A round switch
+   * does not touch it, here or in storage.
    */
-  let filter: ListFilter = defaultFilter();
+  let filter: ListFilter = readFilter(uid, env) ?? defaultFilter();
   /** Do the current facets touch the PINS at all? (the split.) */
   const pinFacetsActive = (): boolean =>
-    statusNarrows(filter.statuses) || !!filter.by || !!filter.page || filter.read !== "all";
+    statusNarrows(filter.statuses) || !!filter.by || filter.assignee !== undefined || !!filter.page ||
+    filter.read !== "all";
 
   const pins: PinLayer = createPinLayer(
     root,
@@ -1129,7 +1133,7 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
           return cap ? ((await cap.getBlob(id))?.blob ?? null) : null;
         }),
       // The filter and its one mutation path. Pins repaint
-      // only when the PIN-governing quartet changes — asserts that
+      // only when a PIN-governing facet changes — asserts that
       // typing in search leaves the pin layer byte-identical, and the
       // cheapest way to be byte-identical is to not touch it.
       filter,
@@ -1137,9 +1141,13 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
         const pinsChanged =
           next.statuses.join() !== filter.statuses.join() ||
           next.by !== filter.by ||
+          next.assignee !== filter.assignee ||
           next.page !== filter.page ||
           next.read !== filter.read;
         filter = next;
+        // The one write. Every user change comes through here; the
+        // runtime's own newOnly resets need none, since newOnly is not kept.
+        writeFilter(uid, env, next);
         if (pinsChanged) paint();
         else dock?.update(dockProps());
       },

@@ -115,3 +115,23 @@ test("the Filter button counts its own panel's facets, nothing else", () => {
   // statuses, q, sort, pageOnly live OUTSIDE the Filter panel.
   assert.equal(activeFacets({ ...defaultFilter(), statuses: ["open"], q: "x", sort: "newest", pageOnly: true }), 0);
 });
+
+test("Assignee is pin-governing — a person, Unassigned (null), or anyone (absent)", () => {
+  const ada = who("rev_a", "Ada");
+  const withAda = snag({ id: "1", assignee: ada });
+  const nobody = snag({ id: "2", assignee: null });
+  const legacy = snag({ id: "3" }); // a local record never carries the field at all
+  const f = (assignee: string | null): ListFilter => ({ ...defaultFilter(), assignee });
+  assert.equal(pinPass(withAda, f("rev_a")), true);
+  assert.equal(pinPass(withAda, f("rev_b")), false);
+  assert.equal(pinPass(nobody, f("rev_a")), false);
+  // Unassigned matches both spellings of "nobody": null and absent.
+  assert.equal(pinPass(nobody, f(null)), true);
+  assert.equal(pinPass(legacy, f(null)), true);
+  assert.equal(pinPass(withAda, f(null)), false);
+  // Absent is no filter.
+  for (const s of [withAda, nobody, legacy]) assert.equal(pinPass(s, defaultFilter()), true);
+  // It is a Filter-panel facet, and "Unassigned" counts as set even though it is null.
+  assert.equal(activeFacets(f(null)), 1);
+  assert.equal(activeFacets(f("rev_a")), 1);
+});

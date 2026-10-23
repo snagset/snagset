@@ -50,6 +50,14 @@ export const dockStrings = {
   "filter.button.n": "Filter \u00b7 {n}",
   "filter.by": "Comments by",
   "filter.by.anyone": "Anyone",
+  // Who a snag is WITH, from the round's own snags. "Unknown" is a
+  // filter whose person is no longer on any snag in this round (reassigned,
+  // or a round switch): kept and named rather than silently dropped, so the
+  // Filter badge and the empty list still explain themselves.
+  "filter.assignee": "Assigned to",
+  "filter.assignee.anyone": "Anyone",
+  "filter.assignee.none": "Unassigned",
+  "filter.assignee.unknown": "Unknown",
   "filter.pages": "Pages",
   "filter.pages.all": "All pages",
   "filter.pageonly": "Show comments on this page only",
