@@ -80,8 +80,13 @@ export function createSmtpMailer(opts: SmtpOptions): Mailer {
 
         if (user && pass) await authenticate(session, caps, user, pass);
 
-        await session.command(`MAIL FROM:<${opts.from}>`, 250);
-        await session.command(`RCPT TO:<${mail.to}>`, 250);
+        const envelopeFrom = envelopeAddress(opts.from);
+        if (!/^[^\s<>@]+@[^\s<>@]+$/.test(envelopeFrom)) {
+          throw new Error(`Invalid SMTP sender address: ${opts.from}`);
+        }
+        await session.command(`MAIL FROM:<${envelopeFrom}>`, 250);
+        const envelopeTo = envelopeAddress(mail.to);
+        await session.command(`RCPT TO:<${envelopeTo}>`, 250);
         await session.command("DATA", 354);
         await session.raw(build(mail, opts.from, messageId) + CRLF + "." + CRLF, 250);
         // QUIT is best-effort: the message is accepted at the 250 above, and a
@@ -219,10 +224,17 @@ function base64Lines(s: string): string {
   return out.join(CRLF);
 }
 
+/** Extract bare email address from an RFC 5322 address (e.g. "Name <user@domain.com>" -> "user@domain.com"). */
+function envelopeAddress(address: string): string {
+  const match = address.match(/<([^<>]+)>/);
+  return (match ? match[1]! : address).trim();
+}
+
 /** The domain half of the From address, for the Message-ID. */
 function senderDomain(from: string): string {
-  const at = from.lastIndexOf("@");
-  const domain = at === -1 ? "" : from.slice(at + 1).replace(/[>\s]/g, "");
+  const email = envelopeAddress(from);
+  const at = email.lastIndexOf("@");
+  const domain = at === -1 ? "" : email.slice(at + 1).replace(/[>\s]/g, "");
   return domain || "localhost";
 }
 

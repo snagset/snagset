@@ -270,3 +270,26 @@ test("the password never appears in an error message", async () => {
     server.close();
   }
 });
+
+test("extracts bare email address for SMTP MAIL FROM and RCPT TO when display name is present", async () => {
+  const { port, server, recorded } = await smtpServer();
+  try {
+    const mailer = createSmtpMailer({
+      url: `smtp://127.0.0.1:${port}`,
+      from: '"Studio Noreply" <snagset@studio.test>',
+    });
+    const res = await mailer.send({
+      to: "Client Recipient <owner@client.test>",
+      subject: "Test display name",
+      text: "Testing RFC 5321 envelope address.",
+    });
+
+    const r = await recorded;
+    assert.ok(r.commands.includes("MAIL FROM:<snagset@studio.test>"));
+    assert.ok(r.commands.includes("RCPT TO:<owner@client.test>"));
+    assert.match(r.body, /^From: "Studio Noreply" <snagset@studio\.test>$/m);
+    assert.match(res.id ?? "", /^<.+@studio\.test>$/);
+  } finally {
+    server.close();
+  }
+});
