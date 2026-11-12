@@ -40,17 +40,17 @@ function General() {
   const members = useQuery(q.members());
   const rename = useRenameOrg();
   const owner = can(me.user.role, "studio");
-  // What the instance is connected to (its address, storage, mail) is drawn
-  // for the operator's studio alone. Every other studio's page is its own
-  // name, what is running, and its plan's storage number where it has one.
+  // What the instance is (its version, its commit) and what it is connected
+  // to (its address, storage, mail) is drawn for the operator's studio alone.
+  // Every other studio's page is its own name, what is in it, and its plan's
+  // storage number where it has one.
   // It asks the instance nothing, so there is no refusal for it to show.
   const operator = isOperator(me);
   const storage = storageRow(me);
-  // On the hosted service a studio is not shown the instance it runs on
-  // (the version, the commit, the updates) — only the operator's studio is.
+  // A studio is not shown the instance it runs on (the version, the
+  // commit, the updates) — only the operator's studio is, hosted or not.
   // Where plans are sold, the counts live on Plan & billing beside the limits.
   const setup = useQuery(q.setupState());
-  const showInstance = operator || !setup.data?.cloud;
   const countsHere = !setup.data?.billingUrl;
   const [name, setName] = useState(me.org.name);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -82,40 +82,49 @@ function General() {
           </p>
         </form>
       </SettingsRow>
-      {showInstance && (
-      <SettingsRow title="This instance" description={operator ? "What is running, and where." : "What is running."}>
-        <dl className="m-0 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
-          <dt className="text-muted-foreground">Version</dt>
-          <dd className="m-0">
-            {meta.data?.version ?? "—"} <UpdateLine version={meta.data?.version ?? ""} />
-          </dd>
-          {operator && (
-            <>
-              <dt className="text-muted-foreground">Address</dt>
-              <dd className="m-0">
-                <AddressField owner={owner} />
-              </dd>
-            </>
-          )}
-          {meta.data?.commit && (
-            <>
-              <dt className="text-muted-foreground">Commit</dt>
-              <dd className="m-0 font-mono text-[12px] text-ink-soft">
-                {meta.data.commit.slice(0, 12)}
-                {meta.data.modified ? " · modified" : ""}
-              </dd>
-            </>
-          )}
-          {countsHere && (
-            <>
-              <dt className="text-muted-foreground">Sites · members</dt>
-              <dd className="m-0">
-                {me.projects.length} · {members.data?.data.length ?? "—"}
-              </dd>
-            </>
-          )}
-        </dl>
-      </SettingsRow>
+      {operator ? (
+        <SettingsRow title="This instance" description="What is running, and where.">
+          <dl className="m-0 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
+            <dt className="text-muted-foreground">Version</dt>
+            <dd className="m-0">
+              {meta.data?.version ?? "—"} <UpdateLine version={meta.data?.version ?? ""} />
+            </dd>
+            <dt className="text-muted-foreground">Address</dt>
+            <dd className="m-0">
+              <AddressField owner={owner} />
+            </dd>
+            {/* A build that does not know its commit says "unknown": that is no commit to show. */}
+            {meta.data?.commit && meta.data.commit !== "unknown" && (
+              <>
+                <dt className="text-muted-foreground">Commit</dt>
+                <dd className="m-0 font-mono text-[12px] text-ink-soft">
+                  {meta.data.commit.slice(0, 12)}
+                  {meta.data.modified ? " · modified" : ""}
+                </dd>
+              </>
+            )}
+            {countsHere && (
+              <>
+                <dt className="text-muted-foreground">Sites · members</dt>
+                <dd className="m-0">
+                  {me.projects.length} · {members.data?.data.length ?? "—"}
+                </dd>
+              </>
+            )}
+          </dl>
+        </SettingsRow>
+      ) : !countsHere ? null : (
+        // Somebody else runs the server: its version, its commit and its
+        // updates are not this studio's to read or act on. What is theirs is
+        // what is in the studio.
+        <SettingsRow title="This studio" description="What is in it.">
+          <dl className="m-0 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
+            <dt className="text-muted-foreground">Sites</dt>
+            <dd className="m-0">{me.projects.length}</dd>
+            <dt className="text-muted-foreground">Members</dt>
+            <dd className="m-0">{members.data?.data.length ?? "—"}</dd>
+          </dl>
+        </SettingsRow>
       )}
       {storage === "instance" ? <InstanceRows owner={owner} /> : storage === "usage" ? <StudioStorage /> : null}
     </div>

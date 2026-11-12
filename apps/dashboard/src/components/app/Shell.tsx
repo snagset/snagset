@@ -60,6 +60,7 @@ import { rememberAuth } from "@/lib/auth";
 import { initials } from "@/lib/labels";
 import { Palette, usePalette } from "@/components/app/Palette";
 import { useMe } from "@/lib/me";
+import { isOperator } from "@/lib/operator";
 import { q } from "@/lib/query";
 import { useCurrentSite, type Site } from "@/lib/site";
 import { can, useForgetOnRoleChange } from "@/lib/roles";
@@ -441,6 +442,8 @@ function SiteSwitcher({ me, site }: { me: Me; site: Site | null }) {
 }
 
 function HelpMenu() {
+  // Updating is the operator's to do: nobody else is offered the check.
+  const operator = isOperator(useMe());
   const meta = useQuery(q.meta());
   const version = meta.data?.version ?? "";
   const [update, setUpdate] = useState<{ state: "idle" | "checking" | "done" | "failed"; result?: UpdateResult }>({
@@ -479,7 +482,7 @@ function HelpMenu() {
         <DropdownMenuSeparator />
         <div className="px-2 py-1.5 text-[12px] text-muted-foreground">
           Snagset {version || "—"}
-          {update.state === "idle" && (
+          {operator && update.state === "idle" && (
             <>
               {" · "}
               <button type="button" className="text-brand hover:underline" onClick={() => void check()}>

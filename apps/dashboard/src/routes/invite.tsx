@@ -25,9 +25,15 @@ import { queryClient } from "@/lib/query";
  *
  * Expired, used, withdrawn and unknown links each get their own heading and
  * the server's sentence; none of them is a form that fails on submit.
+ *
+ * Somebody ALREADY signed in here, as the address the invite is for (or as
+ * anybody, when the invite names no address), is not asked for a password:
+ * being signed in is the proof, and an account made by a provider or a mailed
+ * code in front of this server has no password to give. One button, and a way
+ * out of it for a person who is in the wrong account.
  */
 type Loaded =
-  | { ok: true; token: string; invite: InviteLookup }
+  | { ok: true; token: string; invite: InviteLookup; me: string | null }
   | { ok: false; code: string | null; message: string };
 
 export const Route = createFileRoute("/invite")({
@@ -39,7 +45,12 @@ export const Route = createFileRoute("/invite")({
       return { ok: false, code: null, message: "The link is incomplete. Copy all of it from the message it came in, or ask for a new one." };
     }
     try {
-      return { ok: true, token, invite: await api.lookupInvite(token) };
+      const [invite, me] = await Promise.all([
+        api.lookupInvite(token),
+        // Who this browser is signed in as, if anybody. A 401 is the usual answer and not a fault.
+        api.me().then((m) => m.user.email, () => null),
+      ]);
+      return { ok: true, token, invite, me };
     } catch (err) {
       return err instanceof ApiFailure
         ? { ok: false, code: err.code, message: err.message }
@@ -55,7 +66,66 @@ export const Route = createFileRoute("/invite")({
 
 function InvitePage() {
   const loaded = Route.useLoaderData();
-  return loaded.ok ? <Accept token={loaded.token} invite={loaded.invite} /> : <Problem code={loaded.code} message={loaded.message} />;
+  const [other, setOther] = useState(false);
+  if (!loaded.ok) return <Problem code={loaded.code} message={loaded.message} />;
+  const mine = !!loaded.me && (!loaded.invite.email || loaded.invite.email.toLowerCase() === loaded.me.toLowerCase());
+  return mine && !other ? (
+    <AcceptAs token={loaded.token} invite={loaded.invite} me={loaded.me!} onOther={() => setOther(true)} />
+  ) : (
+    <Accept token={loaded.token} invite={loaded.invite} />
+  );
+}
+
+/** Signed in already: the session is the proof, so there is nothing to type. */
+function AcceptAs({ token, invite, me, onOther }: { token: string; invite: InviteLookup; me: string; onOther: () => void }) {
+  const navigate = useNavigate();
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const studio = invite.org.name || "a studio";
+  const join = async () => {
+    setError("");
+    setBusy(true);
+    try {
+      await api.acceptInvite({ token, email: me });
+      rememberAuth("in");
+      queryClient.clear();
+      void navigate({ to: "/sites", replace: true });
+    } catch (err) {
+      // The session ended between the page and the press: the form that can
+      // take a password, which says the same thing in its own words.
+      if (err instanceof ApiFailure && err.code === "account_exists") return onOther();
+      setError(err instanceof ApiFailure ? err.message : "Could not reach the server. Try again.");
+      setBusy(false);
+    }
+  };
+  return (
+    <Gate width={400}>
+      <div className="flex flex-col gap-4">
+        <div>
+          <h1 className="m-0 text-[22px] font-semibold tracking-tight">Join {studio}</h1>
+          <p className="m-0 mt-1.5 text-muted-foreground">
+            {invite.invitedBy ? `${invite.invitedBy} invited you` : "You were invited"} to join {studio} as {asRole(invite.role)}. You are signed in as{" "}
+            <span className="break-all text-foreground">{me}</span>.
+          </p>
+        </div>
+        {error && (
+          <p role="alert" className="m-0 rounded-md border border-destructive/40 bg-warn-soft px-3 py-2 text-[13px] text-destructive">
+            {error}
+          </p>
+        )}
+        <Button type="button" size="lg" loading={busy} onClick={join}>
+          {busy ? "Joining…" : `Join ${studio}`}
+        </Button>
+        {!invite.email && (
+          <p className="m-0 text-[13px] text-muted-foreground">
+            <button type="button" onClick={onOther} className="cursor-pointer border-0 bg-transparent p-0 text-foreground underline underline-offset-4">
+              Join with another address
+            </button>
+          </p>
+        )}
+      </div>
+    </Gate>
+  );
 }
 
 function Problem({ code, message }: { code: string | null; message: string }) {

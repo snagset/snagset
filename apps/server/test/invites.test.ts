@@ -274,7 +274,7 @@ test("a person with an account in another studio joins with that account, not a 
   assert.equal(wrong.status, 409);
   const err = ((await wrong.json()) as { error: { code: string; message: string } }).error;
   assert.equal(err.code, "account_exists");
-  assert.match(err.message, /Enter its password/);
+  assert.match(err.message, /Sign in to it and open this link again, or enter its password/);
 
   const ok = await accept(app, { token: inv.token, password: PASSWORD });
   assert.equal(ok.status, 201, await ok.clone().text());
@@ -294,6 +294,52 @@ test("a person with an account in another studio joins with that account, not a 
   const after_ = (await (await app.request("/api/v1/me", { headers: as(again) })).json()) as { org: { name: string }; orgs: unknown[] };
   assert.equal(after_.org.name, "Elsewhere");
   assert.equal(after_.orgs.length, 1);
+});
+
+test("an account with no password joins a second studio by being signed in as itself, and by nothing less", { skip }, async () => {
+  // Made as a hosted front door makes one: an account, and no password on it.
+  const otherOrg = randomUUID();
+  const danId = randomUUID();
+  await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    await tx`INSERT INTO orgs (id, name, slug) VALUES (${otherOrg}, 'Nowhere', 'nowhere')`;
+    await tx`INSERT INTO users (id, org_id, email, name, password_hash, email_verified) VALUES (${danId}, ${otherOrg}, 'dan@nowhere.test', 'Dan', ${hashPassword(PASSWORD)}, true)`;
+    await tx`INSERT INTO memberships (org_id, user_id, role) VALUES (${otherOrg}, ${danId}, 'owner')`;
+  });
+  const dan = await login("dan@nowhere.test");
+  await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    await tx`UPDATE users SET password_hash = NULL WHERE id = ${danId}`;
+  });
+  const owner = await login("owner@kilnwork.test");
+  const inv = await mint(owner, { role: "member", email: "dan@nowhere.test" });
+  const send = (headers: Record<string, string>, body: Record<string, unknown> = {}) =>
+    app.request("/auth/invites/accept", { method: "POST", headers: { ...json, "x-forwarded-for": someAddress(), ...headers }, body: JSON.stringify({ token: inv.token, ...body }) });
+
+  // Nobody signed in, and no password there is to give.
+  assert.equal(await code(await send({})), "account_exists");
+  assert.equal(await code(await send({}, { password: PASSWORD })), "account_exists", "the password it once had is gone");
+  // Signed in — as somebody else. The link is not theirs to spend on Dan's account.
+  assert.equal(await code(await send(as(owner))), "account_exists");
+  // Dan's cookie without the token a page of ours would send with it.
+  assert.equal(await code(await send({ Cookie: dan.cookie })), "account_exists");
+  assert.equal(await code(await send({ Cookie: dan.cookie, [HTTP_HEADER.csrf]: owner.csrf })), "account_exists");
+  // Dan's session, from another site's page.
+  assert.equal((await send({ ...as(dan), Origin: "https://evil.example" })).status, 403);
+  const [pending] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM memberships WHERE user_id = ${danId}`;
+  assert.equal(pending!.n, 1, "none of those joined anything");
+
+  const ok = await send(as(dan));
+  assert.equal(ok.status, 201, await ok.clone().text());
+  const joined = { cookie: cookiesOf(ok), csrf: ((await ok.json()) as { csrfToken: string }).csrfToken };
+  const me = (await (await app.request("/api/v1/me", { headers: as(joined) })).json()) as { org: { name: string }; user: { name: string; role: string }; orgs: { slug: string }[] };
+  assert.equal(me.org.name, "Kilnwork");
+  assert.equal(me.user.role, "member");
+  assert.deepEqual(me.orgs.map((o) => o.slug).sort(), ["kilnwork", "nowhere"]);
+  const [still] = await sql<{ h: string | null; n: number }[]>`SELECT password_hash AS h, (SELECT count(*)::int FROM users WHERE email = 'dan@nowhere.test') AS n FROM users WHERE id = ${danId}`;
+  assert.equal((await app.request("/api/v1/me", { headers: as(dan) })).status, 401, "the session that proved it ended with the join, as a switch ends the one it leaves");
+  assert.equal(still!.h, null, "joining gave it no password");
+  assert.equal(still!.n, 1, "one account");
 });
 
 test("removing somebody from their HOME studio re-homes them to the one they are still in", { skip }, async () => {

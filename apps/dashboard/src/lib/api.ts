@@ -604,7 +604,7 @@ export const api = {
   sendInvite: (id: string, token: string) => call<{ to: string }>("POST", `/api/v1/members/invites/${encodeURIComponent(id)}/send`, { token }),
   /** Public. A POST, so the token travels in a body and never in a URL a log keeps. */
   lookupInvite: (token: string) => call<InviteLookup>("POST", "/auth/invites/lookup", { token }),
-  acceptInvite: (input: { token: string; name?: string; email?: string; password: string }) =>
+  acceptInvite: (input: { token: string; name?: string; email?: string; password?: string }) =>
     call<{ org: { name: string; slug: string }; user: { email: string; name: string }; role: string; csrfToken: string }>("POST", "/auth/invites/accept", input),
   setMemberRole: (email: string, role: "owner" | "admin" | "member") =>
     call<{ data: Member[] }>("PATCH", `/api/v1/members/${encodeURIComponent(email)}`, { role }),

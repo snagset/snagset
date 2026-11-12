@@ -2,7 +2,7 @@ import { Hono, type Context } from "hono";
 import { randomUUID, randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import type postgres from "postgres";
 import { ensureStudioReviewers } from "../studioReviewers.ts";
-import { hashPassword, setSessionCookies, verifyPassword, type MemberRole, type OwnerClaims } from "./owner.ts";
+import { csrfOk, hashPassword, setSessionCookies, verifyPassword, type MemberRole, type OwnerClaims } from "./owner.ts";
 import { LimitReached, planLimitReached, usage, type LimitsSource } from "../plan.ts";
 import { openSession, SESSION_S } from "../orgs.ts";
 import { inOrg, maintenance } from "../db/scope.ts";
@@ -65,9 +65,14 @@ import { looksLikeEmail } from "../email.ts";
  * switcher, `POST /api/v1/orgs`), and `users_email_uniq` makes an email one
  * account on the instance. So an invite to an address that already has an
  * account adds a MEMBERSHIP to that account rather than failing on the
- * unique index — but only after its existing password verifies, because the
- * link proves who the owner meant to invite, not that the holder controls
- * that account.
+ * unique index — but only after the holder is shown to be that account,
+ * because the link proves who the owner meant to invite, not that the holder
+ * controls that account. Two things show it: the account's password, or a
+ * browser already SIGNED IN as that very account (its session cookie, with
+ * the double-submit token every signed-in mutation carries). The second is
+ * what an account with no password has — one made by a provider or a mailed
+ * code in front of this server — and it is no weaker than the first: a
+ * session is what a password would have bought.
  */
 
 type Env = { Variables: { owner?: OwnerClaims; requestId: string; noBodyLogging?: boolean } };
@@ -155,6 +160,10 @@ const SENTENCE: Record<Gone | "invite_not_found", (r?: { expires_at: Date }) => 
 function refuse(c: Ctx, why: Gone | "invite_not_found", r?: { expires_at: Date }) {
   return fail(c, why === "invite_not_found" ? 404 : 410, why, SENTENCE[why](r));
 }
+
+/** One sentence for both places that say it; an account may have no password, so signing in is named first. */
+const accountExists = (email: string, studio: string): string =>
+  `There is already an account for ${email} on this instance. Sign in to it and open this link again, or enter its password, to join ${studio || "the studio"} with it.`;
 
 /** Raised inside the accept transaction; everything before it rolls back with it. */
 class Refused extends Error {
@@ -351,7 +360,7 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
         subject: `${who} invited you to ${studio}`,
         text:
           `${who} has invited you to join ${studio} as ${withArticle(row.role)}.\n\n` +
-          `Open this link to choose your password and sign in:\n${url}\n\n` +
+          `Open this link to join:\n${url}\n\n` +
           `It works once and expires on ${row.expires_at.toISOString().slice(0, 10)}. ` +
           `If you were not expecting it, you can ignore this email.\n`,
       });
@@ -430,17 +439,15 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
       return fail(c, 409, "already_a_member", `${email} is already in ${inv.org_name || "this studio"}. Sign in instead.`, { field: "email" });
     }
     let passwordHash: string | null = null;
+    let signedInAsIt = false;
     if (existing) {
-      // An account on this instance already: the invite adds a studio to it,
-      // and its own password is what proves the holder is its owner.
-      if (!verifyPassword(password, existing.password_hash)) {
-        return fail(
-          c,
-          409,
-          "account_exists",
-          `There is already an account for ${email} on this instance. Enter its password to join ${inv.org_name || "the studio"} with it.`,
-          { field: "password" },
-        );
+      // An account on this instance already: the invite adds a studio to it.
+      // Being signed in as it proves the holder is its owner, and so does its
+      // password. A session for ANOTHER account proves nothing about this one.
+      const owner = c.get("owner");
+      signedInAsIt = !!owner && owner.userId === existing.id && csrfOk(c);
+      if (!signedInAsIt && !verifyPassword(password, existing.password_hash)) {
+        return fail(c, 409, "account_exists", accountExists(email, inv.org_name), { field: "password" });
       }
     } else {
       // Twelve, no composition rules — said as setup and sign-up say it.
@@ -498,6 +505,11 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
         // Signed in exactly as `/auth/login` signs in: a user_sessions row is
         // the authority, the raw token goes into the cookie once.
         const session = await openSession(tx, { orgId: inv.org_id, userId, userAgent: c.req.header("User-Agent") ?? "" });
+        // The session that proved it is the one this browser's cookie is about
+        // to be replaced over: ended, as `/auth/switch` ends the one it leaves,
+        // so signing out later leaves nothing of this person's behind.
+        const was = c.get("owner");
+        if (signedInAsIt && was) await tx`UPDATE user_sessions SET revoked_at = now() WHERE id = ${was.sessionId} AND revoked_at IS NULL`;
         return { userId, userName: existing?.name ?? name, session };
       });
     } catch (e) {
@@ -510,7 +522,7 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
         // slower request would have got had it arrived a moment later.
         return pg.constraint_name === "memberships_pkey"
           ? fail(c, 409, "already_a_member", `${email} is already in ${inv.org_name || "this studio"}. Sign in instead.`, { field: "email" })
-          : fail(c, 409, "account_exists", `There is already an account for ${email} on this instance. Enter its password to join with it.`, { field: "password" });
+          : fail(c, 409, "account_exists", accountExists(email, inv.org_name), { field: "password" });
       }
       throw e;
     }
