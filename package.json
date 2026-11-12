@@ -21,7 +21,8 @@
     "lint:names": "node tools/lint-names.mjs",
     "size:map": "node tools/module-map.mjs",
     "lint:sql": "node tools/lint-sql-comments.mjs",
-    "lint:lockstep": "node tools/check-lockstep.mjs"
+    "lint:lockstep": "node tools/check-lockstep.mjs",
+    "audit:gate": "pnpm audit --audit-level=moderate"
   },
   "devDependencies": {
     "@snagset/types": "workspace:*",

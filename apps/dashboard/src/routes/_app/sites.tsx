@@ -44,18 +44,22 @@ function Sites() {
   useEffect(() => {
     if (add && admin) setAdding(true);
   }, [add, admin]);
-  const open = me.projects.reduce((n, p) => n + p.unresolved, 0);
+  // Archived sites are listed apart and not counted.
+  const active = me.projects.filter((p) => !p.archived);
+  const archived = me.projects.filter((p) => p.archived);
+  const open = active.reduce((n, p) => n + p.unresolved, 0);
   // The count against the number, where one exists.
   const cap = me.limits.projects.limit;
-  const full = cap !== null && me.projects.length >= cap;
+  const full = cap !== null && active.length >= cap;
+  const over = cap !== null && active.length > cap;
 
   return (
     <div className="p-7">
       <PageHeader
         title="Sites"
         sub={
-          me.projects.length
-            ? `${me.projects.length}${cap !== null ? ` of ${cap}` : ""} site${me.projects.length === 1 && cap === null ? "" : "s"} · ${open} open`
+          active.length
+            ? `${active.length}${cap !== null ? ` of ${cap}` : ""} site${active.length === 1 && cap === null ? "" : "s"} · ${open} open`
             : cap !== null
               ? `0 of ${cap} sites`
               : undefined
@@ -69,7 +73,14 @@ function Sites() {
           ) : undefined
         }
       />
-      {me.projects.length === 0 ? (
+      {over && (
+        <div role="status" className="mb-5 max-w-[1100px] rounded-md border border-border bg-warn-soft px-4 py-3 text-[13px]">
+          This studio has {active.length} sites and its plan includes {cap}. The newest {active.length - cap!} {active.length - cap! === 1 ? "is" : "are"}{" "}
+          read-only: comments can be read, nothing new comes in.{" "}
+          {admin ? "Archive a site you have finished with, or move to a plan with more." : "An owner or an admin can archive a site or change the plan."}
+        </div>
+      )}
+      {active.length === 0 ? (
         <Card className="max-w-[1100px]">
           <EmptyState
             icon={<LayoutGridIcon className="size-5" />}
@@ -90,47 +101,68 @@ function Sites() {
         </Card>
       ) : (
         <div className="grid max-w-[1100px] grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-          {me.projects.map((p) => (
-            <Link
-              key={p.uid}
-              to="/s/$site/comments"
-              params={{ site: p.uid }}
-              className="block overflow-hidden rounded-lg border border-border bg-card text-foreground transition-shadow hover:shadow-[0_1px_2px_rgb(24_23_22/.06),0_8px_24px_rgb(24_23_22/.08)]"
-            >
-              <div className="flex h-[150px] items-center justify-center border-b border-border bg-background">
-                {p.previewUrl ? (
-                  <img src={p.previewUrl} alt="" className="size-full object-cover object-top" />
-                ) : (
-                  <div className="flex flex-col items-center gap-1 text-[12px] text-muted-foreground">
-                    <span className="flex size-8 items-center justify-center rounded-md bg-muted">
-                      <ImageOffIcon className="size-4" />
-                    </span>
-                    No screenshot yet
-                  </div>
-                )}
-              </div>
-              <div className="px-3.5 pb-3.5 pt-3">
-                <div className="flex items-center gap-2 text-[14px] font-semibold">
-                  <span className="truncate">{p.name}</span>
-                  {p.status === "paused" && (
-                    <span className="rounded-sm bg-muted px-1.5 py-px text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Paused
-                    </span>
-                  )}
-                </div>
-                {p.domain && <div className="mt-0.5 truncate font-mono text-[12px] text-muted-foreground">{p.domain}</div>}
-                <div className="mt-2 text-[12.5px] text-ink-soft">
-                  {p.threads === 0
-                    ? "Nothing filed yet"
-                    : `${p.unresolved} open of ${p.threads}${p.lastActivityAt ? ` · ${ago(p.lastActivityAt)}` : ""}`}
-                </div>
-              </div>
-            </Link>
+          {active.map((p) => (
+            <SiteCard key={p.uid} p={p} />
           ))}
         </div>
       )}
+      {archived.length > 0 && (
+        <section className="mt-10 max-w-[1100px]" aria-labelledby="archived-sites">
+          <h2 id="archived-sites" className="m-0 mb-1 text-[14px] font-semibold">
+            Archived
+          </h2>
+          <p className="m-0 mb-4 text-[12.5px] text-muted-foreground">
+            Finished or put away. Every comment is kept and can be read; nothing new comes in, and they do not count toward the plan.
+          </p>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {archived.map((p) => (
+              <SiteCard key={p.uid} p={p} />
+            ))}
+          </div>
+        </section>
+      )}
       <AddSite open={adding} onOpenChange={setAdding} />
     </div>
+  );
+}
+
+function SiteCard({ p }: { p: ReturnType<typeof useMe>["projects"][number] }) {
+  const badge = p.archived ? "Archived" : p.locked ? "Read-only" : p.status === "paused" ? "Paused" : null;
+  return (
+    <Link
+      to="/s/$site/comments"
+      params={{ site: p.uid }}
+      className="block overflow-hidden rounded-lg border border-border bg-card text-foreground transition-shadow hover:shadow-[0_1px_2px_rgb(24_23_22/.06),0_8px_24px_rgb(24_23_22/.08)]"
+    >
+      <div className={`flex h-[150px] items-center justify-center border-b border-border bg-background${p.archived ? " opacity-70 grayscale" : ""}`}>
+        {p.previewUrl ? (
+          <img src={p.previewUrl} alt="" className="size-full object-cover object-top" />
+        ) : (
+          <div className="flex flex-col items-center gap-1 text-[12px] text-muted-foreground">
+            <span className="flex size-8 items-center justify-center rounded-md bg-muted">
+              <ImageOffIcon className="size-4" />
+            </span>
+            No screenshot yet
+          </div>
+        )}
+      </div>
+      <div className="px-3.5 pb-3.5 pt-3">
+        <div className="flex items-center gap-2 text-[14px] font-semibold">
+          <span className="truncate">{p.name}</span>
+          {badge && (
+            <span className="rounded-sm bg-muted px-1.5 py-px text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
+              {badge}
+            </span>
+          )}
+        </div>
+        {p.domain && <div className="mt-0.5 truncate font-mono text-[12px] text-muted-foreground">{p.domain}</div>}
+        <div className="mt-2 text-[12.5px] text-ink-soft">
+          {p.threads === 0
+            ? "Nothing filed yet"
+            : `${p.unresolved} open of ${p.threads}${p.lastActivityAt ? ` · ${ago(p.lastActivityAt)}` : ""}`}
+        </div>
+      </div>
+    </Link>
   );
 }
 

@@ -55,6 +55,7 @@ import { unsubscribeRoutes } from "./mail/unsubscribe.ts";
 import { createProject, validateOrigins, wireId } from "./projects.ts";
 export { wireId };
 import { createProjectCache } from "./projectCache.ts";
+import { siteHolds, holdRefused } from "./holds.ts";
 import {
   ownerAuth,
   ownerRoutes,
@@ -555,6 +556,31 @@ export function createApp(deps: Deps): Hono<Env> {
   // signed-in operator paid the same trip per asset, silently, all day.
   app.use("/api/*", ownerAuth(ownerDeps));
   app.use("/auth/*", ownerAuth(ownerDeps));
+  /**
+   * An archived site, or one beyond the plan's cap after a downgrade,
+   * is read-only: every write under the site refuses, from the widget, the
+   * dashboard and an agent alike. Reads go on; so do archive, restore and
+   * delete (the ways out), and the session a reader needs to read.
+   */
+  const holdOf = siteHolds(sql, limits);
+  const holdGate = async (c: Ctx, next: () => Promise<void>) => {
+    if (c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS") return next();
+    const uid = c.req.param("uid");
+    const rest = uid ? c.req.path.slice(c.req.path.indexOf(uid) + uid.length) : "";
+    if (rest === "" && c.req.method === "DELETE") return next();
+    if (/^\/(archive|restore|sessions|anchor-reports)(\/|$)/.test(rest)) return next();
+    let p;
+    try {
+      p = uid ? await projects.get(uid) : null;
+    } catch {
+      return next();
+    }
+    if (!p) return next();
+    const hold = await holdOf(p);
+    return hold ? holdRefused(c, hold) : next();
+  };
+  app.use("/api/v1/projects/:uid", holdGate);
+  app.use("/api/v1/projects/:uid/*", holdGate);
   app.route("/", ownerRoutes(ownerDeps));
 
   /**
@@ -660,13 +686,13 @@ export function createApp(deps: Deps): Hono<Env> {
   };
   app.route(
     "/",
-    threadRoutes(sql, projects, featuresFor, notifications, address, trackers, Number(cfg.get("SNAGSET_ASSIGN_MAIL_DELAY_S") ?? 3600) * 1000),
+    threadRoutes(sql, projects, featuresFor, notifications, address, trackers, Number(cfg.get("SNAGSET_ASSIGN_MAIL_DELAY_S") ?? 3600) * 1000, holdOf),
   );
   app.route(
     "/",
     anchorReportRoutes(sql, projects, () => cfg.int("SNAGSET_RATE_LIMIT_ANCHOR_REPORTS_PER_MIN")),
   );
-  app.route("/", commentRoutes({ sql, projects, notifications }));
+  app.route("/", commentRoutes({ sql, projects, notifications, holdOf }));
   /**
    * Editing and deleting a comment (endpoints 12 and 13). Mounted here, beside
    * the comment routes, and BEFORE the owner-gated block below — a reviewer
@@ -744,6 +770,8 @@ export function createApp(deps: Deps): Hono<Env> {
   // CORS credentials kept a cross-site page out, but every sibling mutation
   // carries the pair and this one should not be the exception.
   app.on("DELETE", "/api/v1/projects/:uid", requireOwner());
+  // Archive and restore, dashboard-class like the DELETE.
+  app.on("POST", ["/api/v1/projects/:uid/archive", "/api/v1/projects/:uid/restore"], requireOwner());
   /**
    * One-click unsubscribe (B2). Mounted OUTSIDE `/api/v1`, with no auth
    * middleware in front of it, and both facts are the design: the person

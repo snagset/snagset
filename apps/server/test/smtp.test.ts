@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server, type Socket } from "node:net";
-import { createSmtpMailer } from "../src/mail/smtp.ts";
+import { createSmtpMailer, authenticate, echoOf } from "../src/mail/smtp.ts";
 
 /**
  * The SMTP adapter, driven against a REAL TCP server speaking REAL SMTP.
@@ -269,4 +269,29 @@ test("the password never appears in an error message", async () => {
   } finally {
     server.close();
   }
+});
+
+test("AUTH LOGIN: a refused user name or password is named, never shown, base64 or not", async () => {
+  const b64 = (v: string) => Buffer.from(v, "utf8").toString("base64");
+  for (const refuseAt of [2, 3]) {
+    let n = 0;
+    // A session that refuses the nth line the way the real one words it.
+    const session = {
+      secure: true,
+      command: async (line: string, _code: number, as?: string) => {
+        if (++n === refuseAt) throw new Error(`SMTP ${echoOf(line, as)} → 535 5.7.8 bad credentials`);
+        return "334 ok";
+      },
+    };
+    await assert.rejects(
+      () => authenticate(session, new Set(["AUTH", "AUTH=LOGIN"]), "mailer@kilnwork.test", "hunter2 and more"),
+      (e: Error) => {
+        for (const secret of ["hunter2", b64("hunter2 and more"), b64("mailer@kilnwork.test")]) assert.ok(!e.message.includes(secret), e.message);
+        assert.match(e.message, refuseAt === 2 ? /AUTH LOGIN <user name> → 535/ : /AUTH LOGIN <password> → 535/);
+        return true;
+      },
+    );
+  }
+  assert.equal(echoOf("AUTH PLAIN AGFiYwBodW50ZXIy"), "AUTH PLAIN");
+  assert.equal(echoOf("RCPT TO:<a@b.test>"), "RCPT TO:<a@b.test>");
 });

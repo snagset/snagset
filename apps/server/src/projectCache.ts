@@ -48,6 +48,9 @@ export interface ProjectRow {
   session_epoch: number;
   key_prefix: string;
   ip_salt: Buffer;
+  /** Set when the site is archived: readable, never written. */
+  archived_at: Date | null;
+  created_at: Date;
 }
 
 export class ProjectUnavailable extends Error {
@@ -86,7 +89,7 @@ export function createProjectCache(
   async function load(uid: string): Promise<ProjectRow | null> {
     const rows = await maintenance(sql, (tx) => tx<ProjectRow[]>`
       SELECT id, org_id, uid, name, status, write_mode, write_mode_downgrade_at, read_mode,
-             guest_can_resolve, session_epoch, key_prefix, ip_salt,
+             guest_can_resolve, session_epoch, key_prefix, ip_salt, archived_at, created_at,
              settings->>'domain' AS domain
       FROM projects WHERE uid = ${uid} AND deleted_at IS NULL
     `);

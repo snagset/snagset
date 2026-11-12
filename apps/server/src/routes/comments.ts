@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type postgres from "postgres";
 import { ID_PREFIX } from "@snagset/types/names";
 import type { ProjectCache } from "../projectCache.ts";
+import { holdRefused, type HoldOf } from "../holds.ts";
 import type { SessionClaims } from "../session.ts";
 import { csrfOk, type OwnerClaims } from "./owner.ts";
 import { can } from "@snagset/types/roles";
@@ -87,6 +88,8 @@ export interface CommentDeps {
    */
   /** Asked per write: a transport connected on Studio › General counts from its next send. */
   notifications: () => Promise<boolean>;
+  /** An archived or over-cap site takes no replies, from anyone. */
+  holdOf?: HoldOf;
 }
 
 export function commentRoutes(deps: CommentDeps): Hono<Env> {
@@ -105,11 +108,14 @@ export function commentRoutes(deps: CommentDeps): Hono<Env> {
         private: boolean;
         project_uid: string;
         project_status: string;
+        archived_at: Date | null;
+        created_at: Date;
         key: string;
         page_url: string | null;
       }[]
     >`
       SELECT t.id, t.project_id, t.org_id, t.private, p.uid AS project_uid, p.status AS project_status,
+             p.archived_at, p.created_at,
              t.key,
              -- The page URL lives INSIDE the capture context, not in a column
              -- of its own. Two arrows, not one, so it arrives as
@@ -119,6 +125,10 @@ export function commentRoutes(deps: CommentDeps): Hono<Env> {
       WHERE t.id = ${threadRow}::uuid AND t.deleted_at IS NULL
     `);
     if (!thread) return fail(c, 404, "thread_not_found", "No such thread.");
+    if (deps.holdOf) {
+      const hold = await deps.holdOf({ id: thread.project_id, org_id: thread.org_id, archived_at: thread.archived_at, created_at: thread.created_at });
+      if (hold) return holdRefused(c, hold);
+    }
 
     // The widget's URL always carries `:uid`; the dashboard's canonical form
     // never does. When it is present it must be THIS thread's project — a uid

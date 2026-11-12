@@ -93,9 +93,9 @@ export function limitsSource(sql: postgres.Sql, keys: Keyring, resolver?: PlanRe
   };
 }
 
-/** The counts the numbers are measured against, under the org's claim. Storage is bucket bytes summed over the studio's sites (L4's per-project counters). */
+/** The counts the numbers are measured against (an archived site, keeps its pictures but not its place under the site cap), under the org's claim. Storage is bucket bytes summed over the studio's sites (L4's per-project counters). */
 export async function usage(tx: postgres.TransactionSql | postgres.Sql, orgId: string): Promise<{ projects: number; members: number; storageBytes: number }> {
-  const [p] = await tx<{ n: number; bytes: number }[]>`SELECT count(*)::int AS n, COALESCE(sum(storage_bytes_used), 0)::float8 AS bytes FROM projects WHERE org_id = ${orgId}::uuid AND deleted_at IS NULL`;
+  const [p] = await tx<{ n: number; bytes: number }[]>`SELECT (count(*) FILTER (WHERE archived_at IS NULL))::int AS n, COALESCE(sum(storage_bytes_used), 0)::float8 AS bytes FROM projects WHERE org_id = ${orgId}::uuid AND deleted_at IS NULL`;
   const [m] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM memberships WHERE org_id = ${orgId}::uuid`;
   return { projects: p?.n ?? 0, members: m?.n ?? 0, storageBytes: Number(p?.bytes ?? 0) };
 }

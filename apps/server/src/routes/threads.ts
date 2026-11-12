@@ -5,6 +5,7 @@ import { THREAD_REF_PREFIX } from "@snagset/types/names";
 import type { AddressSource } from "../instance/address.ts";
 import { ID_PREFIX } from "@snagset/types/names";
 import type { ProjectCache, ProjectRow } from "../projectCache.ts";
+import type { HoldOf } from "../holds.ts";
 import type { SessionClaims } from "../session.ts";
 import { csrfOk, type OwnerClaims } from "./owner.ts";
 import type { McpClaims } from "./mcpToken.ts";
@@ -276,6 +277,8 @@ export function threadRoutes(
   trackers: (orgId: string, projectId: string) => Promise<{ id: string; provider: "github" | "linear" | "jira" | "slack"; createOn: "manual" | "thread.created" }[]> = async () => [],
   /** How long an assignment waits before its email (SNAGSET_ASSIGN_MAIL_DELAY_S). */
   assignDelayMs?: number,
+  /** Whether the site is archived or over the plan's cap; the config says so to the widget. */
+  holdOf: HoldOf = async () => null,
 ): Hono<Env> {
   const app = new Hono<Env>();
 
@@ -342,7 +345,8 @@ export function threadRoutes(
     // nowhere, and the stub reads `writable` and stays dormant. Said before
     // the origin verdict, because "switched off" is the more useful sentence.
     const paused = p.status !== "active";
-    const writable = c.get("originAllowed") !== false && !paused;
+    const hold = paused ? null : await holdOf(p);
+    const writable = c.get("originAllowed") !== false && !paused && !hold;
     const base = {
       uid: p.uid,
       status: p.status,
@@ -362,7 +366,7 @@ export function threadRoutes(
       writeMode: effectiveWriteMode(p, new Date()),
       writable,
     };
-    if (!writable) return c.json({ ...base, reason: paused ? "project_paused" : "origin_not_allowed" });
+    if (!writable) return c.json({ ...base, reason: paused ? "project_paused" : hold ? `site_${hold}` : "origin_not_allowed" });
 
     // T10/: the round HISTORY rides the config the widget already fetches
     // at mount, so the dock's selector costs no extra request. Behind the

@@ -424,11 +424,11 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
           status: string; domain: string | null; guest_can_resolve: boolean;
           threads: number; unresolved: number;
           shot: string | null; last_activity: Date | null;
-          addressed: boolean; landing_round: number | null;
+          addressed: boolean; landing_round: number | null; archived_at: Date | null;
         }[]
       >`
         SELECT p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status,
-               p.settings->>'domain' AS domain, p.guest_can_resolve,
+               p.settings->>'domain' AS domain, p.guest_can_resolve, p.archived_at,
                (COALESCE(p.settings->>'domain', '') <> ''
                  OR EXISTS (SELECT 1 FROM project_origins o WHERE o.project_id = p.id)) AS addressed,
                (SELECT r.number FROM rounds r
@@ -461,7 +461,7 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
         WHERE p.org_id = ${owner.orgId} AND p.deleted_at IS NULL
         GROUP BY p.id, p.uid, p.name, p.key_prefix, p.write_mode, p.write_mode_downgrade_at, p.status, p.settings,
                  p.guest_can_resolve, s.id
-        ORDER BY p.created_at
+        ORDER BY p.created_at, p.id
       `;
       // The plan's numbers and how far along them the studio is
       // shown where a limit exists, silent where there is none.
@@ -505,7 +505,11 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
       pendingMigrations: await pendingMigrations(sql),
       // Functions on one continent, the database on another (instance/region.ts).
       ...(deps.regionMismatch ? { regionMismatch: deps.regionMismatch } : {}),
-      projects: projects.map((p) => ({
+      // Archived sites, and active ones beyond the cap (newest first,
+      // the same order holds.ts reads), are read-only.
+      projects: ((n) => projects.map((p) => ({
+        archived: !!p.archived_at,
+        locked: !p.archived_at && l.projects !== null && n++ >= l.projects,
         uid: p.uid,
         name: p.name,
         keyPrefix: p.key_prefix,
@@ -531,7 +535,7 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
         // The round Comments opens on, so its list can be asked for beside the
         // rounds rather than after them. Null: no round at all.
         landingRound: p.landing_round,
-      })),
+      })))(0),
     });
   });
 

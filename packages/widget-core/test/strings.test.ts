@@ -68,7 +68,7 @@ test("the key set is stable — adding or removing one is a deliberate act", () 
     "dock.clear.aria", "dock.close", "dock.cluster", "dock.cluster.clear", "dock.empty", "dock.empty.filter", "dock.empty.orphans", "dock.empty.page", "dock.goto",
     "dock.hiddenrow", "dock.hiddenrow.show", "dock.loading", "dock.next", "dock.position", "dock.prev", "dock.replies",
     "dock.row.empty", "dock.title.detail", "dock.title.list", "dock.unread", "error.capture",
-    "error.linkrevoked", "error.nostorage", "error.origin", "error.panels", "error.panels.add", "error.quota",
+    "error.linkrevoked", "error.nostorage", "error.origin", "error.panels", "error.panels.add", "error.quota", "error.readonly",
     "error.sendfailed", "error.sessionended", "export.button", "export.by",
     "export.device", "export.heading", "export.json", "export.md", "export.nobody",
     "export.on", "export.screenshot", "export.selector", "export.summary.many", "export.summary.one", "export.title",

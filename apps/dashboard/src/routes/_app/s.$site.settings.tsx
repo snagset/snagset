@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { AdminsOnly, PageHeader, SettingsRow } from "@/components/app/parts";
 import { can } from "@/lib/roles";
 import { SaveState } from "@/components/app/SaveState";
-import { useDeleteSite, useEditSite } from "@/lib/mutations";
+import { useDeleteSite, useEditSite, useShelveSite } from "@/lib/mutations";
 import { useMe } from "@/lib/me";
 import { q } from "@/lib/query";
 import { cn } from "@/lib/utils";
@@ -160,6 +160,7 @@ function SiteSettings() {
 
       <RoundsSettings uid={uid} />
 
+      <ArchiveRow uid={uid} name={site.name} archived={!!site.archived} locked={!!site.locked} />
       <DangerRow uid={uid} name={site.name} />
     </div>
   );
@@ -290,6 +291,30 @@ function Addresses({
         </Button>
       </form>
     </div>
+  );
+}
+
+/** Put a finished site away, or bring it back. Nothing is lost either way. */
+function ArchiveRow({ uid, name, archived, locked }: { uid: string; name: string; archived: boolean; locked: boolean }) {
+  const shelve = useShelveSite(uid);
+  return (
+    <SettingsRow
+      title={archived ? "Restore this site" : "Archive this site"}
+      description={
+        archived
+          ? "Its widget takes comments again and it counts toward the plan. Restoring needs room on the plan."
+          : "For a site you have finished with. Every comment is kept and can be read, the widget stops taking new ones, and the site no longer counts toward the plan."
+      }
+    >
+      <div className="flex items-center gap-4">
+        <p className="m-0 flex-1 text-[13px] text-ink-soft">
+          {archived ? `${name} is archived.` : locked ? `${name} is read-only because the studio is over its plan. Archiving another site frees a place.` : "You can restore it at any time."}
+        </p>
+        <Button type="button" variant="outline" loading={shelve.isPending} onClick={() => shelve.mutate(archived ? "restore" : "archive")}>
+          {archived ? `Restore ${name}` : `Archive ${name}`}
+        </Button>
+      </div>
+    </SettingsRow>
   );
 }
 

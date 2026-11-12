@@ -129,6 +129,10 @@ export interface Me {
     domain: string | null;
     /** Whether guests may change a comment's status. Optional: an older server omits it. */
     guestsCanChangeStatus?: boolean;
+    /** Put away: readable, never written, not counted against the plan. */
+    archived?: boolean;
+    /** Beyond the plan's site cap: readable, never written, until a site is archived or the plan grows. */
+    locked?: boolean;
     threads: number;
     unresolved: number;
     /** The newest screenshot on this site, as a blob URL — the site's face.
@@ -463,6 +467,10 @@ export const api = {
    *  restore rather than an apology to write. */
   deleteSite: (uid: string) =>
     call<void>("DELETE", `/api/v1/projects/${encodeURIComponent(uid)}`),
+
+  /** Archive keeps everything and frees the site's place on the plan; restore needs room. */
+  shelveSite: (uid: string, to: "archive" | "restore") =>
+    call<void>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/${to}`),
 
   setAudience: (uid: string, writeMode: "open" | "link-required") =>
     call<{ uid: string; writeMode: string }>("PATCH", `/api/v1/projects/${encodeURIComponent(uid)}`, {

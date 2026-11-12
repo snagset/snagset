@@ -465,6 +465,47 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
     return c.body(null, 204);
   });
 
+  /**
+   * Archive and restore. A finished site, or one put away to make room
+   * under the plan: kept whole and readable, written by nobody, and not
+   * counted against the cap. Restoring is refused when the plan has no room
+   * for one more active site, with the same 403 as adding one.
+   */
+  const shelve = (to: "archive" | "restore") => async (c: Ctx) => {
+    const owner = c.get("owner");
+    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    if (!can(owner.role, "settings")) return fail(c, 403, "forbidden", "Only an owner or an admin can archive or restore a site.");
+    const uid = c.req.param("uid") ?? "";
+    const [project] = await maintenance(sql, (tx) => tx<{ id: string; org_id: string; archived_at: Date | null }[]>`
+      SELECT id, org_id, archived_at FROM projects WHERE uid = ${uid} AND deleted_at IS NULL
+    `);
+    if (!project || project.org_id !== owner.orgId) return fail(c, 404, "project_not_found", "No project with that uid.");
+    const cap = to === "restore" && project.archived_at ? (await deps.limits(owner.orgId)).projects : null;
+    try {
+      await sql.begin(async (tx) => {
+        await tx`SELECT set_config('app.org_id', ${owner.orgId}, true)`;
+        if (to === "archive") {
+          await tx`UPDATE projects SET archived_at = COALESCE(archived_at, now()) WHERE id = ${project.id}::uuid`;
+          return;
+        }
+        if (cap !== null) {
+          // Serialise with a concurrent add or restore on the same studio.
+          await tx`SELECT id FROM projects WHERE org_id = ${owner.orgId}::uuid AND deleted_at IS NULL FOR UPDATE`;
+          const used = (await usage(tx, owner.orgId)).projects;
+          if (used >= cap) throw new LimitReached("projects", cap, used);
+        }
+        await tx`UPDATE projects SET archived_at = NULL WHERE id = ${project.id}::uuid`;
+      });
+    } catch (e) {
+      if (e instanceof LimitReached) return planLimitReached(c, e);
+      throw e;
+    }
+    deps.projects?.invalidate(uid);
+    return c.body(null, 204);
+  };
+  app.post("/api/v1/projects/:uid/archive", shelve("archive"));
+  app.post("/api/v1/projects/:uid/restore", shelve("restore"));
+
   /** The origins on a site — what the dashboard shows beside the script tag. */
   app.get("/api/v1/projects/:uid/origins", async (c) => {
     const owner = c.get("owner");

@@ -293,6 +293,9 @@ export function mount(_root: ShadowRoot | undefined, ctx?: MountContext): Runtim
       // in the dashboard, and it belongs to whoever installed the tag.
       notice.show("error.origin", undefined, { origin: location.origin });
     }
+    if (cfg.writable === false && (cfg.reason === "site_archived" || cfg.reason === "site_locked")) {
+      notice.show("error.readonly");
+    }
   }).catch(() => {});
   let all: Snag[] = []; // every route
   let visible: Snag[] = []; // this route only

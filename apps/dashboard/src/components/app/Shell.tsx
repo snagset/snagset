@@ -414,7 +414,7 @@ function SiteSwitcher({ me, site }: { me: Me; site: Site | null }) {
         {/* A label lives inside a group in this generation of the kit — outside one it throws. */}
         <DropdownMenuGroup>
           <DropdownMenuLabel>Sites</DropdownMenuLabel>
-          {me.projects.map((p) => (
+          {me.projects.filter((p) => !p.archived || p.uid === site?.uid).map((p) => (
             <DropdownMenuItem
               key={p.uid}
               onClick={() => void navigate({ to: "/s/$site/comments", params: { site: p.uid } })}

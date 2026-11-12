@@ -111,6 +111,16 @@ async function ehlo(session: Session, host: string): Promise<Set<string>> {
 }
 
 /**
+ * What an error says was sent. The password is never echoed into an error
+ * message: an `AUTH` line keeps its verb and mechanism and loses the token,
+ * and a line the caller names (`as`) is not shown at all.
+ */
+export function echoOf(line: string, as?: string): string {
+  if (as !== undefined) return as;
+  return /^AUTH /i.test(line) ? line.split(" ").slice(0, 2).join(" ") : line;
+}
+
+/**
  * AUTH, preferring PLAIN.
  *
  * PLAIN is one round trip and LOGIN is three; both send the password base64'd,
@@ -119,8 +129,8 @@ async function ehlo(session: Session, host: string): Promise<Set<string>> {
  * cleartext than fail is an adapter that leaks the operator's mail password to
  * anyone on the path, once, silently, and then works fine.
  */
-async function authenticate(
-  session: Session,
+export async function authenticate(
+  session: Pick<Session, "secure" | "command">,
   caps: Set<string>,
   user: string,
   pass: string,
@@ -139,8 +149,10 @@ async function authenticate(
   }
   if (caps.has("AUTH=LOGIN")) {
     await session.command("AUTH LOGIN", 334);
-    await session.command(Buffer.from(user, "utf8").toString("base64"), 334);
-    await session.command(Buffer.from(pass, "utf8").toString("base64"), 235);
+    // LOGIN's two answers are bare base64 lines with no verb to recognise
+    // them by, so each says what it is: neither is ever echoed.
+    await session.command(Buffer.from(user, "utf8").toString("base64"), 334, "AUTH LOGIN <user name>");
+    await session.command(Buffer.from(pass, "utf8").toString("base64"), 235, "AUTH LOGIN <password>");
     return;
   }
   throw new Error(
@@ -237,7 +249,8 @@ function clientName(host: string): string {
 interface Session {
   readonly secure: boolean;
   expect(code: number): Promise<string>;
-  command(line: string, code: number): Promise<string>;
+  /** `as` is what an error names in place of the line, for a line that is itself a secret. */
+  command(line: string, code: number, as?: string): Promise<string>;
   /** Send a payload that is already terminated (the DATA body). */
   raw(payload: string, code: number): Promise<string>;
   upgrade(host: string): Promise<void>;
@@ -329,11 +342,9 @@ async function open(host: string, port: number, tls: boolean): Promise<Session> 
     async expect(code) {
       return check(await read(), code, "<greeting>");
     },
-    async command(line, code) {
+    async command(line, code, as) {
       socket.write(line + CRLF);
-      // The password is never echoed into an error message.
-      const shown = /^AUTH /.test(line) ? line.split(" ").slice(0, 2).join(" ") : line;
-      return check(await read(), code, shown);
+      return check(await read(), code, echoOf(line, as));
     },
     async raw(payload, code) {
       socket.write(payload);

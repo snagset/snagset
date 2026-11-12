@@ -106,6 +106,9 @@ export const runtimeStrings = {
   // It names the ADDRESS because that is the fix: the origin has to go on the
   // site's allow-list, and a developer who forgot which one they are serving
   // from cannot act on "not enabled here".
+  // The site is archived, or beyond its studio's plan. Threads still
+  // read; nothing new is written, and the reviewer is told so once.
+  "error.readonly": "This site is read-only for now. You can read what is here, but new comments are off.",
   "error.origin": "{product} is not enabled for {origin}. Add that address to the site's allowed origins.",
   // F-04, verbatim. It names what failed and what still works — the
   // reviewer's next question is "have I lost anything", and the answer is no.

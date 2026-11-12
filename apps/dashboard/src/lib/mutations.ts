@@ -77,6 +77,16 @@ export function useDeleteSite(uid: string) {
   });
 }
 
+/** Archive or restore. Waits: the lists move, and a refused restore says why. */
+export function useShelveSite(uid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (to: "archive" | "restore") => api.shelveSite(uid, to),
+    onSuccess: () => qc.invalidateQueries({ queryKey: q.me().queryKey }),
+    onError: (err) => toast.error(reason(err)),
+  });
+}
+
 /** The ONE response with a raw token on it. Waits; the banner needs the answer. */
 export function useMintLink(uid: string) {
   const qc = useQueryClient();

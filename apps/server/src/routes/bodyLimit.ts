@@ -1,3 +1,4 @@
+import { bodyLimit as counted } from "hono/body-limit";
 import type { MiddlewareHandler } from "hono";
 import type { Env } from "../app.ts";
 
@@ -44,25 +45,23 @@ export function bodyLimit(binaryBytes: () => number): MiddlewareHandler<Env> {
     const method = c.req.method;
     if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
 
-    const declared = Number(c.req.header("content-length") ?? "");
-    if (!Number.isFinite(declared) || declared <= 0) return next();
-
     const type = (c.req.header("content-type") ?? "").toLowerCase();
     const isJson = type.includes("json") || type === "";
     const cap = isJson ? JSON_BODY_CAP : binaryBytes();
+    const tooLarge = (size: string) =>
+      c.json({ error: { code: "body_too_large", message: `That request body is ${size}; the limit here is ${Math.round(cap / 1024)} KB.`, requestId: c.get("requestId") } }, 413);
 
-    if (declared > cap) {
-      return c.json(
-        {
-          error: {
-            code: "body_too_large",
-            message: `That request body is ${Math.round(declared / 1024)} KB; the limit here is ${Math.round(cap / 1024)} KB.`,
-            requestId: c.get("requestId"),
-          },
-        },
-        413,
-      );
+    // A body that does not say its length (chunked), or says it twice over,
+    // is counted as it is read: the declared number is the sender's word, and
+    // a route that reads the stream itself (`POST /mcp`, through the SDK's
+    // own 4 MiB) would otherwise be held to nothing but that.
+    const declared = Number(c.req.header("content-length") ?? "");
+    if (!Number.isFinite(declared) || declared <= 0 || c.req.header("transfer-encoding")) {
+      if (!c.req.raw.body) return next();
+      return counted({ maxSize: cap, onError: () => tooLarge("over the limit") })(c, next);
     }
+
+    if (declared > cap) return tooLarge(`${Math.round(declared / 1024)} KB`);
     return next();
   };
 }
