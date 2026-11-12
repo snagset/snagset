@@ -46,6 +46,12 @@ function General() {
   // It asks the instance nothing, so there is no refusal for it to show.
   const operator = isOperator(me);
   const storage = storageRow(me);
+  // On the hosted service a studio is not shown the instance it runs on
+  // (the version, the commit, the updates) — only the operator's studio is.
+  // Where plans are sold, the counts live on Plan & billing beside the limits.
+  const setup = useQuery(q.setupState());
+  const showInstance = operator || !setup.data?.cloud;
+  const countsHere = !setup.data?.billingUrl;
   const [name, setName] = useState(me.org.name);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   useEffect(() => setName(me.org.name), [me.org.name]);
@@ -76,6 +82,7 @@ function General() {
           </p>
         </form>
       </SettingsRow>
+      {showInstance && (
       <SettingsRow title="This instance" description={operator ? "What is running, and where." : "What is running."}>
         <dl className="m-0 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
           <dt className="text-muted-foreground">Version</dt>
@@ -99,12 +106,17 @@ function General() {
               </dd>
             </>
           )}
-          <dt className="text-muted-foreground">Sites · members</dt>
-          <dd className="m-0">
-            {me.projects.length} · {members.data?.data.length ?? "—"}
-          </dd>
+          {countsHere && (
+            <>
+              <dt className="text-muted-foreground">Sites · members</dt>
+              <dd className="m-0">
+                {me.projects.length} · {members.data?.data.length ?? "—"}
+              </dd>
+            </>
+          )}
         </dl>
       </SettingsRow>
+      )}
       {storage === "instance" ? <InstanceRows owner={owner} /> : storage === "usage" ? <StudioStorage /> : null}
     </div>
   );

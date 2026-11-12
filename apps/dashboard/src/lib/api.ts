@@ -652,13 +652,17 @@ export interface MintedInvite {
  * What a signed-out page is told about the instance, before anybody is
  * anybody: whether it has an owner, whether a stranger may make a studio,
  * whether it can mail a reset link, and where a studio is made when
- * that is a page of the operator's own (`SNAGSET_SIGNUP_URL`).
+ * that is a page of the operator's own (`SNAGSET_SIGNUP_URL`), and where an
+ * owner changes the plan when the operator sells plans (`SNAGSET_BILLING_URL`).
  */
 export interface SetupState {
   claimed: boolean;
   signup: boolean;
   mail: boolean;
   signupUrl: string | null;
+  billingUrl: string | null;
+  /** The hosted service (`SNAGSET_CLOUD`): a studio there is not shown the instance it runs on. Optional: an older server omits it. */
+  cloud?: boolean;
 }
 
 /** A mailed reset link, looked up: the address it was sent to. */

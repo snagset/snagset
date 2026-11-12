@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { CopyButton } from "@/components/app/CopyButton";
 import { NativeSelect } from "@/components/app/NativeSelect";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AdminsOnly, PageHeader, SectionTitle } from "@/components/app/parts";
 import type { Invite, Member, MintedInvite } from "@/lib/api";
 import { asRole } from "@/lib/invite";
@@ -196,17 +197,22 @@ function MemberRow({ m, owner }: { m: Member; owner: boolean }) {
       <TableCell className="text-muted-foreground">{m.email}</TableCell>
       <TableCell>
         {owner ? (
-          <NativeSelect
-            aria-label={`Role for ${m.email}`}
+          <Select
+            items={ASSIGNABLE_ROLES.map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
             value={m.role}
-            onChange={(e) => setRole.mutate({ email: m.email, role: e.target.value as AssignableRole })}
+            onValueChange={(v) => v && v !== m.role && setRole.mutate({ email: m.email, role: v as AssignableRole })}
           >
-            {ASSIGNABLE_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABEL[r]}
-              </option>
-            ))}
-          </NativeSelect>
+            <SelectTrigger size="sm" aria-label={`Role for ${m.email}`} className="min-w-[104px] bg-card">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {ASSIGNABLE_ROLES.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {ROLE_LABEL[r]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         ) : (
           <span className="capitalize">{m.role}</span>
         )}

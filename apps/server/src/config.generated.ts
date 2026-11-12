@@ -17,7 +17,7 @@ export interface VarRow {
   readonly section: string;
 }
 
-/** 82 variables, parsed. */
+/** 83 variables, parsed. */
 export const REGISTRY: readonly VarRow[] = [
   { name: "SNAGSET_BASE_URL", type: "url", default: "http://localhost:8080", required: false, oneOf: null, secret: false, section: "4.2" },
   { name: "SNAGSET_PORT", type: "int", default: "8080", required: false, oneOf: null, secret: false, section: "4.2" },
@@ -65,6 +65,7 @@ export const REGISTRY: readonly VarRow[] = [
   { name: "SNAGSET_WIDGET_CDN_URL", type: "url", default: null, required: false, oneOf: null, secret: false, section: "4.6" },
   { name: "SNAGSET_SIGNUP_OPEN", type: "bool", default: "false", required: false, oneOf: null, secret: false, section: "4.6" },
   { name: "SNAGSET_SIGNUP_URL", type: "url", default: null, required: false, oneOf: null, secret: false, section: "4.6" },
+  { name: "SNAGSET_BILLING_URL", type: "url", default: null, required: false, oneOf: null, secret: false, section: "4.6" },
   { name: "SNAGSET_RATE_LIMIT_ENABLED", type: "bool", default: "true", required: false, oneOf: null, secret: false, section: "4.7" },
   { name: "SNAGSET_RATE_LIMIT_STORE", type: "enum", default: "memory", required: false, oneOf: ["memory", "postgres"], secret: false, section: "4.7" },
   { name: "SNAGSET_RATE_LIMIT_WRITE_PER_MIN", type: "int", default: "60", required: false, oneOf: null, secret: false, section: "4.7" },

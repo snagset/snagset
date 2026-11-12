@@ -75,8 +75,8 @@ test("closed is every self-host: the door answers 403 registration_closed, and t
   const res = await register(closed, { email: "ada@kilnwork.test", password: PASSWORD, orgName: "Kilnwork" });
   assert.equal(res.status, 403);
   assert.equal(((await res.json()) as any).error.code, "registration_closed");
-  assert.deepEqual(await (await closed.request("/api/v1/setup")).json(), { claimed: false, signup: false, mail: false, signupUrl: null });
-  assert.deepEqual(await (await open.request("/api/v1/setup")).json(), { claimed: false, signup: true, mail: false, signupUrl: null });
+  assert.deepEqual(await (await closed.request("/api/v1/setup")).json(), { claimed: false, signup: false, mail: false, signupUrl: null, billingUrl: null, cloud: false });
+  assert.deepEqual(await (await open.request("/api/v1/setup")).json(), { claimed: false, signup: true, mail: false, signupUrl: null, billingUrl: null, cloud: false });
 });
 
 test("open: a stranger's studio — validated, made in one transaction with its owner, site and session, and the first one claims the instance", { skip }, async () => {

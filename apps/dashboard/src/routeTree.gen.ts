@@ -27,6 +27,7 @@ import { Route as AppSSiteRouteImport } from './routes/_app/s.$site'
 import { Route as AppStudioIndexRouteImport } from './routes/_app/studio.index'
 import { Route as AppStudioIntegrationsRouteImport } from './routes/_app/studio.integrations'
 import { Route as AppStudioMembersRouteImport } from './routes/_app/studio.members'
+import { Route as AppStudioPlanRouteImport } from './routes/_app/studio.plan'
 import { Route as AppSSiteCommentsRouteImport } from './routes/_app/s.$site.comments'
 import { Route as AppSSiteReviewersRouteImport } from './routes/_app/s.$site.reviewers'
 import { Route as AppSSiteSettingsRouteImport } from './routes/_app/s.$site.settings'
@@ -120,6 +121,11 @@ const AppStudioMembersRoute = AppStudioMembersRouteImport.update({
   path: '/members',
   getParentRoute: () => AppStudioRoute,
 } as any)
+const AppStudioPlanRoute = AppStudioPlanRouteImport.update({
+  id: '/plan',
+  path: '/plan',
+  getParentRoute: () => AppStudioRoute,
+} as any)
 const AppSSiteCommentsRoute = AppSSiteCommentsRouteImport.update({
   id: '/comments',
   path: '/comments',
@@ -153,6 +159,7 @@ export interface FileRoutesByFullPath {
   '/s/$site': typeof AppSSiteRouteWithChildren
   '/studio/integrations': typeof AppStudioIntegrationsRoute
   '/studio/members': typeof AppStudioMembersRoute
+  '/studio/plan': typeof AppStudioPlanRoute
   '/studio/': typeof AppStudioIndexRoute
   '/s/$site/comments': typeof AppSSiteCommentsRoute
   '/s/$site/reviewers': typeof AppSSiteReviewersRoute
@@ -174,6 +181,7 @@ export interface FileRoutesByTo {
   '/s/$site': typeof AppSSiteRouteWithChildren
   '/studio/integrations': typeof AppStudioIntegrationsRoute
   '/studio/members': typeof AppStudioMembersRoute
+  '/studio/plan': typeof AppStudioPlanRoute
   '/studio': typeof AppStudioIndexRoute
   '/s/$site/comments': typeof AppSSiteCommentsRoute
   '/s/$site/reviewers': typeof AppSSiteReviewersRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/_app/s/$site': typeof AppSSiteRouteWithChildren
   '/_app/studio/integrations': typeof AppStudioIntegrationsRoute
   '/_app/studio/members': typeof AppStudioMembersRoute
+  '/_app/studio/plan': typeof AppStudioPlanRoute
   '/_app/studio/': typeof AppStudioIndexRoute
   '/_app/s/$site/comments': typeof AppSSiteCommentsRoute
   '/_app/s/$site/reviewers': typeof AppSSiteReviewersRoute
@@ -222,6 +231,7 @@ export interface FileRouteTypes {
     | '/s/$site'
     | '/studio/integrations'
     | '/studio/members'
+    | '/studio/plan'
     | '/studio/'
     | '/s/$site/comments'
     | '/s/$site/reviewers'
@@ -243,6 +253,7 @@ export interface FileRouteTypes {
     | '/s/$site'
     | '/studio/integrations'
     | '/studio/members'
+    | '/studio/plan'
     | '/studio'
     | '/s/$site/comments'
     | '/s/$site/reviewers'
@@ -266,6 +277,7 @@ export interface FileRouteTypes {
     | '/_app/s/$site'
     | '/_app/studio/integrations'
     | '/_app/studio/members'
+    | '/_app/studio/plan'
     | '/_app/studio/'
     | '/_app/s/$site/comments'
     | '/_app/s/$site/reviewers'
@@ -412,6 +424,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppStudioMembersRouteImport
       parentRoute: typeof AppStudioRoute
     }
+    '/_app/studio/plan': {
+      id: '/_app/studio/plan'
+      path: '/plan'
+      fullPath: '/studio/plan'
+      preLoaderRoute: typeof AppStudioPlanRouteImport
+      parentRoute: typeof AppStudioRoute
+    }
     '/_app/s/$site/comments': {
       id: '/_app/s/$site/comments'
       path: '/comments'
@@ -439,12 +458,14 @@ declare module '@tanstack/react-router' {
 interface AppStudioRouteChildren {
   AppStudioIntegrationsRoute: typeof AppStudioIntegrationsRoute
   AppStudioMembersRoute: typeof AppStudioMembersRoute
+  AppStudioPlanRoute: typeof AppStudioPlanRoute
   AppStudioIndexRoute: typeof AppStudioIndexRoute
 }
 
 const AppStudioRouteChildren: AppStudioRouteChildren = {
   AppStudioIntegrationsRoute: AppStudioIntegrationsRoute,
   AppStudioMembersRoute: AppStudioMembersRoute,
+  AppStudioPlanRoute: AppStudioPlanRoute,
   AppStudioIndexRoute: AppStudioIndexRoute,
 }
 

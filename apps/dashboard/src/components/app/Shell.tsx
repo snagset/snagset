@@ -20,6 +20,7 @@ import {
   SunIcon,
   UserIcon,
   UsersIcon,
+  CreditCardIcon,
 } from "lucide-react";
 import {
   Sidebar,
@@ -154,6 +155,10 @@ function AppSidebar({ me, site }: { me: Me; site: Site | null }) {
   // activity. The settings screens are an admin's, and not drawn rather than
   // drawn disabled: a row of locked doors is a page about what you cannot do.
   const admin = can(me.user.role, "settings");
+  // Where plans are sold, when the operator sells them. Owner-only:
+  // only the owner can change the plan, so nobody else is shown a door.
+  const setup = useQuery(q.setupState());
+  const billingUrl = me.user.role === "owner" ? setup.data?.billingUrl : null;
   return (
     <Sidebar>
       <SidebarHeader className="px-3 pb-1 pt-3">
@@ -243,6 +248,14 @@ function AppSidebar({ me, site }: { me: Me; site: Site | null }) {
       </SidebarContent>
       <SidebarFooter>
         <SidebarMenu>
+          {billingUrl && (
+            <SidebarMenuItem>
+              <SidebarMenuButton isActive={on("/studio/plan")} render={<Link to="/studio/plan" />}>
+                <CreditCardIcon />
+                <span>Plan &amp; billing</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
             <SidebarMenuButton render={<a href={DOCS_URL} target="_blank" rel="noreferrer" />}>
               <BookOpenIcon />

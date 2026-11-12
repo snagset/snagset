@@ -161,10 +161,12 @@ test("a sign-up is one step, and the address it was typed with is recorded as un
 });
 
 test("the signed-out pages are told what this instance can do, and where sign-up lives when it is not here", { skip }, async () => {
-  assert.deepEqual(await (await app.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: true, signupUrl: null });
-  assert.deepEqual(await (await quiet.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: false, signupUrl: null });
+  assert.deepEqual(await (await app.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: true, signupUrl: null, billingUrl: null, cloud: false });
+  assert.deepEqual(await (await quiet.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: false, signupUrl: null, billingUrl: null, cloud: false });
   const elsewhere = build({ SNAGSET_SIGNUP_URL: "https://studio.kilnwork.test/sign-up" });
   assert.equal(((await (await elsewhere.request("/api/v1/setup")).json()) as { signupUrl: string }).signupUrl, "https://studio.kilnwork.test/sign-up");
+  const sells = build({ SNAGSET_BILLING_URL: "https://studio.kilnwork.test/billing" });
+  assert.equal(((await (await sells.request("/api/v1/setup")).json()) as { billingUrl: string }).billingUrl, "https://studio.kilnwork.test/billing");
 });
 
 test("a reset for an address with no account gets the same answer, and nothing is mailed or stored", { skip }, async () => {
@@ -435,7 +437,7 @@ test("a half-set mail environment is an instance that cannot mail, not one that 
   const broken = build({ SNAGSET_MAIL_URL: inbox.url });
   const res = await broken.request("/api/v1/setup");
   assert.equal(res.status, 200, await res.clone().text());
-  assert.deepEqual(await res.json(), { claimed: true, signup: true, mail: false, signupUrl: null });
+  assert.deepEqual(await res.json(), { claimed: true, signup: true, mail: false, signupUrl: null, billingUrl: null, cloud: false });
   assert.equal(await code(await post(broken, "/auth/reset/request", { email: "ada@kilnwork.test" })), "integration_not_configured");
 });
 

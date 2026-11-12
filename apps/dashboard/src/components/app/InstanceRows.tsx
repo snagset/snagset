@@ -315,7 +315,7 @@ function ConnectMail({ open, onOpenChange, onDone }: { open: boolean; onOpenChan
 }
 
 /** 1.2 GB, 340 MB, 12 KB — the unit a person reads, one decimal at most. */
-function bytes(n: number): string {
+export function bytes(n: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let v = n;
   let i = 0;

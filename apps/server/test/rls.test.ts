@@ -113,7 +113,7 @@ test("the claim goes through under the policies, and signs its owner in", { skip
   const body = (await res.json()) as any;
   ada = { cookie: cookiesOf(res), csrf: body.csrfToken };
   uid = body.project.uid;
-  assert.deepEqual(await (await app.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: false, signupUrl: null });
+  assert.deepEqual(await (await app.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: false, signupUrl: null, billingUrl: null, cloud: false });
 });
 
 test("sign in by email, and /me sees the studio's own rows", { skip }, async () => {

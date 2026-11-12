@@ -329,6 +329,9 @@ export function createApp(deps: Deps): Hono<Env> {
   // sign-in page draws differently — a reset by mail instead of `snagset
   // passwd`. `signupUrl`: where a new studio is made, when that is
   // a page of the operator's own rather than this instance's form.
+  // `billingUrl`: where an owner changes the plan, when the
+  // operator sells plans; the sidebar's one link to it. `cloud`: the
+  // hosted service, where a studio is not shown the instance it runs on.
   //
   // `mail` must never be what breaks this route. The dashboard reads a
   // failure here as "claimed", so a 500 would hide the claim screen of an
@@ -351,6 +354,8 @@ export function createApp(deps: Deps): Hono<Env> {
       signup: cfg.bool("SNAGSET_SIGNUP_OPEN"),
       mail,
       signupUrl: cfg.get("SNAGSET_SIGNUP_URL") ?? null,
+      billingUrl: cfg.get("SNAGSET_BILLING_URL") ?? null,
+      cloud: !!cfg.get("SNAGSET_CLOUD"),
     });
   });
 
