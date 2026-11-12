@@ -19,6 +19,12 @@ import { Waiting } from "@/components/app/Waiting";
  * claim's, because it is the same transaction with one more studio on the
  * instance: an account, a studio name, one site made alongside that the
  * first run names.
+ *
+ * Where the operator makes studios on a page of their own
+ * (`SNAGSET_SIGNUP_URL`), this page is not the door: it sends the browser
+ * there. Not when that address IS this page, which is what it looks like
+ * when the setting names the instance's own `/sign-up` and nothing in front
+ * of the instance answers it.
  */
 const form = z.object({
   email: z.string().trim().email("An email address"),
@@ -30,9 +36,19 @@ type Form = z.infer<typeof form>;
 
 export const Route = createFileRoute("/sign-up")({
   beforeLoad: async ({ context }) => {
-    const state = await context.queryClient.fetchQuery(q.setupState()).catch(() => ({ claimed: true, signup: false }));
+    const state = await context.queryClient
+      .fetchQuery(q.setupState())
+      .catch(() => ({ claimed: true, signup: false, mail: false, signupUrl: null as string | null }));
     if (!state.claimed) throw redirect({ to: "/setup" });
     if (!state.signup) throw redirect({ to: "/sign-in" });
+    if (state.signupUrl && typeof window !== "undefined") {
+      const there = new URL(state.signupUrl, window.location.href);
+      if (there.origin !== window.location.origin || there.pathname !== window.location.pathname) {
+        window.location.replace(there.href);
+        // Hold the pending screen until the browser has gone.
+        await new Promise(() => {});
+      }
+    }
     if (lastAuth() !== "out") {
       try {
         await context.queryClient.ensureQueryData(q.me());

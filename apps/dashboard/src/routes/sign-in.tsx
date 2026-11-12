@@ -111,29 +111,47 @@ function SignIn() {
         <Button type="submit" size="lg" loading={formState.isSubmitting}>
           {formState.isSubmitting ? "Signing in…" : "Sign in"}
         </Button>
-        {/* Behind a disclosure: the person who needs this is the one who has
-            just failed to sign in; everybody else needs it out of the way. */}
-        <button
-          type="button"
-          className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-[13px] text-ink-soft"
-          aria-expanded={help}
-          onClick={() => setHelp(!help)}
-        >
-          <ChevronRightIcon className={cn("size-3.5 text-muted-foreground transition-transform", help && "rotate-90")} />
-          Forgot your password?
-        </button>
+        {state.data?.mail ? (
+          /* This instance can mail, so the way back in is a link sent
+             to the address — one click away, and the same words as below. */
+          <p className="m-0 text-center text-[13px] text-muted-foreground">
+            <Link to="/forgot" className="text-foreground underline underline-offset-4">
+              Forgot your password?
+            </Link>
+          </p>
+        ) : (
+          /* Behind a disclosure: the person who needs this is the one who has
+             just failed to sign in; everybody else needs it out of the way. */
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-left text-[13px] text-ink-soft"
+            aria-expanded={help}
+            onClick={() => setHelp(!help)}
+          >
+            <ChevronRightIcon className={cn("size-3.5 text-muted-foreground transition-transform", help && "rotate-90")} />
+            Forgot your password?
+          </button>
+        )}
         {state.data?.signup && (
           <p className="m-0 text-center text-[13px] text-muted-foreground">
             New here?{" "}
-            <Link to="/sign-up" className="text-foreground underline underline-offset-4">
-              Create a studio
-            </Link>
+            {state.data.signupUrl ? (
+              /* The operator's own sign-up page: a plain link, so the
+                 browser asks the server for it instead of this app drawing its own. */
+              <a href={state.data.signupUrl} className="text-foreground underline underline-offset-4">
+                Create a studio
+              </a>
+            ) : (
+              <Link to="/sign-up" className="text-foreground underline underline-offset-4">
+                Create a studio
+              </Link>
+            )}
           </p>
         )}
-        {help && (
+        {help && !state.data?.mail && (
           <div className="flex flex-col gap-2 text-[12.5px] leading-relaxed text-muted-foreground">
             <p className="m-0">
-              There's no reset email — a fresh install has no mail set up, and whoever has a shell on the server
+              This instance has no mail set up, so there's no reset email — and whoever has a shell on the server
               already holds more authority than a reset link would grant. From that machine:
             </p>
             <pre className="m-0 overflow-x-auto rounded-md border border-border bg-card px-3 py-2 font-mono text-[12px] text-foreground">

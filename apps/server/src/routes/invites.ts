@@ -10,6 +10,7 @@ import { parseRole } from "./members.ts";
 import { can, invitable, withArticle } from "@snagset/types/roles";
 import { isConfigured, type MailerStatus } from "../mail/index.ts";
 import type { AddressSource } from "../instance/address.ts";
+import { looksLikeEmail } from "../email.ts";
 
 /**
  * Member invites, amending the "how a person gets in".
@@ -99,7 +100,6 @@ const DAY_MS = 86_400_000;
 const WINDOW_MS = 60 * 60 * 1000;
 const PER_WINDOW = 20;
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Bare uuids on the wire, as the agent tokens' (mcpTokens.ts): The prefixes are for ids that travel in webhooks and issue markers, and an invite never leaves the dashboard. */
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -236,7 +236,7 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
     const refused = mayTouch(c, owner, role);
     if (refused) return refused;
     const raw = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-    if (raw && !EMAIL.test(raw)) return fail(c, 400, "validation_failed", "That does not look like an email address.", { field: "email" });
+    if (raw && !looksLikeEmail(raw)) return fail(c, 400, "validation_failed", "That does not look like an email address.", { field: "email" });
     const email = raw || null;
 
     // A full studio is told now, not after the invitee has typed a password.
@@ -416,7 +416,7 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
       return fail(c, 403, "invite_email_mismatch", `This invite is for ${inv.email}. Join with that address, or ask for an invite to yours.`, { field: "email" });
     }
     const email = inv.email ?? typed;
-    if (!EMAIL.test(email)) return fail(c, 400, "validation_failed", "That does not look like an email address.", { field: "email" });
+    if (!looksLikeEmail(email)) return fail(c, 400, "validation_failed", "That does not look like an email address.", { field: "email" });
 
     // Who this is, read before the transaction so the expensive half of the
     // work — scrypt, a tenth of a second by design — is not done holding a

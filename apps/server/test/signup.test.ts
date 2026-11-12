@@ -75,8 +75,8 @@ test("closed is every self-host: the door answers 403 registration_closed, and t
   const res = await register(closed, { email: "ada@kilnwork.test", password: PASSWORD, orgName: "Kilnwork" });
   assert.equal(res.status, 403);
   assert.equal(((await res.json()) as any).error.code, "registration_closed");
-  assert.deepEqual(await (await closed.request("/api/v1/setup")).json(), { claimed: false, signup: false });
-  assert.deepEqual(await (await open.request("/api/v1/setup")).json(), { claimed: false, signup: true });
+  assert.deepEqual(await (await closed.request("/api/v1/setup")).json(), { claimed: false, signup: false, mail: false, signupUrl: null });
+  assert.deepEqual(await (await open.request("/api/v1/setup")).json(), { claimed: false, signup: true, mail: false, signupUrl: null });
 });
 
 test("open: a stranger's studio — validated, made in one transaction with its owner, site and session, and the first one claims the instance", { skip }, async () => {
@@ -85,6 +85,14 @@ test("open: a stranger's studio — validated, made in one transaction with its 
   assert.equal(((await short.json()) as any).error.details.field, "password");
   const bad = await register(open, { email: "not-an-email", password: PASSWORD });
   assert.equal(((await bad.json()) as any).error.details.field, "email");
+  // An address built to make the pattern backtrack (`a@.a.a.a…@`, 200 KB of
+  // it) is refused by its length. Read closely it held the request for a
+  // quarter of a minute. From a caller of its own: it is counted, like any.
+  const began = performance.now();
+  const hostile = await register(open, { email: `a@${".a".repeat(100_000)}@`, password: PASSWORD }, "198.51.100.99");
+  assert.equal(hostile.status, 400);
+  assert.equal(((await hostile.json()) as any).error.details.field, "email");
+  assert.ok(performance.now() - began < 2_000, `a hostile address was answered in ${Math.round(performance.now() - began)} ms`);
 
   const res = await register(open, { email: "Ada@Kilnwork.test", password: PASSWORD, name: "Ada", orgName: "Kilnwork" });
   assert.equal(res.status, 201, await res.clone().text());

@@ -99,6 +99,11 @@ screenshot, in front of a reviewer, an hour later.
 Both can also be connected later, from **Studio › General**, without a
 restart. The environment wins if both are set.
 
+Mail is also what lets a person back in. With a transport connected, the
+sign-in page's **Forgot your password?** sends a single-use link to the
+address; without one, a password is set again from the server's shell with
+`snagset passwd`. Nothing needs switching on: the page follows the transport.
+
 ### Who gets email, and how often
 
 The studio's owner hears about new comments in **one email a day**: a digest,
@@ -306,8 +311,25 @@ SNAGSET_SIGNUP_OPEN=true
 The sign-in page then offers **Create a studio**, and the studio menu at the top
 of the sidebar offers **New studio…** to anyone signed in. Each studio has its
 own sites, members and settings; a person in more than one switches from that
-menu. Sign-ups are limited to ten an hour per address. Leave it unset and
-nothing changes.
+menu. Leave it unset and nothing changes.
+
+What the instance itself is connected to stays with the studio that claimed
+it: its address, storage, mail and the remote MCP switch. That studio's
+owners change them on Studio › General and its admins see them; no other
+studio is shown them or can change them. So claim the instance before you
+open sign-up: with the door open, the first sign-up on an unclaimed instance
+is the claim.
+
+The address a person signs up with is taken as typed: nothing is sent to it
+and nobody has checked it. That suits a studio opening the door to people it
+knows. Sign-ups are limited to ten an hour per address.
+
+If you make studios on a page of your own instead, name it and the sign-in
+page's **Create a studio** links there:
+
+```bash
+SNAGSET_SIGNUP_URL=https://example.com/sign-up
+```
 
 ## Every setting
 

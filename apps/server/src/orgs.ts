@@ -45,12 +45,30 @@ export interface NewStudio {
   plan?: string;
 }
 
-/** The org row, under its own claim. The caller has taken the maintenance claim for the slug search. */
+/**
+ * The org row, under its own claim. The caller has taken the maintenance claim for the slug search.
+ *
+ * The slug is chosen by reading which are taken, and two studios made a
+ * moment apart read the same list and choose the same one. Until 2026-11-10
+ * the slower of the two failed on the unique index, and `/auth/register`
+ * reported every such failure as "an account with that email already
+ * exists" — to a person holding a valid sign-up link and no account. So the
+ * insert steps aside instead of failing: on a conflict it waits for the
+ * other studio to commit, inserts nothing, and the loop reads the list
+ * again, which now has that slug in it.
+ */
 export async function createOrg(tx: postgres.TransactionSql, input: NewStudio): Promise<{ slug: string }> {
-  const slug = await uniqueSlug(tx, input.name);
   await tx`SELECT set_config('app.org_id', ${input.orgId}, true)`;
-  await tx`INSERT INTO orgs (id, name, slug, plan) VALUES (${input.orgId}, ${input.name}, ${slug}, ${input.plan ?? "selfhost"})`;
-  return { slug };
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const slug = await uniqueSlug(tx, input.name);
+    const [made] = await tx<{ slug: string }[]>`
+      INSERT INTO orgs (id, name, slug, plan) VALUES (${input.orgId}, ${input.name}, ${slug}, ${input.plan ?? "selfhost"})
+      ON CONFLICT (slug) DO NOTHING
+      RETURNING slug
+    `;
+    if (made) return { slug: made.slug };
+  }
+  throw new Error(`no free address for a studio named ${JSON.stringify(input.name)} after five tries`);
 }
 
 export interface NewOwner {
@@ -61,13 +79,20 @@ export interface NewOwner {
   passwordHash: string;
 }
 
-/** A person and their first membership. The org is their HOME org. */
+/**
+ * A person and their first membership. The org is their HOME org.
+ *
+ * `email_verified` is false: the address was typed into a sign-up form and
+ * nobody has checked it. Until 2026-11-10 this wrote `true`. A mailed reset
+ * sets it, because that link arrived; so can whoever puts their own
+ * checked sign-up in front of this one.
+ */
 export async function createOwner(tx: postgres.TransactionSql, input: NewOwner): Promise<void> {
   await tx`SET LOCAL app.maintenance = 'on'`;
   await tx`SELECT set_config('app.org_id', ${input.orgId}, true)`;
   await tx`
     INSERT INTO users (id, org_id, email, name, password_hash, email_verified)
-    VALUES (${input.userId}, ${input.orgId}, ${input.email}, ${input.name}, ${input.passwordHash}, true)
+    VALUES (${input.userId}, ${input.orgId}, ${input.email}, ${input.name}, ${input.passwordHash}, false)
   `;
   await tx`INSERT INTO memberships (org_id, user_id, role) VALUES (${input.orgId}, ${input.userId}, 'owner')`;
 }
@@ -108,11 +133,16 @@ export async function openSession(
 export async function studiosOf(sql: postgres.Sql, userId: string): Promise<{ slug: string; name: string; role: string; id: string }[]> {
   return sql.begin(async (tx) => {
     await tx`SET LOCAL app.maintenance = 'on'`;
-    return tx<{ slug: string; name: string; role: string; id: string }[]>`
-      SELECT o.id, o.slug, o.name, m.role::text AS role
-      FROM memberships m JOIN orgs o ON o.id = m.org_id
-      WHERE m.user_id = ${userId}::uuid AND o.deleted_at IS NULL
-      ORDER BY o.created_at
-    `;
+    return studiosIn(tx, userId);
   });
+}
+
+/** The same list for a caller already inside a transaction that holds the maintenance claim: `/api/v1/me`, which asks a second cross-studio question in it. */
+export async function studiosIn(tx: postgres.TransactionSql, userId: string): Promise<{ slug: string; name: string; role: string; id: string }[]> {
+  return tx<{ slug: string; name: string; role: string; id: string }[]>`
+    SELECT o.id, o.slug, o.name, m.role::text AS role
+    FROM memberships m JOIN orgs o ON o.id = m.org_id
+    WHERE m.user_id = ${userId}::uuid AND o.deleted_at IS NULL
+    ORDER BY o.created_at
+  `;
 }

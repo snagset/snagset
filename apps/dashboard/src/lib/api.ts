@@ -89,7 +89,17 @@ export interface MemberSession {
 
 export interface Me {
   user: { email: string; name: string; role: "owner" | "admin" | "member" | "viewer" };
-  org: { name: string; slug: string };
+  org: {
+    name: string;
+    slug: string;
+    /**
+     * Whether this studio is the operator's: the one that claimed the instance,
+     * and the only one its settings (the address, storage, mail, the remote
+     * MCP switch) are shown to or changed from. Optional: an older server
+     * omits it. Read it through `isOperator` (lib/operator.ts).
+     */
+    operator?: boolean;
+  };
   /** Every studio this person belongs to; `current` marks the session's. */
   orgs: { slug: string; name: string; role: string; current: boolean }[];
   /** Whether this instance lets a signed-in person make another studio. */
@@ -357,10 +367,16 @@ export const api = {
    * sign-in form for an account that does not exist is the dead end this
    * replaces.
    */
-  setupState: () => call<{ claimed: boolean; signup: boolean }>("GET", "/api/v1/setup"),
+  setupState: () => call<SetupState>("GET", "/api/v1/setup"),
   /** A stranger's studio. The response sets the session cookies, like the claim. */
   register: (input: { email: string; password: string; name?: string; orgName?: string }) =>
     call<{ org: { name: string; slug: string }; user: { email: string; name: string }; csrfToken: string }>("POST", "/auth/register", input),
+  /** Mail a reset link. The answer is the same whether or not the address has an account. */
+  requestReset: (email: string) => call<{ ok: true }>("POST", "/auth/reset/request", { email }),
+  lookupReset: (token: string) => call<LinkLookup>("POST", "/auth/reset/lookup", { token }),
+  /** The new password. The response sets the session cookies, as sign-in's does. */
+  confirmReset: (token: string, password: string) =>
+    call<{ user: { email: string; name: string }; csrfToken: string }>("POST", "/auth/reset/confirm", { token, password }),
   /** Move this session to another studio the person belongs to. */
   switchOrg: (slug: string) => call<{ org: { name: string; slug: string }; role: string; csrfToken: string }>("POST", "/auth/switch", { slug }),
   /** Another studio for a signed-in person, who is moved to it. */
@@ -632,6 +648,25 @@ export interface MintedInvite {
 }
 
 /** What the invite page is told about its link. */
+/**
+ * What a signed-out page is told about the instance, before anybody is
+ * anybody: whether it has an owner, whether a stranger may make a studio,
+ * whether it can mail a reset link, and where a studio is made when
+ * that is a page of the operator's own (`SNAGSET_SIGNUP_URL`).
+ */
+export interface SetupState {
+  claimed: boolean;
+  signup: boolean;
+  mail: boolean;
+  signupUrl: string | null;
+}
+
+/** A mailed reset link, looked up: the address it was sent to. */
+export interface LinkLookup {
+  email: string;
+  expiresAt: string;
+}
+
 export interface InviteLookup {
   org: { name: string };
   role: "owner" | "admin" | "member";

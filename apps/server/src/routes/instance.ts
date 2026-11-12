@@ -1,13 +1,13 @@
 import { addressPinned, forgetAddress, resolveAddress, storeAddress, validateAddress } from "../instance/address.ts";
 import { forgetMcpHttp, mcpHttpPinned, resolveMcpHttp, setMcpHttp } from "../instance/mcpHttp.ts";
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import type postgres from "postgres";
 import type { Config } from "../config.ts";
 import type { Keyring } from "../keys.ts";
 import type { OwnerClaims } from "./owner.ts";
 import { can } from "@snagset/types/roles";
 import { connectBucket, disconnectBucket, envBucketConfig, storageStatus } from "../storage/settings.ts";
-import { clearSetting, writeSetting } from "../instance/settings.ts";
+import { clearSetting, isOperatorOrg, writeSetting } from "../instance/settings.ts";
 import { describeMailUrl, invalidateMailer, resolveMailer } from "../mail/resolve.ts";
 import { isConfigured, mailerFromUrl } from "../mail/index.ts";
 
@@ -29,6 +29,11 @@ import { isConfigured, mailerFromUrl } from "../mail/index.ts";
  *   message to the person who clicked.
  *
  *   OWNERS WRITE, ADMINS SEE. Every write records who.
+ *
+ *   AND ONLY IN THE OPERATOR'S STUDIO. The settings are the
+ *   instance's, one of each, so on an instance with several studios they are
+ *   the first one's alone; every other studio is refused the read and the
+ *   writes. `operatorOnly` below says why, and why with a 403.
  *
  * Secrets never come back: the GET carries endpoints, bucket names, schemes,
  * hosts and From addresses, and "set · since when" for the rest.
@@ -55,6 +60,54 @@ export function instanceRoutes(deps: InstanceDeps): Hono<Env> {
   const { sql, keys, cfg } = deps;
   const env = deps.env ?? process.env;
   const app = new Hono<Env>();
+
+  /**
+   * The operator's studio and no other, in front of every route in this
+   * file.
+   *
+   * The role checks below ask whether the caller owns (or administers) THEIR
+   * studio, and until this guard that was the whole question. With sign-up
+   * open it let any studio in: the second one to register could read the
+   * first one's bucket and mail host, fire the transport's test message as
+   * often as it liked, connect a bucket of its own (the probe passes, the
+   * connection is one row, and from then on every studio's pictures go
+   * there), or disconnect storage for all of them. So the studio is asked
+   * first and the role second. A session in any other studio is refused
+   * whatever its role there; inside the operator's studio nothing changes.
+   *
+   * What stays every studio's is the use of what is connected: its invites
+   * and notifications go out through the instance's transport and its
+   * pictures into the instance's bucket. Only seeing and changing the
+   * connection is the operator's.
+   *
+   * 403 `forbidden`, not 404. A 404 hides that a thing exists, and there is
+   * nothing to hide: every instance has these settings and the routes are in
+   * the public spec. What the caller is owed is the truth, that these are
+   * not theirs, in the code and shape a member is already refused with
+   * so a client handles one kind of refusal here and not two. The
+   * sentence names nothing of what is connected.
+   *
+   * Mounted on the bare path and on everything under it, as app.ts mounts
+   * `requireOwner()`. Hono's `/x/*` also matches `/x`, so the read passes
+   * through twice, and `passed` lets the second pass through without asking
+   * the database again. It is this closure's own set, keyed by the request's
+   * context, so nothing outside these lines can put a request in it.
+   * instance-operator.test.ts sends every route registered under the prefix
+   * as a second studio, so a route this missed fails there.
+   */
+  const passed = new WeakSet<Ctx>();
+  const operatorOnly: MiddlewareHandler<Env> = async (c, next) => {
+    if (passed.has(c)) return next();
+    const owner = c.get("owner");
+    if (!owner) return fail(c, 401, "unauthorized", "Sign in to the dashboard first.");
+    if (!(await isOperatorOrg(sql, owner.orgId))) {
+      return fail(c, 403, "forbidden", "Only the studio that claimed this instance can see or change what it is connected to.");
+    }
+    passed.add(c);
+    return next();
+  };
+  app.use("/api/v1/instance", operatorOnly);
+  app.use("/api/v1/instance/*", operatorOnly);
 
   const mustBeOwner = (c: Ctx): OwnerClaims | Response => {
     const owner = c.get("owner");

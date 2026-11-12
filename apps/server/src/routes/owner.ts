@@ -3,7 +3,8 @@ import { randomUUID, randomBytes, createHash, timingSafeEqual, scryptSync } from
 import type postgres from "postgres";
 import { DASHBOARD_SESSION_COOKIE, DASHBOARD_CSRF_COOKIE, HTTP_HEADER, ID_PREFIX } from "@snagset/types/names";
 import { usage, type LimitsSource } from "../plan.ts";
-import { studiosOf } from "../orgs.ts";
+import { studiosIn } from "../orgs.ts";
+import { firstOrgIdIn } from "../instance/settings.ts";
 import { inOrg, maintenance } from "../db/scope.ts";
 import { effectiveWriteMode } from "./sessions.ts";
 import { pendingMigrations } from "../db/migrate.ts";
@@ -330,11 +331,40 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
     const token = randomBytes(32).toString("base64url");
     const csrf = randomBytes(32).toString("base64url");
     const expires = new Date(now().getTime() + ABSOLUTE_MS);
-    await inOrg(sql, user!.org_id, (tx) => tx`
-      INSERT INTO user_sessions (id, org_id, user_id, token_hash, user_agent, expires_at)
-      VALUES (${randomUUID()}, ${user!.org_id}, ${user!.id}, ${sha256(token)},
-              ${(c.req.header("User-Agent") ?? "").slice(0, 400)}, ${expires})
-    `);
+    /*
+     * The session is opened only if the password that was just verified is
+     * STILL the password, checked under a lock on the person's row.
+     *
+     * The hash above was read, then a tenth of a second of scrypt was spent
+     * on it, and until 2026-11-10 the session was then inserted without
+     * looking again. A password changed in that tenth of a second — by a
+     * mailed reset, by `snagset passwd`, on the account page — revokes the
+     * sessions that exist at that instant, and this one did not exist yet: it
+     * arrived a moment later and was good for thirty days. Whoever knew the
+     * old password only had to be signing in at the time, and an attacker who
+     * knows it can arrange to be, in a loop.
+     *
+     * FOR SHARE waits for a change in flight (every one of those takes this
+     * row for update first) and then reads what it committed; holding it to
+     * the INSERT makes a change that starts now wait for this session to
+     * exist, so its revoke finds it. Either order, nothing outlives the change.
+     */
+    const opened = await maintenance(sql, async (tx) => {
+      const [still] = await tx<{ id: string }[]>`
+        SELECT id FROM users
+         WHERE id = ${user!.id} AND deleted_at IS NULL AND password_hash = ${user!.password_hash}
+           FOR SHARE
+      `;
+      if (!still) return false;
+      await tx`
+        INSERT INTO user_sessions (id, org_id, user_id, token_hash, user_agent, expires_at)
+        VALUES (${randomUUID()}, ${user!.org_id}, ${user!.id}, ${sha256(token)},
+                ${(c.req.header("User-Agent") ?? "").slice(0, 400)}, ${expires})
+      `;
+      return true;
+    });
+    // The one sentence, as for every other failure here: the password that was typed is no longer one.
+    if (!opened) return fail(c, 401, "invalid_credentials", "That email address and password do not match an account.");
     setSessionCookies(c, token, csrf, deps.secure, Math.floor(ABSOLUTE_MS / 1000));
     // No id, for the reason `/api/v1/me` gives: nothing outside the database
     // needs it, and an internal id put on the wire because it was to hand is
@@ -437,8 +467,19 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
       // shown where a limit exists, silent where there is none.
       return { org, projects, used: await usage(tx, owner.orgId) };
     });
-    // Every studio this person belongs to, for the switcher; the current one is marked.
-    const studios = await studiosOf(sql, owner.userId);
+    // Two questions that cross studios, so one transaction under the
+    // maintenance claim. Every studio this person belongs to, for the
+    // switcher; the current one is marked. And whether the current one is the
+    // operator's, the studio the instance's settings belong to: Studio ›
+    // General draws the address, Storage and Mail only then, because from any
+    // other studio the instance routes answer 403 (routes/instance.ts) and a
+    // page that asked would be drawing a refusal. Together, because this
+    // route is asked on every load and again after most writes, and a
+    // transaction of its own for the second would be four more round trips.
+    const { studios, operator } = await maintenance(sql, async (tx) => ({
+      studios: await studiosIn(tx, owner.userId),
+      operator: (await firstOrgIdIn(tx)) === owner.orgId,
+    }));
     const l = await deps.limits(owner.orgId);
     return c.json({
       limits: {
@@ -455,7 +496,7 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
       // id put on the wire because it was to hand is how the first one always
       // gets out.
       user: { email: owner.email, name: owner.name, role: owner.role },
-      org: { name: org?.name ?? "", slug: org?.slug ?? "" },
+      org: { name: org?.name ?? "", slug: org?.slug ?? "", operator },
       orgs: studios.map((s) => ({ slug: s.slug, name: s.name, role: s.role, current: s.id === owner.orgId })),
       signupOpen: deps.signupOpen?.() ?? false,
       // The migrations this build ships that the database has not run

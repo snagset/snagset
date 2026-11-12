@@ -20,6 +20,10 @@ import { useMe } from "@/lib/me";
  * says so, with no controls (absent, not disabled — the Members rule). A
  * dashboard-managed one offers Connect, Replace, Disconnect, and for mail a
  * test message. Owners get the controls; admins get the row.
+ *
+ * Mounted for the operator's studio only (`storageRow`, lib/operator.ts): the
+ * server answers every other studio 403 on these routes, and Studio ›
+ * General draws `StudioStorage` for them, or nothing.
  */
 export function InstanceRows({ owner }: { owner: boolean }) {
   const instance = useQuery(q.instance());
@@ -35,7 +39,6 @@ export function InstanceRows({ owner }: { owner: boolean }) {
     onSuccess: (r) => toast.success(`Sent to ${r.to}`),
     onError: (e) => toast.error(reason(e)),
   });
-  const me = useMe();
   const s = instance.data?.storage;
   const m = instance.data?.mail;
 
@@ -55,11 +58,7 @@ export function InstanceRows({ owner }: { owner: boolean }) {
                     : "Not connected — annotation mode. Comments and anchors work; screenshots are not offered."
               }
             />
-            {me.limits.storage.limit !== null && (
-              <p className="m-0 text-[12px] text-muted-foreground">
-                {bytes(me.limits.storage.used)} of {bytes(me.limits.storage.limit)} used across the studio's sites.
-              </p>
-            )}
+            <StorageUsed />
             {s.source === "env" ? (
               <Managed what="SNAGSET_STORAGE_S3_*" />
             ) : owner ? (
@@ -134,6 +133,41 @@ export function InstanceRows({ owner }: { owner: boolean }) {
         }}
       />
     </>
+  );
+}
+
+/**
+ * The number: the bytes of pictures across the studio's sites against its
+ * plan's, where the plan has one. It is the studio's own, read from `/me`
+ * and not from the instance, so it is drawn under the status line of the
+ * operator's Storage row and, by `StudioStorage`, for a studio with no such
+ * row. One sentence, written once.
+ */
+function useStorageUsed(): string | null {
+  const { storage } = useMe().limits;
+  return storage.limit === null ? null : `${bytes(storage.used)} of ${bytes(storage.limit)} used across the studio's sites.`;
+}
+
+function StorageUsed() {
+  const used = useStorageUsed();
+  return used === null ? null : <p className="m-0 text-[12px] text-muted-foreground">{used}</p>;
+}
+
+/**
+ * What Studio › General draws in place of the rows above for a studio that
+ * is not the operator's and whose plan caps its storage (`storageRow`,
+ * lib/operator.ts). The bucket and the transport are the instance's and none
+ * of this studio's business, so nothing of them is drawn and nothing is
+ * asked of the server. What is left is the studio's own number, here the
+ * row's one line and so set as one, not as the note it is under a status.
+ */
+export function StudioStorage() {
+  const used = useStorageUsed();
+  if (used === null) return null;
+  return (
+    <SettingsRow title="Storage" description="Screenshots and files, against the studio's plan.">
+      <p className="m-0 text-[13px]">{used}</p>
+    </SettingsRow>
   );
 }
 

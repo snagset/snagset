@@ -95,9 +95,39 @@ export async function clearSetting(sql: postgres.Sql, orgId: string, key: string
  * (the outbox job, boot) hold no org yet.
  */
 export async function firstOrgId(sql: postgres.Sql): Promise<string | null> {
-  const [row] = await sql.begin(async (tx) => {
+  return sql.begin(async (tx) => {
     await tx`SET LOCAL app.maintenance = 'on'`;
-    return tx<{ id: string }[]>`SELECT id FROM orgs WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1`;
+    return firstOrgIdIn(tx);
   });
+}
+
+/**
+ * The same lookup for a caller already inside a transaction that holds the
+ * maintenance claim: one statement, and no transaction of its own. For
+ * `/api/v1/me`, which asks on every page load whether the session's studio is
+ * the operator's and is in such a transaction anyway.
+ */
+export async function firstOrgIdIn(tx: postgres.TransactionSql): Promise<string | null> {
+  const [row] = await tx<{ id: string }[]>`SELECT id FROM orgs WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1`;
   return row?.id ?? null;
+}
+
+/**
+ * Whether a studio is the operator's: the one the instance's settings belong
+ * to, and the only one that may see or change them.
+ *
+ * With sign-up open an instance holds many studios, and what it is
+ * connected to is still one of each. The address, the mail transport and the
+ * remote MCP switch are read from the first studio's rows (`firstOrgId`
+ * above), the bucket from its row in `orgs` (storage/settings.ts). That first
+ * studio is the one that claimed the instance, whether on the setup screen,
+ * by bootstrap, or as the first sign-up on an unclaimed one; so "first" is
+ * who the operator is, and this is the same question the readers ask.
+ *
+ * Asked of the database every time, never cached: the answer decides who may
+ * replace the bucket every studio's pictures go to. On an instance nobody
+ * has claimed there is no first studio, and so no operator.
+ */
+export async function isOperatorOrg(sql: postgres.Sql, orgId: string): Promise<boolean> {
+  return (await firstOrgId(sql)) === orgId;
 }

@@ -10,7 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as ForgotRouteImport } from './routes/forgot'
 import { Route as InviteRouteImport } from './routes/invite'
+import { Route as ResetRouteImport } from './routes/reset'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as SignUpRouteImport } from './routes/sign-up'
@@ -33,9 +35,19 @@ const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotRoute = ForgotRouteImport.update({
+  id: '/forgot',
+  path: '/forgot',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InviteRoute = InviteRouteImport.update({
   id: '/invite',
   path: '/invite',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetRoute = ResetRouteImport.update({
+  id: '/reset',
+  path: '/reset',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SetupRoute = SetupRouteImport.update({
@@ -126,7 +138,9 @@ const AppSSiteSettingsRoute = AppSSiteSettingsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/forgot': typeof ForgotRoute
   '/invite': typeof InviteRoute
+  '/reset': typeof ResetRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
@@ -145,7 +159,9 @@ export interface FileRoutesByFullPath {
   '/s/$site/settings': typeof AppSSiteSettingsRoute
 }
 export interface FileRoutesByTo {
+  '/forgot': typeof ForgotRoute
   '/invite': typeof InviteRoute
+  '/reset': typeof ResetRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
@@ -166,7 +182,9 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/forgot': typeof ForgotRoute
   '/invite': typeof InviteRoute
+  '/reset': typeof ResetRoute
   '/setup': typeof SetupRoute
   '/sign-in': typeof SignInRoute
   '/sign-up': typeof SignUpRoute
@@ -189,7 +207,9 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/forgot'
     | '/invite'
+    | '/reset'
     | '/setup'
     | '/sign-in'
     | '/sign-up'
@@ -208,7 +228,9 @@ export interface FileRouteTypes {
     | '/s/$site/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/forgot'
     | '/invite'
+    | '/reset'
     | '/setup'
     | '/sign-in'
     | '/sign-up'
@@ -228,7 +250,9 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/forgot'
     | '/invite'
+    | '/reset'
     | '/setup'
     | '/sign-in'
     | '/sign-up'
@@ -250,7 +274,9 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  ForgotRoute: typeof ForgotRoute
   InviteRoute: typeof InviteRoute
+  ResetRoute: typeof ResetRoute
   SetupRoute: typeof SetupRoute
   SignInRoute: typeof SignInRoute
   SignUpRoute: typeof SignUpRoute
@@ -267,11 +293,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot': {
+      id: '/forgot'
+      path: '/forgot'
+      fullPath: '/forgot'
+      preLoaderRoute: typeof ForgotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/invite': {
       id: '/invite'
       path: '/invite'
       fullPath: '/invite'
       preLoaderRoute: typeof InviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset': {
+      id: '/reset'
+      path: '/reset'
+      fullPath: '/reset'
+      preLoaderRoute: typeof ResetRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/setup': {
@@ -450,7 +490,9 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  ForgotRoute: ForgotRoute,
   InviteRoute: InviteRoute,
+  ResetRoute: ResetRoute,
   SetupRoute: SetupRoute,
   SignInRoute: SignInRoute,
   SignUpRoute: SignUpRoute,

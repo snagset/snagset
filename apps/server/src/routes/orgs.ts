@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { THREAD_REF_PREFIX } from "@snagset/types/names";
 import { csrfOk, hashPassword, setSessionCookies, type OwnerClaims } from "./owner.ts";
 import { addOwner, createFirstProject, createOrg, createOwner, openSession, SESSION_S, studiosOf } from "../orgs.ts";
+import { looksLikeEmail } from "../email.ts";
 
 /**
  * The second and third doors into a studio.
@@ -22,8 +23,14 @@ import { addOwner, createFirstProject, createOrg, createOwner, openSession, SESS
  *
  * A sign-up is rate-limited per address, in this process's memory — ten an
  * hour. On the serverless entry that memory is per instance and short-lived,
- * which is a weaker limit, not a missing one; the durable counter follows
- * with the cloud's abuse work (item 5).
+ * which is a weaker limit, not a missing one. This door is for a self-host
+ * opening sign-up to its own people; whoever opens it to strangers puts
+ * their own sign-up in front of it and points the sign-in page there
+ * (`SNAGSET_SIGNUP_URL`).
+ *
+ * The address is TYPED, and recorded as that: `email_verified = false`.
+ * Until 2026-11-10 this door wrote `true` beside an address nobody had
+ * checked.
  */
 
 type Env = { Variables: { requestId: string; owner?: OwnerClaims } };
@@ -43,7 +50,6 @@ export interface OrgDeps {
 
 const WINDOW_MS = 60 * 60 * 1000;
 const PER_WINDOW = 10;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function fail(c: Ctx, status: number, code: string, message: string, details?: unknown) {
   return c.json({ error: { code, message, ...(details ? { details } : {}), requestId: c.get("requestId") } }, status as 400);
@@ -88,7 +94,7 @@ export function orgRoutes(deps: OrgDeps): Hono<Env> {
     const password = typeof body?.["password"] === "string" ? (body["password"] as string) : "";
     const name = str("name").slice(0, 120);
     const orgName = (str("orgName") || "My studio").slice(0, 120);
-    if (!EMAIL.test(email)) return fail(c, 400, "validation_failed", "That does not look like an email address.", { field: "email" });
+    if (!looksLikeEmail(email)) return fail(c, 400, "validation_failed", "That does not look like an email address.", { field: "email" });
     if (password.length < 12) return fail(c, 400, "validation_failed", "The password must be at least 12 characters.", { field: "password" });
 
     const taken = await sql.begin(async (tx) => {
@@ -113,7 +119,13 @@ export function orgRoutes(deps: OrgDeps): Hono<Env> {
       });
     } catch (e) {
       // users_email_uniq — two sign-ups for one address in the same second.
-      if ((e as { code?: string })?.code === "23505") return fail(c, 409, "email_taken", "An account with that email already exists. Sign in instead.", { field: "email" });
+      // NAMED, because "a unique index failed" used to mean this whatever the
+      // index: a slug two studios chose at once said "that email already
+      // exists" to somebody whose email did not (createOrg no longer fails so).
+      const pg = e as { code?: string; constraint_name?: string };
+      if (pg?.code === "23505" && pg.constraint_name === "users_email_uniq") {
+        return fail(c, 409, "email_taken", "An account with that email already exists. Sign in instead.", { field: "email" });
+      }
       throw e;
     }
     if (out.first) deps.onFirstOrg?.();

@@ -337,7 +337,7 @@ test("GET /api/v1/setup tells a browser which screen to draw", { skip }, async (
   // inherent to first-run setup being open at all.
   const res = await app.request("/api/v1/setup");
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { claimed: true, signup: false });
+  assert.deepEqual(await res.json(), { claimed: true, signup: false, mail: false, signupUrl: null });
 });
 
 test("a TOKENLESS claim on a claimed instance is 409 — the window shuts", { skip }, async () => {

@@ -38,7 +38,7 @@ export function McpCard({
   owner: boolean;
   /** The list is the viewer's own tokens (a member's, on You), not the studio's. */
   mine?: boolean;
-  /** The remote-transport switch is instance-wide: the owner's alone. */
+  /** The remote-transport switch is instance-wide: an owner's, in the operator's studio, and nobody else's. */
   instanceOwner: boolean;
   sites: { uid: string; name: string }[];
 }) {

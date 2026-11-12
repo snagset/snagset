@@ -5,8 +5,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { InstanceRows } from "@/components/app/InstanceRows";
+import { InstanceRows, StudioStorage } from "@/components/app/InstanceRows";
 import { AdminsOnly, PageHeader, SettingsRow } from "@/components/app/parts";
+import { isOperator, storageRow } from "@/lib/operator";
 import { can } from "@/lib/roles";
 import { SaveState } from "@/components/app/SaveState";
 import { api } from "@/lib/api";
@@ -22,9 +23,11 @@ export const Route = createFileRoute("/_app/studio/")({
   loader: ({ context }) => {
     void context.queryClient.prefetchQuery(q.meta());
     // A member is shown the friendly state, and the instance answers them 403.
-    if (can(context.queryClient.getQueryData(q.me().queryKey)?.user.role, "settings")) {
+    const me = context.queryClient.getQueryData(q.me().queryKey);
+    if (me && can(me.user.role, "settings")) {
       void context.queryClient.prefetchQuery(q.members());
-      void context.queryClient.prefetchQuery(q.instance());
+      // As it answers every studio but the operator's, so only that one asks.
+      if (isOperator(me)) void context.queryClient.prefetchQuery(q.instance());
     }
     return { crumb: "General" };
   },
@@ -37,6 +40,12 @@ function General() {
   const members = useQuery(q.members());
   const rename = useRenameOrg();
   const owner = can(me.user.role, "studio");
+  // What the instance is connected to (its address, storage, mail) is drawn
+  // for the operator's studio alone. Every other studio's page is its own
+  // name, what is running, and its plan's storage number where it has one.
+  // It asks the instance nothing, so there is no refusal for it to show.
+  const operator = isOperator(me);
+  const storage = storageRow(me);
   const [name, setName] = useState(me.org.name);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   useEffect(() => setName(me.org.name), [me.org.name]);
@@ -67,16 +76,20 @@ function General() {
           </p>
         </form>
       </SettingsRow>
-      <SettingsRow title="This instance" description="What is running, and where.">
+      <SettingsRow title="This instance" description={operator ? "What is running, and where." : "What is running."}>
         <dl className="m-0 grid grid-cols-[130px_1fr] gap-x-3 gap-y-1.5 text-[13px]">
           <dt className="text-muted-foreground">Version</dt>
           <dd className="m-0">
             {meta.data?.version ?? "—"} <UpdateLine version={meta.data?.version ?? ""} />
           </dd>
-          <dt className="text-muted-foreground">Address</dt>
-          <dd className="m-0">
-            <AddressField owner={owner} />
-          </dd>
+          {operator && (
+            <>
+              <dt className="text-muted-foreground">Address</dt>
+              <dd className="m-0">
+                <AddressField owner={owner} />
+              </dd>
+            </>
+          )}
           {meta.data?.commit && (
             <>
               <dt className="text-muted-foreground">Commit</dt>
@@ -92,7 +105,7 @@ function General() {
           </dd>
         </dl>
       </SettingsRow>
-      <InstanceRows owner={owner} />
+      {storage === "instance" ? <InstanceRows owner={owner} /> : storage === "usage" ? <StudioStorage /> : null}
     </div>
   );
 }

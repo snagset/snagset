@@ -113,7 +113,7 @@ test("the claim goes through under the policies, and signs its owner in", { skip
   const body = (await res.json()) as any;
   ada = { cookie: cookiesOf(res), csrf: body.csrfToken };
   uid = body.project.uid;
-  assert.deepEqual(await (await app.request("/api/v1/setup")).json(), { claimed: true, signup: true });
+  assert.deepEqual(await (await app.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: false, signupUrl: null });
 });
 
 test("sign in by email, and /me sees the studio's own rows", { skip }, async () => {
@@ -216,6 +216,26 @@ test("a second studio never sees the first: not its sites, not its threads, not 
   assert.deepEqual(((await members.json()) as any).data.map((r: any) => r.email), ["bob@elsewhere.test"]);
   const sw = await app.request("/auth/switch", { method: "POST", headers: as(bob), body: JSON.stringify({ slug: "kilnwork" }) });
   assert.equal(sw.status, 404);
+
+  // Nor what the instance is connected to, which is the first studio's
+  // alone: the read and a write are refused on this role as on any other
+  // (instance-operator.test.ts sweeps every route), and `/me` says whose
+  // they are. The first-studio lookup runs under the maintenance claim, and
+  // on a role that cannot bypass a lookup that forgot it would find no
+  // studio at all, which would refuse the operator too.
+  for (const [method, path] of [["GET", "/api/v1/instance"], ["DELETE", "/api/v1/instance/storage"]] as const) {
+    const res = await app.request(path, { method, headers: as(bob) });
+    const text = await res.text();
+    assert.equal(res.status, 403, `${method} ${path}: ${text}`);
+    // `forbidden` and the sentence, not just the status: a write with a bad
+    // CSRF pair is a 403 too, and would pass for the wrong reason.
+    const { error } = JSON.parse(text) as { error: { code: string; message: string } };
+    assert.equal(error.code, "forbidden", `${method} ${path}`);
+    assert.match(error.message, /Only the studio that claimed this instance/, `${method} ${path}`);
+  }
+  assert.equal(m.body.org.operator, false);
+  assert.equal((await app.request("/api/v1/instance", { headers: as(ada) })).status, 200, "the first studio still reads them");
+  assert.equal((await me(ada)).body.org.operator, true);
 
   // And the first studio still sees exactly its own.
   assert.equal((await me(ada)).body.projects.length, 2);

@@ -81,9 +81,9 @@ export const expireRows: Job = {
   name: "expire-rows",
   everyMs: 15 * 60_000,
   async run({ sql, now }: JobContext): Promise<JobOutcome> {
-    // Three separate statements, counted together. A single statement with
-    // UNION would need three different row shapes to line up and would tell
-    // the operator nothing about WHICH table was growing.
+    // Separate statements, counted together. A single statement with UNION
+    // would need different row shapes to line up and would tell the operator
+    // nothing about WHICH table was growing.
     const idem = await sql`
       DELETE FROM idempotency_keys
        WHERE ctid IN (SELECT ctid FROM idempotency_keys WHERE expires_at < ${now} LIMIT ${BATCH})
@@ -97,15 +97,23 @@ export const expireRows: Job = {
        WHERE ctid IN (SELECT ctid FROM rate_counters WHERE expires_at < ${now} LIMIT ${BATCH})
     `;
 
-    const did = idem.count + nonces.count + counters.count;
+    // A mailed reset link, a day past its expiry. The day is kept so a
+    // person opening yesterday's mail is told "expired" or "already used"
+    // rather than "not valid", which reads as a broken link.
+    const links = await sql`
+      DELETE FROM password_resets
+       WHERE ctid IN (SELECT ctid FROM password_resets WHERE expires_at < ${new Date(now.getTime() - 86_400_000)} LIMIT ${BATCH})
+    `;
+
+    const did = idem.count + nonces.count + counters.count + links.count;
     // Any one of them filling its batch means there is more of that one left.
     const more =
-      idem.count === BATCH || nonces.count === BATCH || counters.count === BATCH;
+      idem.count === BATCH || nonces.count === BATCH || counters.count === BATCH || links.count === BATCH;
     return did
       ? {
           did,
           more,
-          note: `expired ${idem.count} idempotency · ${nonces.count} nonces · ${counters.count} counters`,
+          note: `expired ${idem.count} idempotency · ${nonces.count} nonces · ${counters.count} counters · ${links.count} links`,
         }
       : { did: 0, more };
   },

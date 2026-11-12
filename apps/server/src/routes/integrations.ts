@@ -34,6 +34,7 @@ import { queueResolvedNotice } from "../mail/notify.ts";
 import { drainNow, queueIntegrationEvent, type PushDeps } from "../integrations/outbox.ts";
 import { inOrg } from "../db/scope.ts";
 import { can } from "@snagset/types/roles";
+import { looksLikeEmail } from "../email.ts";
 
 /**
  * Integrations from the dashboard — 05 endpoint 25 shaped for a self-host
@@ -282,7 +283,7 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       if (!/^[A-Z][A-Z0-9_]{0,9}$/.test(projectKey)) return fail(c, 422, "validation_failed", "Give the project's key, like KAN.", { field: "project" });
       const prior = existing?.config as JiraIntegrationConfig | undefined;
       const email = str("email").toLowerCase() || prior?.email || "";
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(c, 422, "validation_failed", "Give the Atlassian account's email — the token belongs to it.", { field: "email" });
+      if (!looksLikeEmail(email)) return fail(c, 422, "validation_failed", "Give the Atlassian account's email — the token belongs to it.", { field: "email" });
       const apiToken = str("apiToken") || had.token || "";
       if (!apiToken) return fail(c, 422, "validation_failed", "Paste an API token from id.atlassian.com › Security › API tokens.", { field: "apiToken" });
       const webhookSecret = str("webhookSecret") || had.webhookSecret || null;

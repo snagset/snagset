@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import type postgres from "postgres";
 import type { Config } from "./config.ts";
 import { type BootState, isClaimed, isClaimedFast, tokenHash } from "./boot.ts";
-import { isConfigured } from "./mail/index.ts";
+import { isConfigured, type MailerStatus } from "./mail/index.ts";
 import { resolveMailer } from "./mail/resolve.ts";
 import { instanceRoutes } from "./routes/instance.ts";
 import { addressPinned, addressSource, storeAddress, validateAddress } from "./instance/address.ts";
@@ -27,8 +27,10 @@ import { jobSet } from "./jobs/set.ts";
 import { outboxDrain, watchQueue } from "./jobs/soon.ts";
 import { memberRoutes } from "./routes/members.ts";
 import { inviteRoutes } from "./routes/invites.ts";
+import { passwordResetRoutes } from "./routes/passwordReset.ts";
 import { accountRoutes } from "./routes/account.ts";
 import { rlsStatus } from "./db/rls.ts";
+import { errCode } from "./explain.ts";
 import { threadRoutes } from "./routes/threads.ts";
 import { regionMismatch } from "./instance/region.ts";
 import { bodyLimit } from "./routes/bodyLimit.ts";
@@ -143,6 +145,30 @@ export function slugify(name: string): string {
   return s.length >= 3 ? s : `org-${randomBytes(4).toString("hex")}`;
 }
 
+/**
+ * Why the database did not answer, as one of six words: what `/readyz` may
+ * say to anybody. Never the driver's own message, which carries the host.
+ */
+export function unreachableReason(e: unknown): "host_not_found" | "refused" | "timeout" | "auth_failed" | "no_such_database" | "error" {
+  switch (errCode(e)) {
+    case "ENOTFOUND":
+    case "EAI_AGAIN":
+      return "host_not_found";
+    case "ECONNREFUSED":
+      return "refused";
+    case "ETIMEDOUT":
+    case "CONNECT_TIMEOUT":
+      return "timeout";
+    case "28P01":
+    case "28000":
+      return "auth_failed";
+    case "3D000":
+      return "no_such_database";
+    default:
+      return "error";
+  }
+}
+
 export function createApp(deps: Deps): Hono<Env> {
   const app = new Hono<Env>();
   const { sql, cfg } = deps;
@@ -254,10 +280,11 @@ export function createApp(deps: Deps): Hono<Env> {
     try {
       await sql`SELECT 1`;
     } catch (e) {
-      return c.json(
-        { ok: false, state: deps.state, database: "unreachable", detail: (e as Error).message },
-        503,
-      );
+      // The driver's message names the database's host, and this route answers
+      // anyone. The whole of it goes where the operator reads; the answer
+      // carries the KIND of failure and nothing a stranger could map with.
+      console.error("readyz: the database did not answer —", e instanceof Error ? e.message || errCode(e) : e);
+      return c.json({ ok: false, state: deps.state, database: "unreachable", reason: unreachableReason(e) }, 503);
     }
     const rls = await rlsStatus(sql);
     return c.json({
@@ -298,7 +325,34 @@ export function createApp(deps: Deps): Hono<Env> {
    * setup being open at all.
    */
   // `signup`: whether a stranger may make a studio here — the sign-in page offers the door only when it is open.
-  app.get("/api/v1/setup", async (c) => c.json({ claimed: await isClaimedFast(sql), signup: cfg.bool("SNAGSET_SIGNUP_OPEN") }));
+  // `mail`: whether this instance can mail a link, which is what the
+  // sign-in page draws differently — a reset by mail instead of `snagset
+  // passwd`. `signupUrl`: where a new studio is made, when that is
+  // a page of the operator's own rather than this instance's form.
+  //
+  // `mail` must never be what breaks this route. The dashboard reads a
+  // failure here as "claimed", so a 500 would hide the claim screen of an
+  // unclaimed instance — and `resolveMailer` THROWS on a half-set mail
+  // environment, which the bin refuses to boot with and a serverless deploy
+  // only meets at request time. So a transport that cannot be resolved is
+  // one that cannot mail: `false`. And an unclaimed instance is not asked at
+  // all, which keeps this route off the database until there is a studio, as
+  // it was (`isClaimedFast`).
+  app.get("/api/v1/setup", async (c) => {
+    const claimed = await isClaimedFast(sql);
+    const mail = claimed
+      ? await resolveMailer(sql, keys, cfg).then(
+          (m) => isConfigured(m.status),
+          () => false,
+        )
+      : false;
+    return c.json({
+      claimed,
+      signup: cfg.bool("SNAGSET_SIGNUP_OPEN"),
+      mail,
+      signupUrl: cfg.get("SNAGSET_SIGNUP_URL") ?? null,
+    });
+  });
 
   /**
    * The claim. Single-use, and the transaction either creates an
@@ -739,6 +793,32 @@ export function createApp(deps: Deps): Hono<Env> {
     }),
   );
   app.route("/", memberRoutes({ sql }));
+  /**
+   * A forgotten password, by a mailed link. Public by design, as the
+   * invitee's half above is, and for the same reason: the person calling has
+   * no session, which is the whole situation. Origin-checked and counted in
+   * the routes.
+   */
+  // A transport that cannot be resolved (a half-set mail environment, met at
+  // request time on serverless) is one that cannot mail, not a 500: these
+  // routes then say what an instance without mail says.
+  const mailer = (): Promise<MailerStatus> =>
+    resolveMailer(sql, keys, cfg).then(
+      (m) => m.status,
+      (e: unknown) => ({ kind: "none" as const, reason: e instanceof Error ? e.message : String(e) }),
+    );
+  app.route(
+    "/",
+    passwordResetRoutes({
+      sql,
+      address,
+      mailer,
+      origin: ownerDeps.origin,
+      secure: ownerDeps.secure,
+      // The keep-alive: the send outlives the response that promised it.
+      ...(deps.afterResponse ? { later: deps.afterResponse } : {}),
+    }),
+  );
   // Sign-up, the switcher and the second studio. Cookie-class; the
   // flag opens the two doors that make a studio, the switcher needs none.
   app.use("/api/v1/orgs", requireOwner());

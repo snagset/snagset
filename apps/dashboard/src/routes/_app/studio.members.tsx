@@ -358,7 +358,7 @@ function InviteDialog({
             </fieldset>
           </form>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex min-w-0 flex-col gap-4">
             <DialogHeader>
               <DialogTitle>Invite link</DialogTitle>
               <DialogDescription>
@@ -379,13 +379,23 @@ function InviteDialog({
             </div>
             {canMail &&
               (sent ? (
-                <p role="status" className="m-0 text-[13px] text-muted-foreground">
+                <p role="status" className="m-0 text-[13px] [overflow-wrap:anywhere] text-muted-foreground">
                   Sent to {sent}.
                 </p>
               ) : (
-                <Button type="button" variant="outline" className="self-start" loading={send.isPending} onClick={() => void mailIt()}>
+                // An address is as long as its owner made it, and a button does
+                // not wrap: the label gives way inside the dialog and the whole
+                // of it stays in the title.
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="max-w-full min-w-0 self-start"
+                  title={made.invite.email ? `Send by email to ${made.invite.email}` : undefined}
+                  loading={send.isPending}
+                  onClick={() => void mailIt()}
+                >
                   <MailIcon />
-                  {send.isPending ? "Sending…" : `Send by email to ${made.invite.email}`}
+                  <span className="min-w-0 truncate">{send.isPending ? "Sending…" : `Send by email to ${made.invite.email}`}</span>
                 </Button>
               ))}
             <DialogFooter>

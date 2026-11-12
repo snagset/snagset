@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { AdminsOnly, PageHeader, SettingsRow } from "@/components/app/parts";
+import { isOperator } from "@/lib/operator";
 import { can } from "@/lib/roles";
 import { api, ApiFailure, TRACKER_NAME, type GitHubWebhook, type Tracker, type TrackerIntegration } from "@/lib/api";
 import { CopyButton } from "@/components/app/CopyButton";
@@ -61,7 +62,9 @@ function Integrations() {
   const me = useMe();
   // Owners and admins connect sites (a member is not shown this page).
   const owner = can(me.user.role, "settings");
-  const instanceOwner = can(me.user.role, "studio");
+  // The remote MCP switch is the instance's: an owner's, in the operator's
+  // studio. Anyone else sees where it stands and cannot move it.
+  const instanceOwner = can(me.user.role, "studio") && isOperator(me);
   const list = useQuery(q.integrations());
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: ["integrations"] });

@@ -134,6 +134,12 @@ never come back to the screen. How often the owner is emailed — a daily digest
 or one email per comment — is set in the environment with `SNAGSET_MAIL_NOTIFY`
 (see [self-hosting](self-hosting#who-gets-email-and-how-often)).
 
+Where an instance holds more than one studio
+([open sign-up](self-hosting#open-sign-up)), what the instance is connected to
+belongs to the first studio, the one that claimed it: the address, those two
+rows, and the remote MCP switch on Integrations. No other studio's General
+shows them, and no other studio's owner can change them.
+
 **Members** — the people in the studio, by email, with a role. There are
 three:
 
@@ -165,9 +171,17 @@ that address can use it, and when the instance has mail connected (Studio ›
 General) the dialog can send it there; with no mail, copy the link and send it
 however you like. Someone who already has an account on this instance — in
 another studio — joins with that account's password and gets the studio
-added to their switcher. There is no reset email: a forgotten password is
-set again from the server's shell, `printf '%s' "$NEW" | snagset passwd
-them@example.com`, which signs out every session that account had.
+added to their switcher.
+
+A forgotten password comes back by mail when the instance has mail connected:
+**Forgot your password?** on the sign-in page sends a link to the address. The
+link works once and lasts an hour; using it sets a new password, signs the
+person in, and signs them out everywhere the old password was used, the widget
+included. The page says the same thing whether or not the address has an
+account. With no mail
+connected there is no link to send, and the password is set again from the
+server's shell, `printf '%s' "$NEW" | snagset passwd them@example.com`, which
+signs out every session that account had.
 
 **Integrations** — one card per provider: GitHub, Linear, Jira, Slack and MCP.
 The [integrations page](integrations) covers each; the MCP card also holds the

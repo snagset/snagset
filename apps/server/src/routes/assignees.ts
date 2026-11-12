@@ -6,6 +6,7 @@ import type { ProjectCache } from "../projectCache.ts";
 import type { SessionClaims } from "../session.ts";
 import { csrfOk, type OwnerClaims } from "./owner.ts";
 import { can } from "@snagset/types/roles";
+import { looksLikeEmail } from "../email.ts";
 
 /**
  * The assignee pool — (routes 19b and 19c).
@@ -208,7 +209,7 @@ export function assigneeRoutes(deps: AssigneeDeps): Hono<Env> {
     const name = typeof body?.name === "string" ? body.name.trim().slice(0, 80) : "";
     if (!name) return fail(c, 400, "validation_failed", "Give the person a name.", { field: "name" });
     const emailRaw = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-    if (emailRaw && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+    if (emailRaw && !looksLikeEmail(emailRaw)) {
       return fail(c, 400, "validation_failed", "That does not look like an email address.", { field: "email" });
     }
     const email = emailRaw || null;

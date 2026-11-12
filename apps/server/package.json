@@ -1,6 +1,6 @@
 {
   "name": "@snagset/server",
-  "version": "0.1.39",
+  "version": "0.1.40",
   "private": false,
   "type": "module",
   "description": "The Snagset server: API, dashboard and widget in one package. Node and Postgres, or Vercel.",
@@ -24,14 +24,14 @@
     "postpack": "node ../../tools/publish-manifest.mjs restore"
   },
   "dependencies": {
-    "@hono/node-server": "2.1.1",
+    "@hono/node-server": "2.1.6",
     "@modelcontextprotocol/sdk": "1.32.1",
     "aws4fetch": "1.0.20",
     "drizzle-orm": "0.45.2",
-    "hono": "4.13.13",
+    "hono": "4.13.16",
     "jose": "6.2.8",
     "postgres": "3.4.9",
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@snagset/adapters": "workspace:*",
