@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Snagset">
+  <!--
+    D78. The pin at rest on a rule: the shipped pin (a circle of r 12 with its
+    lower-left quadrant squared — the same construction as
+    `border-radius: 50% 50% 50% 2px` in pins.ts) floating 4.3 units above a
+    full-bleed rule.
+
+    Three things are load-bearing and must not be tidied:
+      · the pin FLOATS — it has not landed; touching the rule parks it
+      · the composition is ASYMMETRIC — 8 units of rule run on past the pin,
+        which is what says `page` rather than `underline`
+      · the pin's sharp corner and the rule's left end share x 0, the one
+        alignment, which reads only because nothing else lines up
+
+    Stroke weight, colour and file preparation are in scope for a refinement.
+    Position, scale and alignment are the composition.
+  -->
+  <style>
+    :root { color-scheme: light dark; }
+    path { fill: #181716; stroke: #181716; }
+    @media (prefers-color-scheme: dark) { path { fill: #f0eeec; stroke: #f0eeec; } }
+  </style>
+  <path d="M0 24V12A12 12 0 0 1 12 0a12 12 0 0 1 12 12 12 12 0 0 1-12 12z" stroke="none"/>
+  <path d="M0 30h32" fill="none" stroke-width="3.4" stroke-linecap="square"/>
+</svg>

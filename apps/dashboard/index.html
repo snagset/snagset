@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <!-- Before any stylesheet or module: a dark-preferring viewer who chose
+         Light would otherwise see a dark frame and then a flip. The key and
+         the resolution are the same as lib/theme.ts's — repeated here, on
+         purpose, because this runs before anything can be imported. -->
+    <script>
+      try {
+        var t = localStorage.getItem("snagset:theme");
+        var choice = t === "dark" || t === "light" ? t : "system";
+        var dark = choice === "dark" || (choice === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+        var el = document.documentElement;
+        if (choice !== "system") el.setAttribute("data-theme", choice);
+        if (dark) el.classList.add("dark");
+        el.style.colorScheme = dark ? "dark" : "light";
+      } catch (e) {}
+    </script>
+    <link rel="icon" href="/mark.svg" type="image/svg+xml" />
+    <title>Snagset</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

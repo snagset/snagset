@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "docs": "EMIT config. Ships JS + .d.ts — unlike the internal workspace packages, this one is consumed by other people's bundlers and TypeScript projects, so types must be real files rather than source it happens to be able to read.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // `types: []` on the EMIT config, not the typecheck one: the published
+    // source must not pick up Node globals (this is a browser package), while
+    // the tests that exercise it are Node and need them.
+    "types": [],
+    "rootDir": "src",
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["test/**/*"]
+}

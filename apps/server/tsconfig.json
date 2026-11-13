@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "docs": "The server: Node types, no DOM. `schema.ts` is the source of truth for the database, so Drizzle's inference has to be exact — strict stays on everywhere.",
+  "extends": "@snagset/tsconfig/node.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "noEmit": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

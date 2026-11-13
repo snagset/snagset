@@ -1,0 +1,13 @@
+-- ───────────────────────────────────────
+-- Jira joins the providers — D88 named it, D98 built it (2026-09-03).
+--
+-- `snag_provider` was closed at github, linear, slack and webhook in 0001;
+-- Jira Cloud was not in the original set and Faster Fixes made it a parity
+-- item. ADD VALUE cannot run inside a transaction block on every Postgres
+-- this ships on, and the new value cannot be used in the transaction that
+-- added it either — hence `.no-txn`, which migrate.ts runs on the bare
+-- connection, and hence a file of its own before anything writes 'jira'.
+--
+-- Under D71, §3.1's enum is amended in the same commit and
+-- `pnpm schema:diff:check` asserts the two agree.
+ALTER TYPE snag_provider ADD VALUE IF NOT EXISTS 'jira';

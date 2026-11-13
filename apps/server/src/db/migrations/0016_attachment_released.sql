@@ -1,0 +1,35 @@
+-- ───────────────────────────────────────
+-- attachments.released_at: when a deleted picture's bytes came off its
+-- site's count.
+--
+-- Until 0.1.45, deleting a thread (or a round, which deletes its threads)
+-- marked its pictures deleted_at and left projects.storage_bytes_used as it
+-- was: a studio that deleted to make room saw its usage stay where it stood,
+-- and the files stayed in the bucket. Now the delete takes the bytes off the
+-- count in its own transaction (storage/release.ts) and the reaper takes the
+-- blob out of the bucket (collect-deleted-attachments).
+--
+-- The column is what makes that happen exactly once per picture, whatever
+-- order things run in. The delete sets it as it subtracts. The reaper, when
+-- it collects a deleted picture, subtracts only if it is still NULL. So the
+-- pictures deleted before this release, and any deleted by an older server
+-- still running beside a new one, are given back by the reaper's first pass
+-- over them, and nothing is given back twice. There is deliberately no
+-- UPDATE of the counter in this file: one here could not tell a picture
+-- already given back from one that was not.
+--
+-- NULL on a live picture, and on one deleted the old way until the reaper
+-- reaches it.
+--
+-- The index is the reaper's: deleted pictures still waiting to leave the
+-- bucket, oldest first. Small by construction, since a collected row leaves
+-- it.
+--
+-- DDL only: no rows are read or written, so no maintenance claim. ADD COLUMN
+-- with no default is a catalogue change, not a rewrite.
+--
+-- Under D71, 05 §3's table gains the column and the index in the same commit
+-- and pnpm schema:diff:check asserts the two agree.
+ALTER TABLE attachments ADD COLUMN released_at timestamptz;
+
+CREATE INDEX attachments_collect_idx ON attachments (deleted_at) WHERE state = 'bound' AND deleted_at IS NOT NULL;

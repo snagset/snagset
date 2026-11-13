@@ -1,0 +1,24 @@
+-- ───────────────────────────────────────
+-- A site decides whether its GUESTS may change a comment's status — D126.
+--
+-- A guest is somebody who commented without an account or a review link: they
+-- typed a name and nothing else. Until D126 a guest session was minted
+-- without thread:resolve, the PATCH refused their status changes, and the
+-- widget showed them the control anyway — so a designer marked a comment
+-- Resolved, saw it resolved, and found it open again on the next refresh.
+-- Real users hit exactly that.
+--
+-- The answer is a per-site switch rather than a new fixed rule, because both
+-- answers are right for somebody: on a studio's own staging site the guests
+-- ARE the team, and on a public client site an anonymous visitor closing the
+-- client's snags is the failure D1 guards against.
+--
+-- DEFAULT true, and that backfills every existing site ON. A boolean with a
+-- constant default is a catalogue change in Postgres (no table rewrite), and
+-- ON is what the people who reported this expected their sites to do. A
+-- studio that wants guests read-only turns it off in Settings, and the
+-- change applies to sessions already open (D126's live enforcement).
+--
+-- Under D71, §3.3's projects table gains the column in the same commit and
+-- pnpm schema:diff:check asserts the two agree.
+ALTER TABLE projects ADD COLUMN guest_can_resolve boolean NOT NULL DEFAULT true;

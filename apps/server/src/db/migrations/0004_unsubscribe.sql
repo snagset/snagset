@@ -1,0 +1,24 @@
+-- ─────────────────────────────────────────────────────────────────────────
+-- Reviewer notifications need an off switch — B2, and the FIRST migration
+-- written under the frozen schema (D71).
+--
+-- Until now the only notification was `comment.created` → the project owner,
+-- whose address we verified at claim time. Growing that to reviewers changes
+-- the character of the system: their addresses are self-declared, so a
+-- product that mails them on a stranger's trigger and offers no way out is an
+-- open relay with better manners. The subscription rule is "created or
+-- replied" (derivable, no schema) and the exit is this column.
+--
+-- WHY IT IS A TIMESTAMP. Every other state on `reviewers` is one —
+-- `blocked_at`, `erased_at`, `identity_valid_after` — and a deliverability
+-- complaint asks "when did they opt out", which a boolean cannot answer.
+--
+-- WHY NO INDEX. It is read one row at a time, always beside the reviewer the
+-- notification is about, on a table already keyed by id. An index here would
+-- be write cost for a read that never scans.
+--
+-- Under D71, §3 describes the CURRENT schema, so the column is added there in
+-- the same commit as this file and `pnpm schema:diff:check` asserts the two
+-- agree. That check is what makes this the last migration anybody has to
+-- reason about by reading two places at once.
+ALTER TABLE reviewers ADD COLUMN IF NOT EXISTS notifications_off_at timestamptz;

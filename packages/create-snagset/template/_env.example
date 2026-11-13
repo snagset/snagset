@@ -1,0 +1,74 @@
+# ── Required ───────────────────────────────────────────────────────────
+# Any Postgres 14+: Supabase, Neon, RDS, or a local install. A free Supabase
+# or Neon project in a region near your clients takes a minute. Neon's
+# pooled string (the `-pooler` host) is the one to use and needs no notes.
+#
+# WHICH SUPABASE STRING. "Connect" on the project, then the "Direct"
+# tab (it opens on "Framework", which is for app code), shows three:
+#   · Session pooler  (…pooler.supabase.com:5432, user postgres.<ref>)
+#       — for `npm start`: a Node process on Railway, Render, Fly, a VPS or
+#         your laptop. Works over IPv4.
+#   · Transaction pooler (…pooler.supabase.com:6543, same user)
+#       — for Vercel and other serverless hosts.
+#   · Direct (db.<ref>.supabase.co:5432) — IPv6 only unless you pay for the
+#         IPv4 add-on. A "network unreachable" at boot usually means this one
+#         was pasted on a host without IPv6.
+#
+# TLS is on for any host that is not local (SNAGSET_DATABASE_SSL=auto), so a
+# string with no `?sslmode=` in it is still encrypted. QUOTE IT regardless:
+# a string that does carry `?sslmode=require&…` ends a shell line at the `&`.
+DATABASE_URL="postgres://snagset:snagset@localhost:5432/snagset"
+
+# ── Strongly recommended ───────────────────────────────────────────────
+# 32 random bytes, base64url. Generated to .snagset/secret.key on first boot
+# if unset — which is fine on one machine and wrong everywhere else, because
+# each instance would invent a different one.
+#
+#   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+# SNAGSET_SECRET_KEY=
+
+# The public origin. Review links are built from it.
+# SNAGSET_BASE_URL=http://localhost:8080
+
+# ── Claim it without a browser (optional) ──────────────────────────────
+# Set these and the first `npm start` creates the owner and the first site.
+# All of it is ignored once an owner exists, so it is safe to leave here.
+# SNAGSET_BOOTSTRAP_OWNER_EMAIL=you@example.com
+# SNAGSET_BOOTSTRAP_OWNER_PASSWORD_FILE=./owner-password
+# SNAGSET_BOOTSTRAP_PROJECT_NAME=First site
+# SNAGSET_BOOTSTRAP_PROJECT_ORIGINS=https://staging.example.com,http://localhost:3000
+
+# ── Screenshots (optional) ─────────────────────────────────────────────
+# Any S3-compatible bucket — DigitalOcean Spaces, Cloudflare R2, MinIO, S3.
+# Without one the widget runs in annotation mode and SAYS so, rather than
+# failing quietly at the moment somebody files their first snag.
+#
+# DigitalOcean Spaces, which these lines are written for: make a Space in a
+# region, then API › Spaces Keys › Generate. The region is the one in the
+# endpoint (ams3 with ams3, fra1 with fra1 — `auto` is for R2). The ACCESS
+# KEY is the short DO00… value and the SECRET is the long one beside it; a
+# DigitalOcean API token is a different credential and cannot sign S3
+# requests. The bucket stays PRIVATE — the server serves every image itself.
+# SNAGSET_STORAGE_S3_ENDPOINT=https://ams3.digitaloceanspaces.com
+# SNAGSET_STORAGE_S3_BUCKET=my-bucket
+# SNAGSET_STORAGE_S3_REGION=ams3
+# SNAGSET_STORAGE_S3_ACCESS_KEY_ID=
+# SNAGSET_STORAGE_S3_SECRET_ACCESS_KEY=
+
+# ── Email notifications (optional) ─────────────────────────────────────
+# The URL SCHEME picks the transport: resend://, smtp://, smtps://.
+# Unset means no mail, which is a supported way to run — nothing queues up
+# waiting for a transport that never arrives.
+#
+# Resend: add and verify a domain at resend.com/domains FIRST (a subdomain
+# such as send.yourstudio.com keeps its reputation apart from your own
+# mail), then create an API key with sending access to it. The From address
+# must be on that domain, or every send is refused with "domain is not
+# verified" — the boot log and Studio › General both say so.
+# SNAGSET_MAIL_URL=resend://re_your_api_key
+# SNAGSET_MAIL_FROM="Snagset <review@send.yourstudio.com>"
+
+# ── Everything else ────────────────────────────────────────────────────
+# `npm run env` prints every variable this build accepts, with its default —
+# 70-odd of them, which is why only the ones most people want are written out
+# above.

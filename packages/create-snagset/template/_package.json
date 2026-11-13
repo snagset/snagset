@@ -1,0 +1,16 @@
+{
+  "name": "__NAME__",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "snagset serve",
+    "migrate": "snagset migrate",
+    "bootstrap": "snagset bootstrap",
+    "env": "snagset env",
+    "sites": "snagset projects"
+  },
+  "dependencies": {
+    "@snagset/server": "__VERSION__"
+  },
+  "engines": { "node": ">=22" }
+}
