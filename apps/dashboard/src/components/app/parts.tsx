@@ -13,9 +13,11 @@ import { STATUS_COLOR, STATUS_LABEL, isStatus } from "@/lib/labels";
 export function PageHeader({ title, sub, actions }: { title: string; sub?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-5 flex items-center gap-3">
-      <h1 className="m-0 text-xl font-semibold tracking-tight">{title}</h1>
-      {sub && <p className="m-0 text-muted-foreground">{sub}</p>}
-      <div className="flex-1" />
+      {/* On one baseline: centred as boxes, the smaller line rides above the title's. */}
+      <div className="flex min-w-0 flex-1 items-baseline gap-3">
+        <h1 className="m-0 text-xl font-semibold tracking-tight">{title}</h1>
+        {sub && <p className="m-0 min-w-0 text-muted-foreground">{sub}</p>}
+      </div>
       {actions}
     </div>
   );

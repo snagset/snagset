@@ -214,6 +214,28 @@ it there. On Vercel, Railway, Render and Fly the platform's own variable names
 the deployment and is used before the claim. `SNAGSET_BASE_URL` exists to say
 otherwise — set it and it wins and locks the row.
 
+### Behind a proxy: `SNAGSET_TRUST_PROXY`
+
+If anything stands between the internet and the server (nginx, Caddy,
+Traefik, Coolify, Railway, Render, Fly, a load balancer, Cloudflare), set
+`SNAGSET_TRUST_PROXY` to the number of proxies, which is usually `1`. On
+Vercel it sets itself. With nothing in front, leave it at `0`.
+
+The server limits wrong passwords, sign-ups, invites and password resets per
+caller, and behind a proxy every connection comes from the proxy. The number
+says how many entries at the end of `X-Forwarded-For` were written by proxies
+you run, so the server can pick the visitor's real address and ignore
+anything the visitor wrote there itself.
+
+- Too low, and every visitor counts as one caller: thirty wrong passwords
+  from anybody stop password sign-in for everybody for fifteen minutes.
+- Too high, and the server believes an address the visitor wrote, so the
+  limits can be stepped around.
+
+The limit of ten wrong passwords for one email address works either way. When
+a request carries `X-Forwarded-For` and the setting is `0`, the server says
+so once in its log.
+
 ## A studio instance, end to end
 
 One shape that works for a studio showing work to clients, and the one

@@ -83,12 +83,34 @@ function normalise(raw: string): string {
 }
 
 /** Works the caller out once per request; every route reads the same answer with `callerOf`. */
-export function callerMiddleware(hops: () => number): MiddlewareHandler {
+/**
+ * What the log says, once, when a request carries `X-Forwarded-For` and the
+ * setting is 0. A proxy in front that nobody told the server about is the
+ * usual reason, and then every visitor is counted as the proxy: one caller,
+ * sharing each per-caller limit. The header can also be a caller's own
+ * invention on a server with nothing in front, so this says "if", changes
+ * nothing about how the caller is worked out, and is said once per process
+ * so that nobody can fill a log with it.
+ */
+export const FORGOTTEN_PROXY =
+  "warn  A request arrived with an X-Forwarded-For header and SNAGSET_TRUST_PROXY is 0, so the header was ignored. " +
+  "If a proxy stands in front of this server (nginx, Caddy, Traefik, Coolify, a load balancer, Cloudflare), every visitor is being counted as ONE caller " +
+  "against the sign-in, sign-up, invite and reset limits: set SNAGSET_TRUST_PROXY to the number of proxies (usually 1). " +
+  "If nothing stands in front, a caller wrote the header itself and ignoring it is right.";
+
+export function callerMiddleware(hops: () => number, warn: (line: string) => void = console.warn): MiddlewareHandler {
+  let said = false;
   return async (c, next) => {
     // `@hono/node-server` passes the Node request as `env.incoming`; a
     // platform that hands over only a `Request` has no socket to ask.
     const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming;
-    c.set("caller" as never, resolveCaller(c.req.header("x-forwarded-for"), incoming?.socket?.remoteAddress, hops()) as never);
+    const forwarded = c.req.header("x-forwarded-for");
+    const n = hops();
+    if (!said && n === 0 && forwarded) {
+      said = true;
+      warn(FORGOTTEN_PROXY);
+    }
+    c.set("caller" as never, resolveCaller(forwarded, incoming?.socket?.remoteAddress, n) as never);
     return next();
   };
 }

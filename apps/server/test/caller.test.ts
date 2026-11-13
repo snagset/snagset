@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Hono } from "hono";
-import { callerMiddleware, callerOf, resolveCaller } from "../src/net/caller.ts";
+import { callerMiddleware, callerOf, FORGOTTEN_PROXY, resolveCaller } from "../src/net/caller.ts";
 
 test("with no trusted hop the header is ignored entirely: the caller is the connection", () => {
   assert.equal(resolveCaller("198.51.100.1", "203.0.113.5", 0), "203.0.113.5");
@@ -49,11 +49,35 @@ test("the middleware works it out once, from the live setting, and a route mount
   let hops = 0;
   const app = new Hono();
   app.get("/bare", (c) => c.text(callerOf(c)));
-  app.use("*", callerMiddleware(() => hops));
+  app.use("*", callerMiddleware(() => hops, () => {}));
   app.get("/who", (c) => c.text(callerOf(c)));
   const ask = async (path: string) => (await app.request(path, { headers: { "x-forwarded-for": "9.9.9.9, 203.0.113.5" } }, { incoming: { socket: { remoteAddress: "::ffff:10.0.0.2" } } })).text();
   assert.equal(await ask("/who"), "10.0.0.2");
   hops = 1;
   assert.equal(await ask("/who"), "203.0.113.5");
   assert.equal(await ask("/bare"), "local");
+});
+
+test("a proxy's header with the setting at 0 is said in the log once, and never when the setting is set or no header came", async () => {
+  const build = (hops: number) => {
+    const said: string[] = [];
+    const app = new Hono();
+    app.use("*", callerMiddleware(() => hops, (line) => void said.push(line)));
+    app.get("/who", (c) => c.text(callerOf(c)));
+    const ask = (xff?: string) => app.request("/who", xff ? { headers: { "x-forwarded-for": xff } } : {}, { incoming: { socket: { remoteAddress: "10.0.0.2" } } });
+    return { said, ask };
+  };
+
+  const forgotten = build(0);
+  await forgotten.ask();
+  assert.deepEqual(forgotten.said, [], "no header: nothing to say");
+  assert.equal(await (await forgotten.ask("203.0.113.5")).text(), "10.0.0.2", "the header is still ignored");
+  await forgotten.ask("203.0.113.6");
+  await forgotten.ask("203.0.113.7");
+  assert.deepEqual(forgotten.said, [FORGOTTEN_PROXY], "once, however many arrive");
+  assert.match(FORGOTTEN_PROXY, /SNAGSET_TRUST_PROXY/);
+
+  const set = build(1);
+  await set.ask("203.0.113.5");
+  assert.deepEqual(set.said, [], "told about its proxy: nothing to say");
 });

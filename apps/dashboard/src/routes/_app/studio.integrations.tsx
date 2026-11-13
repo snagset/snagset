@@ -94,11 +94,41 @@ function Integrations() {
   });
   const rows = list.data?.data ?? [];
   const rowsFor = (provider: Tracker) => rows.filter((r) => r.provider === provider);
-  const freeFor = (provider: Tracker) => me.projects.filter((p) => !rowsFor(provider).some((r) => r.site === p.uid));
+  // A site put away or beyond the plan's cap is read-only: not one to connect.
+  const usable = me.projects.filter((p) => !p.archived && !p.locked);
+  const freeFor = (provider: Tracker) => usable.filter((p) => !rowsFor(provider).some((r) => r.site === p.uid));
+  // Why there is no "Connect a site…" below, said once and with the way out:
+  // the plan first (a site would not help), then the missing site.
+  const blocked: "plan" | "site" | null = !owner ? null : !me.limits.integrations ? "plan" : usable.length === 0 ? "site" : null;
 
   return (
     <div className="flex flex-col gap-10 p-7">
       <PageHeader title="Integrations" sub="Mirrors converge on the comment's status here; Slack only announces" />
+
+      {blocked && (
+        <div role="note" className="flex max-w-[1040px] flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-[13px]">
+          <span className="min-w-0 flex-1">
+            {blocked === "plan"
+              ? me.user.role === "owner"
+                ? "This studio's plan does not include integrations. A plan that does lets you connect each site to GitHub, Linear, Jira and Slack."
+                : "This studio's plan does not include integrations. An owner can change the plan."
+              : me.projects.length === 0
+                ? "An integration connects one site to one repository, team, project or channel. Add a site first, then connect it here."
+                : "An integration connects one site at a time, and every site here is archived or read-only. Restore one, or add a site, then connect it here."}
+          </span>
+          {blocked === "plan" ? (
+            me.user.role === "owner" && (
+              <Button variant="outline" size="sm" render={<Link to="/studio/plan" />}>
+                See plans
+              </Button>
+            )
+          ) : (
+            <Button variant="outline" size="sm" render={<Link to="/sites" />}>
+              Go to Sites
+            </Button>
+          )}
+        </div>
+      )}
 
       {(["github", "linear", "jira", "slack"] as const).map((provider) => {
         const mine = rowsFor(provider);
@@ -188,7 +218,7 @@ function Integrations() {
                 })}
               </ul>
             )}
-            {owner && free.length > 0 && (
+            {owner && !blocked && free.length > 0 && (
               <div>
                 <Button variant="outline" size="sm" onClick={() => setConnecting(provider)}>
                   Connect a site…
