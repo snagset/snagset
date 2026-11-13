@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { CheckIcon } from "lucide-react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -65,12 +65,26 @@ interface PlanState {
 
 function Plan() {
   const me = useMe();
-  const { said } = Route.useSearch();
+  // `said` is a one-time notice from the billing service (after a checkout,
+  // say). It is read once and taken out of the address, so a reload does not
+  // show it again. While it shows, the state is asked again every few
+  // seconds for half a minute: the store tells the service about a payment a
+  // moment after it sends the buyer back, and the plan should change here on
+  // its own. When the current plan changes, the notice has done its job.
+  const { said: saidParam } = Route.useSearch();
+  const [said, setSaid] = useState(saidParam);
+  const [since] = useState(() => Date.now());
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  useEffect(() => {
+    if (saidParam) void navigate({ to: "/studio/plan", search: {}, replace: true });
+  }, [saidParam, navigate]);
   const setup = useQuery(q.setupState());
   const base = setup.data?.billingUrl ?? null;
   const state = useQuery({
     queryKey: ["plan-state", base] as const,
     enabled: !!base,
+    refetchInterval: () => (said && Date.now() - since < 30_000 ? 3_000 : false),
     queryFn: async (): Promise<PlanState> => {
       const res = await fetch(`${base!.replace(/\/+$/, "")}/state`, { credentials: "include", headers: { accept: "application/json" } });
       if (!res.ok) throw new Error(String(res.status));
@@ -79,6 +93,16 @@ function Plan() {
   });
 
   const st = state.data;
+  const firstPlan = useRef<string | null>(null);
+  const nowPlan = st?.current?.name ?? null;
+  useEffect(() => {
+    if (!nowPlan) return;
+    if (firstPlan.current === null) firstPlan.current = nowPlan;
+    else if (nowPlan !== firstPlan.current) {
+      setSaid(undefined);
+      void qc.invalidateQueries({ queryKey: q.me().queryKey });
+    }
+  }, [nowPlan, qc]);
   const [yearly, setYearly] = useState(false);
   const hasYearly = !!st?.plans.some((p) => p.yearly);
   const cur = st?.plans.find((p) => p.current);

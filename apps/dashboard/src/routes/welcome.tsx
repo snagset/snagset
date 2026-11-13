@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Gate } from "@/components/app/Gate";
-import { InstallTag } from "@/components/app/InstallTag";
+import { InstallWays } from "@/components/app/InstallTag";
 import { api, ApiFailure } from "@/lib/api";
 import { rememberAuth } from "@/lib/auth";
 import { q } from "@/lib/query";
@@ -228,11 +228,9 @@ function Welcome() {
           <Card className="gap-4 p-7">
             <div>
               <h1 className="m-0 text-[21px] font-semibold leading-tight tracking-tight">Install the widget</h1>
-              <p className="m-0 mt-2 text-muted-foreground">
-                Paste this before <code className="font-mono">&lt;/body&gt;</code> on every page you want reviewed, and deploy.
-              </p>
+              <p className="m-0 mt-2 text-muted-foreground">Pick how your site is built, add it, and deploy.</p>
             </div>
-            <InstallTag uid={site.uid} />
+            <InstallWays uid={site.uid} />
             <div className="flex items-center">
               <Button type="button" variant="ghost" onClick={() => setStep(1)}>
                 <ArrowLeftIcon />

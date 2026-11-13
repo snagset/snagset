@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { CopyButton } from "@/components/app/CopyButton";
-import { InstallTag } from "@/components/app/InstallTag";
+import { InstallWays } from "@/components/app/InstallTag";
 import { RoundsSettings } from "@/components/app/RoundsSettings";
 import { Switch } from "@/components/ui/switch";
 import { AdminsOnly, PageHeader, SettingsRow } from "@/components/app/parts";
@@ -150,11 +150,8 @@ function SiteSettings() {
           </RadioGroup>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label>The tag</Label>
-          <InstallTag uid={site.uid} />
-          <p className="m-0 text-[12px] text-muted-foreground">
-            Paste it before <code className="font-mono">&lt;/body&gt;</code> on every page you want reviewed.
-          </p>
+          <Label>Install</Label>
+          <InstallWays uid={site.uid} />
         </div>
       </SettingsRow>
 
