@@ -121,7 +121,8 @@ by default.
 
 ## Where it goes
 
-**Your server.** That is the whole answer. The widget talks to the instance it
+**Your Snagset.** That is the whole answer: `cloud.snagset.com` on Snagset
+Cloud, your own server if you host it. The widget talks to the address it
 was served from — or the one named in `data-snag-host` — and to nothing else. No
 analytics endpoint, no error reporter, no CDN. There is no telemetry, and the configuration variable that
 would enable it exists only so the boot validator can refuse to turn it on.
@@ -135,7 +136,7 @@ script-src 'self'
 ```
 
 That is the whole change, and only if your policy does not already permit
-same-origin scripts. The widget is served by your own instance and talks back
+same-origin scripts. The widget is served from your Snagset and talks back
 to that same origin, so there is no third party in the picture; its styles live
 inside a shadow root, so no `unsafe-inline` is needed for them.
 

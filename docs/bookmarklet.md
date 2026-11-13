@@ -11,7 +11,8 @@ Drag this to your bookmarks bar, or make a new bookmark with this as the URL:
 javascript:(function(){var s=document.createElement('script');s.src='https://review.example.com/snag.js';s.setAttribute('data-snag-site','prj_…');document.head.appendChild(s);})()
 ```
 
-Replace the URL with your instance and the uid with your site's. The dashboard's
+Replace the URL with your Snagset (`https://cloud.snagset.com` on Snagset
+Cloud) and the uid with your site's. The dashboard's
 **Sites** screen prints a ready-made one.
 
 Click it on any page and the toolbar appears. Press **Alt + C** to start
@@ -40,7 +41,8 @@ to solve.
 The bookmarklet loads the widget, but the widget still has to talk to your
 server, and your server only accepts the addresses on the site's allow-list.
 
-If nothing happens after you comment, that is why:
+If nothing happens after you comment, that is why. Add the site's address in
+the site's **Settings**, under **Also allowed**, or, if you host it yourself:
 
 ```bash
 snagset allow-origin prj_… https://the-site-you-are-on.com

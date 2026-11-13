@@ -15,10 +15,19 @@ Paste this immediately before `</body>`:
 
 Both parts matter, and the dashboard's **Sites** screen prints them filled in:
 
-- **`src`** points at your Snagset instance. The stub finds everything else —
+- **`src`** points at your Snagset instance: `cloud.snagset.com` on Snagset
+  Cloud, your own address if you host it. The stub finds everything else —
   the lazy chunks, the API — relative to its own `src`, so this is the only
   address you write.
 - **`data-snag-site`** says which of your sites a comment belongs to.
+
+Where "before `</body>`" is depends on the platform. There are step-by-step
+guides for [WordPress](https://snagset.com/install/wordpress/),
+[Webflow](https://snagset.com/install/webflow/),
+[Shopify](https://snagset.com/install/shopify/),
+[Framer](https://snagset.com/install/framer/),
+[Squarespace](https://snagset.com/install/squarespace/) and
+[React or Next.js](https://snagset.com/install/react-nextjs/).
 
 There is no third thing. The widget talks to the origin it was served from, so
 the `src` is both where the code comes from and where the comments go. Add
@@ -45,11 +54,15 @@ The page's address has to be on that site's allow-list. This is the most common
 reason a correct-looking install appears to do nothing: the widget loads, the
 toolbar works, comments are written, and every request is refused.
 
+The site's domain already covers every subdomain, scheme and port of it, and
+`localhost` always works. Anything else, such as a preview URL on another
+domain, goes in the site's **Settings**, under **Also allowed**.
+
+On your own server, the CLI does the same:
+
 ```bash
 snagset allow-origin prj_… https://staging.acme.com
 ```
-
-Or add it beside the site's name on the **Sites** screen.
 
 ### Trying it with no server at all
 

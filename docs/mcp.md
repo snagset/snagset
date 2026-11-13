@@ -22,7 +22,7 @@ studio, and the owner can revoke any of them. A member may tick every scope:
 none of them reaches past what a member can do, because an agent never
 resolves, assigns, makes a thread team-only or deletes, whoever minted it.
 
-Or on the machine running your instance:
+Or, if you host it yourself, on the machine running the server:
 
 ```bash
 snagset mcp-token create "Claude Code"
@@ -152,7 +152,7 @@ write scope.
 
 Everything above runs the MCP server on your own machine, where the checkout
 is. An agent that is somewhere else — hosted, a CI job, a colleague's laptop
-that never cloned the repo — can talk to your instance directly instead, at
+that never cloned the repo — can talk to your Snagset directly instead, at
 `POST /mcp`, with the same token as a bearer:
 
 ```bash
@@ -181,4 +181,4 @@ set `SNAGSET_MCP_HTTP_ENABLED` in the instance's environment — to `true` or
 The MCP server holds no database connection. Every read goes through the same
 `/api/v1` routes with the same authorisation as any other caller, so a bug in it
 cannot read a thread its token could not already read. It runs on your machine,
-talks to your instance, and stores nothing.
+talks to your Snagset, and stores nothing.

@@ -1,8 +1,8 @@
 # The dashboard
 
 The widget is where a client leaves comments. The dashboard is where your studio
-works through them. It is served by your own instance, on the same address as
-the widget, and it is built around two nouns: **sites** and **comments**.
+works through them. It lives at the same address as the widget (`cloud.snagset.com` on
+Snagset Cloud, your own address if you host it), and it is built around two nouns: **sites** and **comments**.
 
 ## Sites
 

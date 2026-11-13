@@ -55,7 +55,7 @@ A link carries:
 - **Optionally a round**, so the link lands on the round you meant
 
 Mint one on the dashboard — the site's **Reviewers** screen, where it is shown
-once and can be revoked — or on the machine running your instance:
+once and can be revoked — or, if you host it yourself, on the machine running the server:
 
 ```bash
 snagset link prj_… "Ana at Acme"

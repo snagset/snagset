@@ -6,6 +6,7 @@ import { csrfOk, type OwnerClaims } from "./owner.ts";
 import { can } from "@snagset/types/roles";
 import { isStudioModerator } from "../studioReviewers.ts";
 import { maintenance } from "../db/scope.ts";
+import { releaseAttachments } from "../storage/release.ts";
 
 /**
  * Editing and deleting a comment — 05 endpoints 12 and 13, the tombstone.
@@ -305,6 +306,9 @@ export function commentEditRoutes(deps: CommentEditDeps): Hono<Env> {
                updated_at = now()
          WHERE id = ${row.thread_id}::uuid
       `;
+      // A picture bound to this comment goes with it, and its bytes come off
+      // the site's count (storage/release.ts).
+      await releaseAttachments(tx, { comment: row.id });
       return tx<Row[]>`
         UPDATE comments SET body = NULL, deleted_at = now()
          WHERE id = ${row.id}::uuid

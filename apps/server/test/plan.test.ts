@@ -8,6 +8,9 @@ import { migrate } from "../src/db/migrate.ts";
 import { createApp } from "../src/app.ts";
 import { hashPassword } from "../src/routes/owner.ts";
 import { invalidateLimits, normaliseLimits } from "../src/plan.ts";
+import { runDueJobs } from "../src/jobs/index.ts";
+import { collectDeletedAttachments } from "../src/jobs/reaper.ts";
+import type { Bucket } from "../src/storage/bucket.ts";
 import { HTTP_HEADER } from "@snagset/types/names";
 import { accept, invite, join } from "./join.ts";
 import { createServer as createHttp, type Server as HttpServer } from "node:http";
@@ -222,4 +225,104 @@ test("the studio's picture storage: the plan's bytes bite in the upload route be
   } finally {
     bucket.server.close();
   }
+});
+
+test("deleting a thread gives its picture's space back at once, and the reaper takes the file out of the bucket", { skip }, async () => {
+  const bucket = await fakeBucket();
+  try {
+    const connected = await free.request("/api/v1/instance/storage", { method: "PUT", headers: as(owner), body: JSON.stringify({ endpoint: bucket.url, bucket: "pics", accessKeyId: "k", secretAccessKey: "s" }) });
+    assert.equal(connected.status, 200, await connected.clone().text());
+    const exchange = await free.request(`/api/v1/projects/${uid}/sessions`, {
+      method: "POST",
+      headers: { ...json, Origin: "https://kilnwork.test" },
+      body: JSON.stringify({ identity: { kind: "guest", name: "Dana", secret: "fedcba9876543210fedcba9876543210" } }),
+    });
+    assert.equal(exchange.status, 201, await exchange.clone().text());
+    const guest = { Authorization: `Bearer ${((await exchange.json()) as any).sessionToken as string}`, Origin: "https://kilnwork.test" };
+    invalidateLimits();
+    const before_ = (await me(free)).limits.storage.used as number;
+
+    // The whole path a reviewer's screenshot takes: uploaded, then bound by the thread that names it.
+    const picture = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 7, 7, 7]);
+    const stored = await free.request(`/api/v1/projects/${uid}/attachments`, { method: "POST", headers: { ...guest, "content-type": "image/png" }, body: picture });
+    assert.equal(stored.status, 201, await stored.clone().text());
+    const att = ((await stored.json()) as { id: string }).id;
+    const posted = await free.request(`/api/v1/projects/${uid}/threads`, {
+      method: "POST",
+      headers: { ...guest, ...json },
+      body: JSON.stringify({
+        comment: { body: "The hero image is cropped." },
+        anchor: { offset: { x: 0.5, y: 0.5 }, page: { route: "/", pathname: "/", origin: "https://kilnwork.test" } },
+        context: { url: "https://kilnwork.test/" },
+        attachments: [att],
+      }),
+    });
+    assert.equal(posted.status, 201, await posted.clone().text());
+    const threadId = ((await posted.json()) as { id: string }).id;
+    const rowOf = async () => (await sql<{ state: string; deleted_at: Date | null; bound_at: Date | null; storage_key: string }[]>`
+      SELECT state, deleted_at, bound_at, storage_key FROM attachments WHERE id = ${att.replace(/^att_/, "")}`)[0]!;
+    assert.equal((await rowOf()).state, "bound", "the thread took the picture");
+    assert.equal((await me(free)).limits.storage.used, before_ + picture.length, "counted while it is there");
+
+    const gone = await free.request(`/api/v1/projects/${uid}/threads/${threadId}`, { method: "DELETE", headers: as(owner) });
+    assert.equal(gone.status, 204, await gone.clone().text());
+    assert.equal((await me(free)).limits.storage.used, before_, "the room is back as soon as the thread is deleted");
+    assert.ok((await rowOf()).deleted_at, "marked deleted");
+
+    // The reaper's half: the file leaves the bucket, and a bucket that refuses leaves the row to be tried again.
+    const asked: string[] = [];
+    let refuse = true;
+    const stub: Bucket = {
+      put: async () => {},
+      get: async () => null,
+      del: async (k) => {
+        asked.push(k);
+        if (refuse) throw new Error("the bucket said no");
+      },
+      probe: async () => ({ ok: true }),
+    };
+    const at = new Date(Date.now() + 3_600_000);
+    const first = await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => at });
+    assert.deepEqual(first.failed, []);
+    assert.equal((await rowOf()).state, "bound", "refused by the bucket: still waiting, not written off");
+    refuse = false;
+    const second = await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => new Date(at.getTime() + 3_600_000) });
+    assert.deepEqual(second.failed, [], "the job itself did not fail");
+    const after_ = await rowOf();
+    assert.deepEqual(asked, [after_.storage_key, after_.storage_key], "the bucket is asked for exactly this file");
+    assert.equal(after_.state, "orphaned");
+    assert.equal(after_.bound_at, null);
+    assert.equal((await me(free)).limits.storage.used, before_, "the reaper does not give the bytes back a second time");
+    await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => new Date(at.getTime() + 7_200_000) });
+    assert.equal(asked.length, 2, "and it is not collected twice");
+  } finally {
+    bucket.server.close();
+  }
+});
+
+test("a picture deleted the old way, still counted, is given back by the reaper when it collects it, once; a live one is left", { skip }, async () => {
+  // The state only an older version could leave (deleted, never subtracted), so it is written here and not made through a route.
+  const [p] = await sql<{ id: string; org_id: string }[]>`SELECT id, org_id FROM projects WHERE uid = ${uid}`;
+  const [t] = await sql<{ id: string }[]>`SELECT id FROM threads WHERE project_id = ${p!.id} LIMIT 1`;
+  const row = (key: string, bytes: number, deleted: boolean) => sql`
+    INSERT INTO attachments (id, org_id, project_id, thread_id, kind, state, bound_at, storage_key, content_type, bytes, sha256, deleted_at)
+    VALUES (${randomUUID()}, ${p!.org_id}, ${p!.id}, ${t!.id}, 'screenshot', 'bound', now(),
+            ${key}, 'image/png', ${bytes}, ${Buffer.alloc(32, bytes % 251)}, ${deleted ? new Date() : null})`;
+  await row("k/old-deleted", 1000, true);
+  await row("k/live", 300, false);
+  await sql`UPDATE projects SET storage_bytes_used = 1300 WHERE id = ${p!.id}`;
+
+  const asked: string[] = [];
+  const stub: Bucket = { put: async () => {}, get: async () => null, del: async (k) => void asked.push(k), probe: async () => ({ ok: true }) };
+  const used = async () => Number((await sql<{ used: string }[]>`SELECT storage_bytes_used AS used FROM projects WHERE id = ${p!.id}`)[0]!.used);
+  const at = Date.now() + 24 * 3_600_000;
+  const first = await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => new Date(at) });
+  assert.deepEqual(first.failed, []);
+  assert.deepEqual(asked, ["k/old-deleted"], "only the deleted one leaves the bucket");
+  assert.equal(await used(), 300, "its bytes come off, and the live picture's stay");
+  await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => new Date(at + 3_600_000) });
+  assert.equal(await used(), 300, "and not a second time");
+  const [was] = await sql<{ state: string; released_at: Date | null }[]>`SELECT state, released_at FROM attachments WHERE storage_key = 'k/old-deleted'`;
+  assert.equal(was!.state, "orphaned");
+  assert.ok(was!.released_at, "marked as given back");
 });

@@ -26,6 +26,7 @@ import { queueIntegrationEvent } from "../integrations/outbox.ts";
 import { inOrg } from "../db/scope.ts";
 import { isStudioModerator } from "../studioReviewers.ts";
 import { can } from "@snagset/types/roles";
+import { releaseAttachments } from "../storage/release.ts";
 
 /**
  * The widget's routes, cut to what the walking skeleton needs:
@@ -1823,11 +1824,12 @@ export function threadRoutes(
    * ── WHAT ELSE GOES WITH IT ──
    *
    *   · Its attachments get `deleted_at`, so the blob route stops serving the
-   *     screenshot and Sites stops using it as the card's face. The BYTES stay
-   *     in the bucket and `storage_bytes_used` is not decremented: no job
-   *     collects soft-deleted attachments yet (the reaper only orphans
-   *     never-bound uploads), and the counter is the bucket's truth, not the
-   *     rows'. Collecting them is a reaper step that does not exist.
+   *     screenshot and Sites stops using it as the card's face. Their bytes
+   *     come off `storage_bytes_used` in the same transaction, so deleting
+   *     makes room at once, and the reaper takes the blobs out of the bucket
+   *     on its next tick (storage/release.ts, `collect-deleted-attachments`).
+   *     So the words can be restored by an operator and the pictures cannot:
+   *     "it is the expensive part".
    *   · Its PENDING outbox rows are dropped — a "new reply" mail still inside
    *     its debounce window would otherwise go out quoting a thread the studio
    *     just removed, because the mail worker sends the body it was queued
@@ -1971,12 +1973,8 @@ export async function softDeleteThreads(
   const ids = gone.map((g) => g.id);
   // The thread's own pictures and any bound to its comments:
   // section A6 hangs an attachment off exactly one of the two.
-  await tx`
-    UPDATE attachments SET deleted_at = now()
-     WHERE deleted_at IS NULL
-       AND (thread_id = ANY(${ids}::uuid[])
-            OR comment_id IN (SELECT id FROM comments WHERE thread_id = ANY(${ids}::uuid[])))
-  `;
+  // Marked, and their bytes given back to the site's count (storage/release.ts).
+  await releaseAttachments(tx, { threads: ids });
   await tx`
     UPDATE outbox
        SET status = 'dropped', last_error = ${reason}, completed_at = now()

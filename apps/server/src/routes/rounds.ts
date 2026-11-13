@@ -252,8 +252,10 @@ export function roundRoutes(deps: RoundDeps): Hono<Env> {
    * SOFT, both halves: `rounds.deleted_at`, and each thread exactly as the
    * thread DELETE marks one (`softDeleteThreads` — version bumped so every
    * open widget and dashboard drops it on its next poll, screenshots marked,
-   * pending mail dropped). Nothing is removed, so an operator can restore
-   * from the rows; the number is never reused (POST above).
+   * pending mail dropped). The words are kept, so an operator can restore
+   * them from the rows; the pictures are not (their bytes come off the
+   * site's count and the reaper takes them out of the bucket).
+   * The number is never reused (POST above).
    */
   app.delete("/api/v1/rounds/:id", async (c) => {
     const owner = c.get("owner");

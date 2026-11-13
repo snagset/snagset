@@ -195,8 +195,99 @@ export function reapPendingAttachments(bucket: Bucket | null): Job {
   };
 }
 
+/**
+ * The "blob deleted … it is the expensive part" — the pictures of a
+ * deleted thread or comment leave the bucket.
+ *
+ * The delete itself already marked the row and took its bytes off the site's
+ * count (storage/release.ts), so the studio has its room back before this
+ * runs. What is left is ours: bytes in a bucket that no route will serve
+ * again. A row is `bound` with `deleted_at` set exactly until this has dealt
+ * with it, then `orphaned` — the same end state as an upload that never
+ * reached a thread — so one pass never meets the same row twice.
+ *
+ * THE COUNTER MOVES HERE ONLY FOR A PICTURE NOBODY GAVE BACK. `released_at`
+ * (0016) is set by the delete as it subtracts; a deleted picture without it
+ * was deleted by a version that did not (before 0.1.45, or an older server
+ * still running beside this one), and its bytes come off here, in the same
+ * statement that marks it. Once, whichever of the two gets to it.
+ *
+ * Unlike the pending reaper, a delete the bucket refuses LEAVES the row as it
+ * is, to be tried on the next tick: these bytes are known to exist, so marking
+ * the row done while they stay would hide them for good. A missing key is not
+ * a refusal (S3 answers a delete of nothing with success), so a row cannot
+ * get stuck on a blob that is already gone. A refused row is not retried
+ * inside the same run (`more` is false unless the whole batch went).
+ *
+ * With no bucket the job does nothing and says how many are waiting: a studio
+ * that disconnected its bucket still has the rows, and reconnecting it lets
+ * the next tick finish.
+ */
+export function collectDeletedAttachments(bucket: Bucket | null): Job {
+  return {
+    name: "collect-deleted-attachments",
+    everyMs: 5 * 60_000,
+    async run({ sql, log }: JobContext): Promise<JobOutcome> {
+      const rows = await sql<{ id: string; storage_key: string }[]>`
+        SELECT id, storage_key
+          FROM attachments
+         WHERE state = 'bound' AND deleted_at IS NOT NULL
+         ORDER BY deleted_at, id
+         LIMIT ${BATCH}
+      `;
+      if (!rows.length) return { did: 0 };
+      if (!bucket) {
+        return { did: 0, note: `${rows.length} deleted attachment(s) and no bucket to take them out of` };
+      }
+
+      let collected = 0;
+      for (const row of rows) {
+        try {
+          await bucket.del(row.storage_key);
+        } catch (e) {
+          log(`jobs: collect-deleted-attachments: delete ${row.storage_key} failed: ${String(e)}`);
+          continue;
+        }
+        // What goes with the state, by the table's CHECKs: only a bound row
+        // has `bound_at`, and only a bound row names a thread or a comment.
+        // The row that is left says a picture of this size was here, in
+        // this site, and no longer says where. One statement: the row is
+        // locked, marked, and its bytes subtracted only if they never were.
+        await sql`
+          WITH old AS (
+            SELECT id, project_id, bytes, released_at
+              FROM attachments
+             WHERE id = ${row.id} AND state = 'bound' AND deleted_at IS NOT NULL
+               FOR UPDATE
+          ),
+          done AS (
+            UPDATE attachments a
+               SET state = 'orphaned', bound_at = NULL, thread_id = NULL, comment_id = NULL,
+                   released_at = COALESCE(a.released_at, now())
+              FROM old
+             WHERE a.id = old.id
+            RETURNING old.project_id, old.bytes, old.released_at AS was
+          )
+          UPDATE projects p
+             SET storage_bytes_used = GREATEST(0, p.storage_bytes_used - done.bytes)
+            FROM done
+           WHERE p.id = done.project_id AND done.was IS NULL
+        `;
+        collected++;
+      }
+      // More only when the whole batch went: a batch of refusals would
+      // otherwise be asked for again and again inside one tick.
+      return {
+        did: collected,
+        more: rows.length === BATCH && collected === rows.length,
+        ...(collected < rows.length ? { note: `${rows.length - collected} could not be deleted from the bucket and will be tried again` } : {}),
+      };
+    },
+  };
+}
+
 /** The L1 set, in the order a tick runs them: cheapest and most
  *  user-visible first, so a budget that runs out costs the least. */
 export function l1Jobs(bucket: Bucket | null): Job[] {
-  return [writeModeDowngrade, expireRows, reapPendingAttachments(bucket)];
+  return [writeModeDowngrade, expireRows, reapPendingAttachments(bucket), collectDeletedAttachments(bucket)];
 }
