@@ -1,4 +1,5 @@
 import { wrongPasswords } from "./wrongPasswords.ts";
+import { capsFrom } from "./mail/budget.ts";
 import { callerMiddleware } from "./net/caller.ts";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
@@ -831,6 +832,7 @@ export function createApp(deps: Deps): Hono<Env> {
       origin: ownerDeps.origin,
       secure: ownerDeps.secure,
       wrong,
+      caps: capsFrom(cfg),
     }),
   );
   app.route("/", memberRoutes({ sql }));

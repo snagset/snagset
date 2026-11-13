@@ -452,3 +452,40 @@ test("mailing the link: sent inline, only with the link it was shown, with the p
   const nowhere = await post(`/api/v1/members/invites/${o.invite.id}/send`, { token: o.token });
   assert.equal(nowhere.status, 400, "an invite with no address has nowhere to go");
 });
+
+test("An invite's send counts against the studio's day, and a full day refuses with 429 and says what to do", { skip }, async () => {
+  await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    await tx`DELETE FROM rate_counters`;
+  });
+  const sent: Mail[] = [];
+  const routes = inviteRoutes({
+    sql,
+    limits: async () => ({ ...UNLIMITED, source: "default" }),
+    address: async () => "https://snag.kilnwork.test/",
+    mailer: async () => ({ kind: "http", from: "studio@kilnwork.test", send: async (m: Mail) => (sent.push(m), { id: "m" }) }),
+    origin: "https://snag.kilnwork.test",
+    secure: true,
+    caps: { studio: 1, owner: 0 },
+  });
+  const mailApp = new Hono();
+  mailApp.use("*", async (c, next) => {
+    c.set("requestId" as never, "r1" as never);
+    c.set("owner" as never, { userId: ownerId, orgId, email: "owner@kilnwork.test", name: "Edith", sessionId: "s1", role: "owner" } as never);
+    await next();
+  });
+  mailApp.route("/", routes);
+  const post = (path: string, body: unknown) => mailApp.request(path, { method: "POST", headers: json, body: JSON.stringify(body) });
+  const make = async (email: string) => (await (await post("/api/v1/members/invites", { role: "member", email })).json()) as { invite: { id: string }; token: string };
+
+  const a = await make(`cap-a-${randomUUID().slice(0, 6)}@kilnwork.test`);
+  assert.equal((await post(`/api/v1/members/invites/${a.invite.id}/send`, { token: a.token })).status, 200);
+  const b = await make(`cap-b-${randomUUID().slice(0, 6)}@kilnwork.test`);
+  const over = await post(`/api/v1/members/invites/${b.invite.id}/send`, { token: b.token });
+  assert.equal(over.status, 429);
+  const body = (await over.json()) as { error: { code: string; message: string } };
+  assert.equal(body.error.code, "quota_exceeded");
+  assert.match(body.error.message, /Copy the link/);
+  assert.ok(Number(over.headers.get("Retry-After")) > 23 * 3600, "Retry-After says when the day turns");
+  assert.equal(sent.length, 1, "the refused one was not sent");
+});

@@ -1,4 +1,5 @@
 import { test, before, after } from "node:test";
+import type { MailCaps } from "../src/mail/budget.ts";
 import assert from "node:assert/strict";
 import type postgres from "postgres";
 import { randomUUID, randomBytes } from "node:crypto";
@@ -166,12 +167,14 @@ async function resetSubscriptions(): Promise<void> {
 }
 
 /** Send everything currently queued, and report what went out. */
-async function drain(): Promise<Mail[]> {
+async function drain(caps?: MailCaps): Promise<Mail[]> {
   const sent: Mail[] = [];
   const job = deliverEmail(
     { kind: "http" as const, send: async (m: Mail) => { sent.push(m); return { id: "x" }; } } as never,
     async () => "https://review.example.com",
     createKeyring(SECRET),
+    "each",
+    caps,
   );
   /**
    * A few seconds AHEAD, and the reason is not laziness.
@@ -342,4 +345,49 @@ test("the rate counter stores a HASH, never the address", { skip }, async () => 
     assert.ok(!k.bucket_key.includes("@"), `an address leaked into ${k.bucket_key}`);
     assert.ok(!k.bucket_key.includes("example.test"));
   }
+});
+
+test("A studio over its daily mail waits for the day to turn; nothing is dropped", { skip }, async () => {
+  await resetSubscriptions();
+  await queueFrom(ada, randomUUID());
+  const [queued] = await sql<{ n: string }[]>`SELECT count(*)::text AS n FROM outbox WHERE status = 'pending'`;
+  assert.ok(Number(queued!.n) >= 2, "the comment is news to at least two people");
+
+  const sent = await drain({ studio: 1, owner: 0 });
+  assert.equal(sent.length, 1, "one mail, the studio's day");
+  const held = await sql<{ status: string; last_error: string; next_attempt_at: Date }[]>`
+    SELECT status, last_error, next_attempt_at FROM outbox WHERE status = 'pending'`;
+  assert.equal(held.length, Number(queued!.n) - 1, "the rest are still pending, not dropped or failed");
+  const charged = await sql<{ attempts: number }[]>`SELECT attempts FROM outbox WHERE status = 'pending'`;
+  assert.ok(charged.every((r) => r.attempts === 0), "a deferral is not a failed attempt: none of them is charged one");
+  for (const h of held) {
+    assert.equal(h.last_error, "studio over its daily mail");
+    assert.ok(h.next_attempt_at.getTime() > Date.now() + 23 * 3_600_000, "they are due when the day turns");
+  }
+
+  // With no limit set, as every self-hosted server is by default, the same
+  // rows go at once once they are due.
+  await sql`UPDATE outbox SET next_attempt_at = now() WHERE status = 'pending'`;
+  const rest = await drain();
+  assert.equal(rest.length, held.length);
+});
+
+test("One refusal moves all of the studio's due mail to the turn, so its backlog cannot hold the queue", { skip }, async () => {
+  await resetSubscriptions();
+  for (let i = 0; i < 3; i++) await queueFrom(ada, randomUUID());
+  const sent: Mail[] = [];
+  const job = deliverEmail(
+    { kind: "http" as const, send: async (m: Mail) => { sent.push(m); return { id: "x" }; } } as never,
+    async () => "https://review.example.com",
+    createKeyring(SECRET),
+    "each",
+    { studio: 1, owner: 0 },
+  );
+  const at = new Date(Date.now() + 5_000);
+  await job.run({ sql, now: at, log: () => {} } as never); // the day's one mail
+  await job.run({ sql, now: at, log: () => {} } as never); // the refusal
+  assert.equal(sent.length, 1);
+  const [due] = await sql<{ n: string }[]>`
+    SELECT count(*)::text AS n FROM outbox WHERE status = 'pending' AND next_attempt_at <= ${at}`;
+  assert.equal(Number(due!.n), 0, "nothing of that studio is left due after ONE refusal");
 });

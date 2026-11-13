@@ -1,4 +1,5 @@
 import type { AddressSource } from "../instance/address.ts";
+import { noCaps, spendMail, type MailCaps } from "./budget.ts";
 import { createHash, randomUUID } from "node:crypto";
 import type postgres from "postgres";
 import { sanitise, sanitiseWithRedactor } from "@snagset/adapters";
@@ -391,6 +392,7 @@ export function deliverEmail(
   address: AddressSource,
   keys?: Keyring,
   notify: NotifyMode = "each",
+  caps: MailCaps = noCaps,
 ): Job {
   return {
     name: "deliver-email",
@@ -428,7 +430,7 @@ export function deliverEmail(
       // An assignment is delivered as a BATCH — this row and every
       // other due one for the same address — by its own path below.
       if (row.topic === ASSIGNED_TOPIC) {
-        return deliverAssigned(sql, row as unknown as ClaimedRow, { mailer, keys, baseUrl, now, log });
+        return deliverAssigned(sql, row as unknown as ClaimedRow, { mailer, keys, baseUrl, now, log, caps, notify });
       }
 
       /**
@@ -483,6 +485,13 @@ export function deliverEmail(
            WHERE id = ${row.id}`;
         return { did: 0, more: true, note: "one notification deferred — address over its hourly rate" };
       }
+      // The studio's day, and its owner's. Checked last, so a row that
+      // would be dropped anyway spends nothing of the day.
+      const day = await spendMail(sql, row.org_id, caps, now);
+      if (day) {
+        const n = await deferDay(sql, row.org_id, [row.id], day, now, notify);
+        return { did: 0, more: true, note: `${n} notification(s) deferred — studio over its daily mail` };
+      }
 
       // The digest is its own message (`digest.ts`); every other row links
       // to its thread, read now — outside the `try`, because a failing read
@@ -531,7 +540,7 @@ export function deliverEmail(
 async function deliverAssigned(
   sql: postgres.Sql | postgres.TransactionSql,
   row: ClaimedRow,
-  o: { mailer: Mailer; keys: Keyring | undefined; baseUrl: string; now: Date; log: (m: string) => void },
+  o: { mailer: Mailer; keys: Keyring | undefined; baseUrl: string; now: Date; log: (m: string) => void; caps: MailCaps; notify: NotifyMode },
 ): Promise<JobOutcome> {
   const { now } = o;
   const to = await assignedRecipient(sql, row);
@@ -554,6 +563,11 @@ async function deliverAssigned(
       UPDATE outbox SET status = 'pending', next_attempt_at = ${over}, last_error = 'rate limited for this address'
        WHERE id = ANY(${ids}::uuid[])`;
     return { did: 0, more: true, note: "one assignment mail deferred — address over its hourly rate" };
+  }
+  const day = await spendMail(sql, row.org_id, o.caps, now);
+  if (day) {
+    const n = await deferDay(sql, row.org_id, ids, day, now, o.notify);
+    return { did: 0, more: true, note: `${n} mail(s) deferred — studio over its daily mail` };
   }
 
   const mail = renderAssigned(live, to.email, o.baseUrl);
@@ -579,6 +593,37 @@ async function deliverAssigned(
     o.log(`jobs: deliver-email: assignment mail attempt ${row.attempts} failed: ${message}`);
     return { did: 0, more: true };
   }
+}
+
+/**
+ * A studio is over its day, so EVERY row of that studio the job could
+ * claim before the day turns is moved to the turn in one statement, and the
+ * claimed rows get back the attempt the claim charged them.
+ *
+ * One row at a time would be wrong twice over. Each deferral would spend a
+ * pass of the job, so a studio with a large backlog, all of it due at the
+ * same turn, would sit at the head of the queue and hold every other
+ * studio's mail back for hours. And a deferral is not a failed send: left
+ * charged, a row put off for a few days would meet one provider error and be
+ * `failed` with nothing wrong with it.
+ */
+async function deferDay(
+  sql: postgres.Sql | postgres.TransactionSql,
+  orgId: string,
+  claimed: readonly string[],
+  day: Date,
+  now: Date,
+  notify: NotifyMode,
+): Promise<number> {
+  const moved = await sql`
+    UPDATE outbox
+       SET status = 'pending', next_attempt_at = ${day}, last_error = 'studio over its daily mail',
+           attempts = CASE WHEN id = ANY(${claimed}::uuid[]) THEN GREATEST(attempts - 1, 0) ELSE attempts END
+     WHERE org_id = ${orgId} AND provider = 'email'
+       AND (id = ANY(${claimed}::uuid[])
+            OR (status = 'pending' AND next_attempt_at < ${day}
+                ${notify === "digest" ? sql`AND NOT (topic = ${TOPIC} AND event->>'toReviewer' IS NULL)` : sql``}))`;
+  return moved.count;
 }
 
 /**

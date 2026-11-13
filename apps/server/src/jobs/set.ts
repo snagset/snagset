@@ -4,6 +4,7 @@ import type { Keyring } from "../keys.ts";
 import { addressSource } from "../instance/address.ts";
 import { resolveMailer } from "../mail/resolve.ts";
 import { deliverEmail, type NotifyMode } from "../mail/notify.ts";
+import { capsFrom } from "../mail/budget.ts";
 import { buildDigests } from "../mail/digest.ts";
 import { pushToTrackers, type PushDeps } from "../integrations/outbox.ts";
 import { getBucket } from "../storage/settings.ts";
@@ -62,7 +63,7 @@ export function jobSet(d: JobSetDeps): JobSet {
 
   const outbox = async (): Promise<Job[]> => [
     // The environment first, then the transport connected on Studio › General.
-    deliverEmail((await resolveMailer(d.sql, d.keys, d.cfg)).status, address, d.keys, notify),
+    deliverEmail((await resolveMailer(d.sql, d.keys, d.cfg)).status, address, d.keys, notify, capsFrom(d.cfg)),
     pushToTrackers(d.sql, push),
   ];
 

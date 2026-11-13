@@ -17,7 +17,7 @@ export interface VarRow {
   readonly section: string;
 }
 
-/** 83 variables, parsed. */
+/** 85 variables, parsed. */
 export const REGISTRY: readonly VarRow[] = [
   { name: "SNAGSET_BASE_URL", type: "url", default: "http://localhost:8080", required: false, oneOf: null, secret: false, section: "4.2" },
   { name: "SNAGSET_PORT", type: "int", default: "8080", required: false, oneOf: null, secret: false, section: "4.2" },
@@ -77,6 +77,8 @@ export const REGISTRY: readonly VarRow[] = [
   { name: "SNAGSET_MAIL_FROM", type: "email", default: null, required: false, oneOf: null, secret: false, section: "4.8" },
   { name: "SNAGSET_MAIL_NOTIFY", type: "enum", default: "digest", required: false, oneOf: ["digest", "each"], secret: false, section: "4.8" },
   { name: "SNAGSET_ASSIGN_MAIL_DELAY_S", type: "int", default: "3600", required: false, oneOf: null, secret: false, section: "4.8" },
+  { name: "SNAGSET_MAIL_STUDIO_DAILY", type: "int", default: "0", required: false, oneOf: null, secret: false, section: "4.8" },
+  { name: "SNAGSET_MAIL_OWNER_DAILY", type: "int", default: "0", required: false, oneOf: null, secret: false, section: "4.8" },
   { name: "SNAGSET_OAUTH_GITHUB_CLIENT_ID", type: "string", default: null, required: false, oneOf: null, secret: false, section: "4.8" },
   { name: "SNAGSET_OAUTH_GITHUB_CLIENT_SECRET", type: "string", default: null, required: false, oneOf: null, secret: true, section: "4.8" },
   { name: "SNAGSET_OAUTH_GOOGLE_CLIENT_ID", type: "string", default: null, required: false, oneOf: null, secret: false, section: "4.8" },

@@ -1,4 +1,5 @@
 import { tooManyWrong, wrongPasswords, type WrongPasswords } from "../wrongPasswords.ts";
+import { noCaps, spendMail, type MailCaps } from "../mail/budget.ts";
 import { callerOf } from "../net/caller.ts";
 import { Hono, type Context } from "hono";
 import { randomUUID, randomBytes, createHash, timingSafeEqual } from "node:crypto";
@@ -93,6 +94,8 @@ export interface InviteDeps {
   now?: () => number;
   /** The count of wrong passwords, shared with `/auth/login`. Absent, the routes keep one of their own. */
   wrong?: WrongPasswords;
+  /** How much mail a studio and its owner may cause in a day. Absent, no limit. */
+  caps?: MailCaps;
 }
 
 /** Seven days, as the request asked. A constant rather than a variable: nobody has asked to tune it, and a setting nobody tunes is a row in for nothing. */
@@ -356,6 +359,12 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
     if (!row.email) return fail(c, 400, "validation_failed", "This invite has no email address to send it to. Copy the link instead.");
     const mailer = await deps.mailer();
     if (!isConfigured(mailer)) return fail(c, 409, "integration_not_configured", "No mail transport is connected yet.");
+    // Counted before the send, as the delivery job counts.
+    const day = await spendMail(sql, owner.orgId, deps.caps ?? noCaps, new Date(now()));
+    if (day) {
+      c.header("Retry-After", String(Math.max(1, Math.ceil((day.getTime() - now()) / 1000))));
+      return fail(c, 429, "quota_exceeded", "This studio has sent all the email it can today. Copy the link instead, or send it tomorrow.");
+    }
     const url = inviteUrl(await deps.address(), token);
     const who = owner.name || owner.email;
     const studio = row.org_name || "a studio";

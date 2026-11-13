@@ -1,4 +1,5 @@
 import { test, before, after, beforeEach } from "node:test";
+import type { MailCaps } from "../src/mail/budget.ts";
 import assert from "node:assert/strict";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
@@ -132,9 +133,9 @@ function recorder(): Mailer & { sent: Mail[] } {
 }
 
 /** Run the delivery job at `at` until it says it is done, and return what went. */
-async function drain(at: Date): Promise<Mail[]> {
+async function drain(at: Date, caps?: MailCaps): Promise<Mail[]> {
   const mailer = recorder();
-  const job = deliverEmail(mailer, async () => BASE, createKeyring(SECRET), "digest");
+  const job = deliverEmail(mailer, async () => BASE, createKeyring(SECRET), "digest", caps);
   for (let i = 0; i < 40; i++) {
     const out = await job.run({ sql, now: at, log: () => {} } as never);
     if (!out.more) break;
@@ -418,4 +419,32 @@ test("SNAGSET_ASSIGN_MAIL_DELAY_S sets the wait", { skip }, async () => {
   const row = (await rows()).at(-1)!;
   const delay = row.next_attempt_at.getTime() - row.created_at.getTime();
   assert.ok(Math.abs(delay - 600_000) < 5_000, `due ten minutes after queueing, was ${delay}ms`);
+});
+
+test("Assignment mail counts against the studio's day, and the whole batch waits for the turn", { skip }, async () => {
+  await sql`DELETE FROM outbox`;
+  await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    await tx`DELETE FROM rate_counters`;
+  });
+  const one = await makeThread(site.a, ada, "Capped one");
+  const two = await makeThread(site.a, ada, "Capped two");
+  await assign(site.a, one, mia);
+  await assign(site.a, two, mia);
+  const sent = await drain(pastTheHour(), { studio: 0, owner: 0 });
+  assert.equal(sent.length, 1, "no limit: one mail for the pair");
+
+  await sql`DELETE FROM outbox`;
+  const three = await makeThread(site.a, ada, "Capped three");
+  await assign(site.a, three, mia);
+  const held = await drain(pastTheHour(), { studio: 1, owner: 0 });
+  assert.equal(held.length, 1, "the first mail of the studio's day goes");
+  await sql`DELETE FROM outbox`;
+  const four = await makeThread(site.a, ada, "Capped four");
+  await assign(site.a, four, mia);
+  const none = await drain(pastTheHour(), { studio: 1, owner: 0 });
+  assert.equal(none.length, 0, "the second waits");
+  const [r] = await rows();
+  assert.equal(r!.status, "pending");
+  assert.equal(r!.last_error, "studio over its daily mail");
 });
