@@ -1,3 +1,5 @@
+import { wrongPasswords } from "./wrongPasswords.ts";
+import { callerMiddleware } from "./net/caller.ts";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFileSync, existsSync, statSync } from "node:fs";
@@ -192,10 +194,13 @@ export function createApp(deps: Deps): Hono<Env> {
   // Declared up here because `/api/v1/setup` uses `secure` to set its cookies
   // and is registered long before the middleware below.
   const baseUrl = new URL(cfg.get("SNAGSET_BASE_URL") ?? "http://localhost:8080");
+  // One count of wrong passwords for every door a password is typed at.
+  const wrong = wrongPasswords(Date.now, () => cfg.bool("SNAGSET_RATE_LIMIT_ENABLED"));
   const ownerDeps = {
     sql,
     limits,
     signupOpen: () => cfg.bool("SNAGSET_SIGNUP_OPEN"),
+    wrong,
     origin: baseUrl.origin,
     // A `Secure` cookie is dropped on plain http, which on a first `npx
     // snagset` run against localhost reads as "login silently does nothing".
@@ -223,6 +228,8 @@ export function createApp(deps: Deps): Hono<Env> {
    * route, because the point is to refuse a body rather than to read one.
    */
   app.use("*", bodyLimit(() => cfg.int("SNAGSET_MAX_BODY_BYTES")));
+  // Who is calling, worked out once, for every per-caller count.
+  app.use("*", callerMiddleware(() => cfg.int("SNAGSET_TRUST_PROXY")));
 
   /**
    * Every scheduled job, built once: the cron route sweeps `all()`, and
@@ -823,6 +830,7 @@ export function createApp(deps: Deps): Hono<Env> {
       mailer: async () => (await resolveMailer(sql, keys, cfg)).status,
       origin: ownerDeps.origin,
       secure: ownerDeps.secure,
+      wrong,
     }),
   );
   app.route("/", memberRoutes({ sql }));

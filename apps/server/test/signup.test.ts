@@ -32,7 +32,7 @@ const cookiesOf = (res: Response) => res.headers.getSetCookie().map((s) => s.spl
 function build(env: Record<string, string>) {
   return createApp({
     sql,
-    cfg: loadConfig({ DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: "https://cloud.snagset.test", ...env }),
+    cfg: loadConfig({ SNAGSET_TRUST_PROXY: "1", DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: "https://cloud.snagset.test", ...env }),
     secretKey: SECRET,
     state: "READY",
     version: "0.0.0-test",

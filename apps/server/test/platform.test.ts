@@ -40,7 +40,7 @@ test("the stable Vercel domain beats the per-deployment one, and anything the op
 
 test("nothing set is nothing done — a laptop stays a laptop", () => {
   const env: Record<string, string | undefined> = {};
-  assert.deepEqual(applyPlatformDefaults(env), { port: null, baseUrl: null, database: null });
+  assert.deepEqual(applyPlatformDefaults(env), { port: null, baseUrl: null, database: null, trustProxy: null });
   assert.equal(Object.keys(env).length, 0);
 });
 
@@ -55,4 +55,16 @@ test("the database comes from POSTGRES_URL when DATABASE_URL is unset — Vercel
   const blank: Record<string, string | undefined> = { POSTGRES_URL: "  " };
   assert.equal(applyPlatformDefaults(blank).database, null);
   assert.equal(blank.DATABASE_URL, undefined);
+});
+
+test("on Vercel one proxy hop is trusted unless the operator said otherwise; nowhere else is it guessed", () => {
+  const vercel: Record<string, string | undefined> = { VERCEL: "1" };
+  assert.equal(applyPlatformDefaults(vercel).trustProxy, "VERCEL");
+  assert.equal(vercel.SNAGSET_TRUST_PROXY, "1");
+  const said: Record<string, string | undefined> = { VERCEL: "1", SNAGSET_TRUST_PROXY: "2" };
+  assert.equal(applyPlatformDefaults(said).trustProxy, null);
+  assert.equal(said.SNAGSET_TRUST_PROXY, "2");
+  const railway: Record<string, string | undefined> = { RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app" };
+  assert.equal(applyPlatformDefaults(railway).trustProxy, null);
+  assert.equal(railway.SNAGSET_TRUST_PROXY, undefined);
 });

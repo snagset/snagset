@@ -1,3 +1,5 @@
+import { MAX_EMAIL_LENGTH, tooManyWrong, wrongPasswords, type WrongPasswords } from "../wrongPasswords.ts";
+import { callerOf } from "../net/caller.ts";
 import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { randomUUID, randomBytes, createHash, timingSafeEqual, scryptSync } from "node:crypto";
 import type postgres from "postgres";
@@ -57,6 +59,8 @@ export interface OwnerClaims {
 
 export interface OwnerDeps {
   sql: postgres.Sql;
+  /** The count of wrong passwords, shared with the invite's accept. Absent, the routes keep one of their own: never none. */
+  wrong?: WrongPasswords;
   /** The org's limits, for `/api/v1/me`: the count against the number, where one exists. */
   limits: LimitsSource;
   /** Whether a signed-in person may make another studio here (`SNAGSET_SIGNUP_OPEN`); the header offers it only then. */
@@ -277,6 +281,7 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
   const app = new Hono<Env>();
   const { sql } = deps;
   const now = deps.now ?? (() => new Date());
+  const wrong = deps.wrong ?? wrongPasswords(() => now().getTime());
 
   /**
    * Sign in. ONE error for every failure — unknown email, wrong password,
@@ -318,6 +323,19 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
       return fail(c, 400, "validation_failed", "Both an email address and a password are required.");
     }
 
+    if (email.length > MAX_EMAIL_LENGTH) {
+      return fail(c, 400, "validation_failed", "That does not look like an email address.");
+    }
+
+    // Counted BEFORE the password is looked at, and refused whatever the
+    // password is: a limit that still answers a right guess is not one.
+    const caller = callerOf(c);
+    const wait = wrong.admit(email, caller);
+    if (wait > 0) {
+      c.header("Retry-After", String(Math.ceil(wait / 1000)));
+      return fail(c, 429, "quota_exceeded", tooManyWrong(wait));
+    }
+
     const [user] = await maintenance(sql, (tx) => tx<{ id: string; org_id: string; email: string; name: string; password_hash: string | null }[]>`
       SELECT id, org_id, email, name, password_hash
       FROM users WHERE email = ${email} AND deleted_at IS NULL
@@ -325,8 +343,15 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
     // `verifyPassword` spends the same work on a missing row as on a wrong
     // password, so this branch costs what the real one costs.
     if (!verifyPassword(password, user?.password_hash ?? null)) {
+      // The attempt stays counted, for the address TYPED whether or not it
+      // is an account: a count kept only for real accounts would say which
+      // addresses are.
       return fail(c, 401, "invalid_credentials", "That email address and password do not match an account.");
     }
+    // Its owner is in: what they mistyped on the way is forgotten. The
+    // caller's other attempts stand, so one right password does not buy
+    // thirty more guesses at somebody else's.
+    wrong.right(email, caller);
 
     const token = randomBytes(32).toString("base64url");
     const csrf = randomBytes(32).toString("base64url");

@@ -251,7 +251,8 @@ order, because each step produces a value the next one wants:
    persist) and `SNAGSET_TRUST_PROXY=1` behind the platform's own proxy, or
    the rate limiter sees one address for everybody. `PORT` and the public
    address are read from the platform. On Vercel instead: the transaction
-   pooler string, `CRON_SECRET`, and `npx snagset migrate` run by you after
+   pooler string, `CRON_SECRET` (`SNAGSET_TRUST_PROXY` sets itself to 1
+   there), and `npx snagset migrate` run by you after
    each upgrade (not as the build command — Vercel fails a build with no
    static output) — see [the Vercel quickstart](one-package); its Hobby plan is
    non-commercial by contract, so a studio is on Pro there.

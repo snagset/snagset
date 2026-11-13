@@ -36,7 +36,7 @@ const as = (a: { cookie: string; csrf: string }) => ({ ...json, Cookie: a.cookie
 function build(planResolver?: Parameters<typeof createApp>[0]["planResolver"]) {
   return createApp({
     sql,
-    cfg: loadConfig({ DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: "https://review.example.dev" }),
+    cfg: loadConfig({ SNAGSET_TRUST_PROXY: "1", DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: "https://review.example.dev" }),
     secretKey: SECRET,
     state: "READY",
     version: "0.0.0-test",

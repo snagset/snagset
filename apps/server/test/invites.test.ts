@@ -64,7 +64,7 @@ before(async () => {
   await sql`DROP SCHEMA IF EXISTS public CASCADE`;
   await sql`CREATE SCHEMA public`;
   await migrate(sql, () => {});
-  const cfg = loadConfig({ DATABASE_URL: URL_!, SNAGSET_BASE_URL: "http://localhost:8080" });
+  const cfg = loadConfig({ SNAGSET_TRUST_PROXY: "1", DATABASE_URL: URL_!, SNAGSET_BASE_URL: "http://localhost:8080" });
   app = createApp({ sql, cfg, secretKey: SECRET, state: "READY", version: "0.0.0-test", commit: "test", sourceUrl: "", modified: false, env: {} });
   orgId = randomUUID();
   ownerId = randomUUID();
@@ -340,6 +340,34 @@ test("an account with no password joins a second studio by being signed in as it
   assert.equal((await app.request("/api/v1/me", { headers: as(dan) })).status, 401, "the session that proved it ended with the join, as a switch ends the one it leaves");
   assert.equal(still!.h, null, "joining gave it no password");
   assert.equal(still!.n, 1, "one account");
+});
+
+test("an invite that names no address is not a place to guess at somebody's password: its wrong ones are sign-in's wrong ones", { skip }, async () => {
+  const otherOrg = randomUUID();
+  const eveId = randomUUID();
+  await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    await tx`INSERT INTO orgs (id, name, slug) VALUES (${otherOrg}, 'Victim', 'victim')`;
+    await tx`INSERT INTO users (id, org_id, email, name, password_hash, email_verified) VALUES (${eveId}, ${otherOrg}, 'eve@victim.test', 'Eve', ${hashPassword(PASSWORD)}, true)`;
+    await tx`INSERT INTO memberships (org_id, user_id, role) VALUES (${otherOrg}, ${eveId}, 'owner')`;
+  });
+  const owner = await login("owner@kilnwork.test");
+  const open = await mint(owner, { role: "member" });
+  // Ten guesses, each from somewhere else, so only the count for the ADDRESS can stop them.
+  for (let i = 0; i < 10; i++) {
+    assert.equal(await code(await accept(app, { token: open.token, email: "eve@victim.test", password: `guess number ${i}` })), "account_exists", `guess ${i + 1}`);
+  }
+  const eleventh = await accept(app, { token: open.token, email: "eve@victim.test", password: PASSWORD });
+  assert.equal(eleventh.status, 429, "the right one, too late");
+  assert.ok(Number(eleventh.headers.get("retry-after")) > 0);
+  const [n] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM memberships WHERE user_id = ${eveId}`;
+  assert.equal(n!.n, 1, "and nobody joined anything");
+  // One count, two doors: sign-in is shut for the address as well.
+  const at = await app.request("/auth/login", { method: "POST", headers: { ...json, "x-forwarded-for": someAddress() }, body: JSON.stringify({ email: "eve@victim.test", password: PASSWORD }) });
+  assert.equal(at.status, 429);
+  // Somebody new on the same link is not held for it.
+  const fresh = await accept(app, { token: open.token, email: "new-here@kilnwork.test", name: "New", password: "a brand new password" });
+  assert.equal(fresh.status, 201, await fresh.clone().text());
 });
 
 test("removing somebody from their HOME studio re-homes them to the one they are still in", { skip }, async () => {

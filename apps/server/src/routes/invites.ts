@@ -1,3 +1,5 @@
+import { tooManyWrong, wrongPasswords, type WrongPasswords } from "../wrongPasswords.ts";
+import { callerOf } from "../net/caller.ts";
 import { Hono, type Context } from "hono";
 import { randomUUID, randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import type postgres from "postgres";
@@ -89,6 +91,8 @@ export interface InviteDeps {
   origin: string;
   secure: boolean;
   now?: () => number;
+  /** The count of wrong passwords, shared with `/auth/login`. Absent, the routes keep one of their own. */
+  wrong?: WrongPasswords;
 }
 
 /** Seven days, as the request asked. A constant rather than a variable: nobody has asked to tune it, and a setting nobody tunes is a row in for nothing. */
@@ -181,10 +185,11 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
   const now = deps.now ?? (() => Date.now());
   const app = new Hono<Env>();
   const attempts = new Map<string, number[]>();
+  const wrong = deps.wrong ?? wrongPasswords(now);
 
   /** orgs.ts's limiter, the same shape: counted before any work, so a flood costs a Map lookup. */
   const overLimit = (c: Ctx): boolean => {
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("x-real-ip")?.trim() || "local";
+    const ip = callerOf(c);
     const t = now();
     const recent = (attempts.get(ip) ?? []).filter((at) => t - at < WINDOW_MS);
     recent.push(t);
@@ -446,8 +451,19 @@ export function inviteRoutes(deps: InviteDeps): Hono<Env> {
       // password. A session for ANOTHER account proves nothing about this one.
       const owner = c.get("owner");
       signedInAsIt = !!owner && owner.userId === existing.id && csrfOk(c);
-      if (!signedInAsIt && !verifyPassword(password, existing.password_hash)) {
-        return fail(c, 409, "account_exists", accountExists(email, inv.org_name), { field: "password" });
+      if (!signedInAsIt) {
+        // A password typed for an account that exists is a sign-in by another
+        // door: the same count as `/auth/login`, or an invite that names no
+        // address is a place to guess at anybody's without one.
+        const wait = wrong.admit(email, callerOf(c));
+        if (wait > 0) {
+          c.header("Retry-After", String(Math.ceil(wait / 1000)));
+          return fail(c, 429, "quota_exceeded", tooManyWrong(wait));
+        }
+        if (!verifyPassword(password, existing.password_hash)) {
+          return fail(c, 409, "account_exists", accountExists(email, inv.org_name), { field: "password" });
+        }
+        wrong.right(email, callerOf(c));
       }
     } else {
       // Twelve, no composition rules — said as setup and sign-up say it.

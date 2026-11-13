@@ -120,7 +120,7 @@ before(async () => {
   build = (extra) =>
     createApp({
       sql,
-      cfg: loadConfig({ DATABASE_URL: u.toString(), SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: BASE, SNAGSET_SIGNUP_OPEN: "true", ...extra }),
+      cfg: loadConfig({ SNAGSET_TRUST_PROXY: "1", DATABASE_URL: u.toString(), SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: BASE, SNAGSET_SIGNUP_OPEN: "true", ...extra }),
       secretKey: SECRET,
       state: "READY",
       version: "0.0.0-test",

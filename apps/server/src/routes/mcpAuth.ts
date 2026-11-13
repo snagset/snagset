@@ -1,3 +1,4 @@
+import { callerOf, UNKNOWN_CALLER } from "../net/caller.ts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Context, MiddlewareHandler } from "hono";
 import type postgres from "postgres";
@@ -129,9 +130,8 @@ export function mcpAuth(sql: postgres.Sql): MiddlewareHandler<McpEnv> {
 }
 
 function hashAddress(c: Context, claims: McpClaims): Buffer | null {
-  const raw =
-    c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("x-real-ip")?.trim() || "";
-  if (!raw) return null;
+  const raw = callerOf(c);
+  if (raw === UNKNOWN_CALLER) return null;
   return createHash("sha256").update(raw, "utf8").update(claims.tokenId, "utf8").digest();
 }
 

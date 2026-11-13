@@ -88,7 +88,7 @@ before(async () => {
 
   app = createApp({
     sql,
-    cfg: loadConfig({ DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET }),
+    cfg: loadConfig({ SNAGSET_TRUST_PROXY: "1", DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET }),
     secretKey: SECRET,
     state: "READY",
     version: "0.0.0-test",

@@ -31,12 +31,24 @@ export interface PlatformDefaults {
   baseUrl: { value: string; from: string } | null;
   /** The variable `DATABASE_URL` was filled from, when it was. */
   database: string | null;
+  /** The platform whose own proxy `SNAGSET_TRUST_PROXY` was set to 1 for, when it was. */
+  trustProxy: string | null;
 }
 
 const asHttps = (host: string): string => (/^https?:\/\//.test(host) ? host : `https://${host}`).replace(/\/+$/, "");
 
 export function applyPlatformDefaults(env: Record<string, string | undefined>): PlatformDefaults {
-  const out: PlatformDefaults = { port: null, baseUrl: null, database: null };
+  const out: PlatformDefaults = { port: null, baseUrl: null, database: null, trustProxy: null };
+  // Vercel hands a function a `Request` and no socket, and writes
+  // `X-Forwarded-For` itself, overwriting whatever the caller sent: one hop,
+  // and theirs. Left at the default 0 every visitor there would be one caller
+  // against every count (net/caller.ts). Only Vercel: what the other
+  // platforms put in the header is theirs to document and the operator's to
+  // count (docs/self-hosting.md).
+  if (!env.SNAGSET_TRUST_PROXY && env.VERCEL) {
+    env.SNAGSET_TRUST_PROXY = "1";
+    out.trustProxy = "VERCEL";
+  }
   if (!env.SNAGSET_PORT && env.PORT && /^\d+$/.test(env.PORT)) {
     env.SNAGSET_PORT = env.PORT;
     out.port = env.PORT;

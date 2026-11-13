@@ -1,3 +1,4 @@
+import { callerOf } from "../net/caller.ts";
 import { Hono, type Context } from "hono";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import type postgres from "postgres";
@@ -68,9 +69,9 @@ import { looksLikeEmail } from "../email.ts";
  * goes to an account's own address, so this cannot be made to mail a
  * stranger.
  *
- * The caller is the first `X-Forwarded-For` hop, as for every limit here:
- * exact on a platform that writes the header itself, and only as good as the
- * proxy in front of a self-host. The mailbox cap does not depend on it.
+ * The caller is `callerOf` (net/caller.ts), as for every limit here: the
+ * entry `SNAGSET_TRUST_PROXY` hops from the right of `X-Forwarded-For`, or
+ * the connection itself. The mailbox cap does not depend on it.
  *
  * The lookup and the confirm are counted in process memory, as an invite's
  * are: a 256-bit token cannot be guessed, and what the count bounds there is
@@ -181,7 +182,6 @@ async function over(sql: postgres.Sql, anchor: string, key: string, limit: numbe
   return !!row && Number(row.count) > limit;
 }
 
-const callerOf = (c: Ctx): string => c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("x-real-ip")?.trim() || "local";
 const bucket = (what: "from" | "to", value: string): string => `reset:${what}:${sha256(value).toString("base64url")}`;
 
 /**

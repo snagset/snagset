@@ -38,7 +38,7 @@ before(async () => {
   await sql`DROP SCHEMA IF EXISTS public CASCADE`;
   await sql`CREATE SCHEMA public`;
   await migrate(sql, () => {});
-  const cfg = loadConfig({ DATABASE_URL: URL_!, SNAGSET_BASE_URL: "http://localhost:8080" });
+  const cfg = loadConfig({ SNAGSET_TRUST_PROXY: "1", DATABASE_URL: URL_!, SNAGSET_BASE_URL: "http://localhost:8080" });
   app = createApp({ sql, cfg, secretKey: SECRET, state: "READY", version: "0.0.0-test", commit: "test", sourceUrl: "", modified: false });
   orgId = randomUUID();
   const ownerId = randomUUID();

@@ -70,7 +70,7 @@ before(async () => {
   sql = connect(u.toString(), { max: 4 });
   app = createApp({
     sql,
-    cfg: loadConfig({ DATABASE_URL: u.toString(), SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: "https://cloud.snagset.test", SNAGSET_SIGNUP_OPEN: "true" }),
+    cfg: loadConfig({ SNAGSET_TRUST_PROXY: "1", DATABASE_URL: u.toString(), SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: "https://cloud.snagset.test", SNAGSET_SIGNUP_OPEN: "true" }),
     secretKey: SECRET,
     state: "READY",
     version: "0.0.0-test",

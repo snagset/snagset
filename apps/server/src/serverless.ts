@@ -105,6 +105,14 @@ function boot(): { app: Hono<Env>; sql: ReturnType<typeof connect> } {
 
   applyPlatformDefaults(process.env); // Vercel names its own deployment
   const cfg = loadConfig(process.env);
+  // No socket here to ask who is calling: with no trusted hop every visitor
+  // is one caller, and one stranger's wrong passwords are everybody's.
+  if (cfg.int("SNAGSET_TRUST_PROXY") === 0) {
+    console.warn(
+      "warn  SNAGSET_TRUST_PROXY is 0 and this entry has no connection to read a caller's address from: every visitor counts as ONE caller " +
+        "against the sign-in, sign-up, invite and reset limits. Set it to the number of proxies in front of this function that write X-Forwarded-For (usually 1).",
+    );
+  }
 
   if (!cfg.get("SNAGSET_SECRET_KEY") && !cfg.get("SNAGSET_SECRET_KEY_FILE")) {
     throw new Error(

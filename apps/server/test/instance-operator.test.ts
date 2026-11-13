@@ -291,7 +291,7 @@ before(async () => {
     // Sign-up open, and no address, storage, mail or MCP switch in the
     // environment: every group is the dashboard's to set, so the environment's
     // lock (409 managed_by_environment) is never what refuses anybody here.
-    cfg: loadConfig({ DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET, SNAGSET_SIGNUP_OPEN: "true" }),
+    cfg: loadConfig({ SNAGSET_TRUST_PROXY: "1", DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET, SNAGSET_SIGNUP_OPEN: "true" }),
     env: {},
   });
 });
@@ -442,7 +442,7 @@ test("with every group set by the environment, as a hosted instance has them, an
   const hosted = createApp({
     ...base(),
     cfg: loadConfig({
-      DATABASE_URL: URL_!,
+      SNAGSET_TRUST_PROXY: "1", DATABASE_URL: URL_!,
       SNAGSET_SECRET_KEY: SECRET,
       SNAGSET_SIGNUP_OPEN: "true",
       SNAGSET_BASE_URL: "https://cloud.snagset.test",

@@ -1,3 +1,4 @@
+import { callerOf } from "../net/caller.ts";
 import { Hono, type Context } from "hono";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
@@ -65,7 +66,7 @@ export function orgRoutes(deps: OrgDeps): Hono<Env> {
 
   /** True when this address has used its ten. Counted before any work, so a flood of bad bodies costs a Map lookup. */
   const overLimit = (c: Ctx): boolean => {
-    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() || c.req.header("x-real-ip")?.trim() || "local";
+    const ip = callerOf(c);
     const t = now();
     const recent = (attempts.get(ip) ?? []).filter((at) => t - at < WINDOW_MS);
     recent.push(t);
