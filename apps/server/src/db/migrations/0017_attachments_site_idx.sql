@@ -1,0 +1,20 @@
+-- ───────────────────────────────────────
+-- attachments_site_idx: a site's pictures that are still in the bucket.
+--
+-- Since 0.1.48 the reaper takes a deleted site's pictures out of the bucket
+-- thirty days after the delete (collect-deleted-attachments). It asks, for
+-- each site deleted longer ago than that, for its attachments that are still
+-- bound and not deleted. Without this index that question reads every
+-- attachment row the site ever had, on every tick, for ever: a site whose
+-- pictures were all taken out long ago is still a deleted site, and nothing
+-- marks it finished. With it, a finished site answers from an empty index
+-- range, because a collected row is neither bound nor undeleted and so is
+-- not in the index.
+--
+-- DDL only: no rows are read or written by this file, so no maintenance
+-- claim. A plain CREATE INDEX inside the runner's transaction: it holds a
+-- lock that blocks writes to attachments for as long as the build takes,
+-- which on the tables this has met is well under a second.
+--
+-- Under D71, 05 §3 gains the index in the same commit.
+CREATE INDEX attachments_site_idx ON attachments (project_id) WHERE state = 'bound' AND deleted_at IS NULL;

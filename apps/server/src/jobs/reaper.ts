@@ -196,8 +196,32 @@ export function reapPendingAttachments(bucket: Bucket | null): Job {
 }
 
 /**
+ * How long a deleted site keeps its pictures. The fixed grace: thirty
+ * days, not a setting. The delete is soft so that a site deleted by mistake
+ * is a row to restore, and for these thirty days it comes back whole. After
+ * them its words are still in the database and its pictures are not.
+ */
+export const DELETED_SITE_GRACE_MS = 30 * 24 * 60 * 60_000;
+
+/**
  * The "blob deleted … it is the expensive part" — the pictures of a
- * deleted thread or comment leave the bucket.
+ * deleted thread or comment leave the bucket, and so do those of a site
+ * deleted more than thirty days ago (DELETED_SITE_GRACE_MS).
+ *
+ * A DELETED SITE. Deleting a site marks the one row and touches nothing
+ * under it, so its pictures are still `bound` and not deleted, and nothing
+ * counted them against the studio from the moment the site went (plan.ts
+ * sums live sites). They cost only us, in the bucket, and this is where
+ * that ends: past the grace each is taken out and its row marked deleted and
+ * `orphaned` like any other. The comparison is on `projects.deleted_at`, so a
+ * site restored by hand inside the grace (the column set back to NULL) is
+ * simply not selected, and one deleted before this existed is counted from
+ * the day it was deleted. The site's rows and words are not touched.
+ * A site whose pictures are all out stays a deleted site and is asked about
+ * again on every tick; `attachments_site_idx` (0017) is what makes that an
+ * empty index range and not a read of every row it ever had. The thirty
+ * days are measured with the job's injected clock against a `deleted_at`
+ * the database wrote, as every boundary in this file is.
  *
  * The delete itself already marked the row and took its bytes off the site's
  * count (storage/release.ts), so the studio has its room back before this
@@ -227,12 +251,24 @@ export function collectDeletedAttachments(bucket: Bucket | null): Job {
   return {
     name: "collect-deleted-attachments",
     everyMs: 5 * 60_000,
-    async run({ sql, log }: JobContext): Promise<JobOutcome> {
+    async run({ sql, now, log }: JobContext): Promise<JobOutcome> {
+      // Two reasons a bound picture is ours to take out, oldest first: it was
+      // deleted itself (with its thread, round or comment), or its whole site
+      // was deleted longer ago than the grace.
+      const siteCutoff = new Date(now.getTime() - DELETED_SITE_GRACE_MS);
       const rows = await sql<{ id: string; storage_key: string }[]>`
-        SELECT id, storage_key
-          FROM attachments
-         WHERE state = 'bound' AND deleted_at IS NOT NULL
-         ORDER BY deleted_at, id
+        SELECT id, storage_key FROM (
+          SELECT a.id, a.storage_key, a.deleted_at AS since
+            FROM attachments a
+           WHERE a.state = 'bound' AND a.deleted_at IS NOT NULL
+          UNION ALL
+          SELECT a.id, a.storage_key, p.deleted_at AS since
+            FROM projects p
+            JOIN attachments a ON a.project_id = p.id
+           WHERE p.deleted_at < ${siteCutoff}
+             AND a.state = 'bound' AND a.deleted_at IS NULL
+        ) due
+         ORDER BY since, id
          LIMIT ${BATCH}
       `;
       if (!rows.length) return { did: 0 };
@@ -257,12 +293,13 @@ export function collectDeletedAttachments(bucket: Bucket | null): Job {
           WITH old AS (
             SELECT id, project_id, bytes, released_at
               FROM attachments
-             WHERE id = ${row.id} AND state = 'bound' AND deleted_at IS NOT NULL
+             WHERE id = ${row.id} AND state = 'bound'
                FOR UPDATE
           ),
           done AS (
             UPDATE attachments a
                SET state = 'orphaned', bound_at = NULL, thread_id = NULL, comment_id = NULL,
+                   deleted_at = COALESCE(a.deleted_at, now()),
                    released_at = COALESCE(a.released_at, now())
               FROM old
              WHERE a.id = old.id

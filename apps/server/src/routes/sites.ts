@@ -441,6 +441,13 @@ export function siteRoutes(deps: SiteDeps): Hono<Env> {
    * the wrong site has a database row to restore rather than an apology to
    * write.
    *
+   * THE PICTURES HAVE THIRTY DAYS. Nothing under the site is touched here,
+   * so for thirty days a restored row is the whole site. After them the
+   * reaper takes its screenshots out of the bucket
+   * (`collect-deleted-attachments`, DELETED_SITE_GRACE_MS): the words can
+   * still be restored, the pictures cannot. The dashboard says so before the
+   * name is typed.
+   *
    * The name is freed for reuse, because a studio that deletes "Kilnwork" and
    * makes a new "Kilnwork" is doing something ordinary — and `uid` is what
    * anything durable actually points at.

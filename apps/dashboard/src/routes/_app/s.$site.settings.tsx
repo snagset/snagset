@@ -330,7 +330,7 @@ function DangerRow({ uid, name }: { uid: string; name: string }) {
         <>
           The site stops appearing and its widget stops being served.{" "}
           <b className="font-semibold text-foreground">Nothing your client wrote is destroyed</b> — the comments stay
-          in the database, so a mistake here is recoverable.
+          in the database, so a mistake here is recoverable. Its screenshots are kept for 30 days and then removed.
         </>
       }
     >
@@ -344,7 +344,7 @@ function DangerRow({ uid, name }: { uid: string; name: string }) {
         open={confirming}
         onOpenChange={setConfirming}
         title={`Delete ${name}?`}
-        description="The site stops appearing and its widget stops being served. Nothing your client wrote is destroyed — the comments stay in the database."
+        description="The site stops appearing and its widget stops being served. Nothing your client wrote is destroyed — the comments stay in the database. Its screenshots are kept for 30 days and then removed."
         confirmLabel="Delete"
         confirmWord={name}
         busy={del.isPending}

@@ -98,7 +98,7 @@ you write there is yours, under the same name as your replies here.
 The name, the domain and the addresses beside it, who may comment (anyone who
 loads the page, or only people with a link), the install tag, and the **widget
 switch**: paused, the widget disappears from the site while your triage goes
-on. Deleting a site asks you to type its name.
+on. Deleting a site asks you to type its name. Its comments stay in the database; its screenshots are kept for 30 days and then removed.
 
 **Guests can change status** is on by default: people who comment without an
 account or a review link can move a comment between Open, In progress, In

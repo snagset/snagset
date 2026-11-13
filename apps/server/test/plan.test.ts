@@ -282,18 +282,18 @@ test("deleting a thread gives its picture's space back at once, and the reaper t
       probe: async () => ({ ok: true }),
     };
     const at = new Date(Date.now() + 3_600_000);
-    const first = await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => at });
+    const first = await runDueJobs(sql, [collectDeletedAttachments(stub)], { force: true, budgetMs: 5000, now: () => at });
     assert.deepEqual(first.failed, []);
     assert.equal((await rowOf()).state, "bound", "refused by the bucket: still waiting, not written off");
     refuse = false;
-    const second = await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => new Date(at.getTime() + 3_600_000) });
+    const second = await runDueJobs(sql, [collectDeletedAttachments(stub)], { force: true, budgetMs: 5000, now: () => new Date(at.getTime() + 3_600_000) });
     assert.deepEqual(second.failed, [], "the job itself did not fail");
     const after_ = await rowOf();
     assert.deepEqual(asked, [after_.storage_key, after_.storage_key], "the bucket is asked for exactly this file");
     assert.equal(after_.state, "orphaned");
     assert.equal(after_.bound_at, null);
     assert.equal((await me(free)).limits.storage.used, before_, "the reaper does not give the bytes back a second time");
-    await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => new Date(at.getTime() + 7_200_000) });
+    await runDueJobs(sql, [collectDeletedAttachments(stub)], { force: true, budgetMs: 5000, now: () => new Date(at.getTime() + 7_200_000) });
     assert.equal(asked.length, 2, "and it is not collected twice");
   } finally {
     bucket.server.close();
@@ -316,13 +316,86 @@ test("a picture deleted the old way, still counted, is given back by the reaper 
   const stub: Bucket = { put: async () => {}, get: async () => null, del: async (k) => void asked.push(k), probe: async () => ({ ok: true }) };
   const used = async () => Number((await sql<{ used: string }[]>`SELECT storage_bytes_used AS used FROM projects WHERE id = ${p!.id}`)[0]!.used);
   const at = Date.now() + 24 * 3_600_000;
-  const first = await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => new Date(at) });
+  const first = await runDueJobs(sql, [collectDeletedAttachments(stub)], { force: true, budgetMs: 5000, now: () => new Date(at) });
   assert.deepEqual(first.failed, []);
   assert.deepEqual(asked, ["k/old-deleted"], "only the deleted one leaves the bucket");
   assert.equal(await used(), 300, "its bytes come off, and the live picture's stay");
-  await runDueJobs(sql, [collectDeletedAttachments(stub)], { budgetMs: 5000, now: () => new Date(at + 3_600_000) });
+  await runDueJobs(sql, [collectDeletedAttachments(stub)], { force: true, budgetMs: 5000, now: () => new Date(at + 3_600_000) });
   assert.equal(await used(), 300, "and not a second time");
   const [was] = await sql<{ state: string; released_at: Date | null }[]>`SELECT state, released_at FROM attachments WHERE storage_key = 'k/old-deleted'`;
   assert.equal(was!.state, "orphaned");
   assert.ok(was!.released_at, "marked as given back");
+});
+
+test("a deleted site keeps its pictures for thirty days, then they leave the bucket; its words stay, and a live site's pictures are never touched", { skip }, async () => {
+  const bucket = await fakeBucket();
+  try {
+    const connected = await free.request("/api/v1/instance/storage", { method: "PUT", headers: as(owner), body: JSON.stringify({ endpoint: bucket.url, bucket: "pics", accessKeyId: "k", secretAccessKey: "s" }) });
+    assert.equal(connected.status, 200, await connected.clone().text());
+    invalidateLimits();
+
+    // A site with one snag and its screenshot, made the way a reviewer makes one.
+    const snag = async (name: string, bytes: number[]) => {
+      const made = await addSite(free, name);
+      assert.equal(made.status, 201, await made.clone().text());
+      const site = ((await made.json()) as { uid: string }).uid;
+      const origin = `https://${name.toLowerCase()}.test`;
+      const exchange = await free.request(`/api/v1/projects/${site}/sessions`, {
+        method: "POST",
+        headers: { ...json, Origin: origin },
+        body: JSON.stringify({ identity: { kind: "guest", name: "Eva", secret: randomUUID().replace(/-/g, "") } }),
+      });
+      assert.equal(exchange.status, 201, await exchange.clone().text());
+      const guest = { Authorization: `Bearer ${((await exchange.json()) as any).sessionToken as string}`, Origin: origin };
+      const stored = await free.request(`/api/v1/projects/${site}/attachments`, { method: "POST", headers: { ...guest, "content-type": "image/png" }, body: new Uint8Array(bytes) });
+      assert.equal(stored.status, 201, await stored.clone().text());
+      const att = ((await stored.json()) as { id: string }).id.replace(/^att_/, "");
+      const posted = await free.request(`/api/v1/projects/${site}/threads`, {
+        method: "POST",
+        headers: { ...guest, ...json },
+        body: JSON.stringify({
+          comment: { body: `What ${name} was told.` },
+          anchor: { offset: { x: 0.5, y: 0.5 }, page: { route: "/", pathname: "/", origin } },
+          context: { url: `${origin}/` },
+          attachments: [`att_${att}`],
+        }),
+      });
+      assert.equal(posted.status, 201, await posted.clone().text());
+      return { site, att };
+    };
+    const doomed = await snag("Doomed", [137, 80, 78, 71, 1, 1, 1, 1, 1]);
+    const kept = await snag("Kept", [137, 80, 78, 71, 2, 2, 2, 2, 2, 2]);
+    const rowOf = async (att: string) => (await sql<{ state: string; deleted_at: Date | null; storage_key: string }[]>`
+      SELECT state, deleted_at, storage_key FROM attachments WHERE id = ${att}`)[0]!;
+
+    const gone = await free.request(`/api/v1/projects/${doomed.site}`, { method: "DELETE", headers: as(owner) });
+    assert.equal(gone.status, 204, await gone.clone().text());
+
+    const asked: string[] = [];
+    const stub: Bucket = { put: async () => {}, get: async () => null, del: async (k) => void asked.push(k), probe: async () => ({ ok: true }) };
+    const day = 24 * 3_600_000;
+    const sweep = async (daysOn: number) => {
+      const r = await runDueJobs(sql, [collectDeletedAttachments(stub)], { force: true, budgetMs: 5000, now: () => new Date(Date.now() + daysOn * day) });
+      assert.deepEqual(r.failed, []);
+      assert.deepEqual(r.ran.map((j) => j.name), ["collect-deleted-attachments"], "the job ran, and was not skipped as not due");
+    };
+    await sweep(1);
+    await sweep(29);
+    assert.deepEqual(asked, [], "inside the thirty days nothing leaves the bucket");
+    assert.equal((await rowOf(doomed.att)).state, "bound", "so a site restored in that time comes back whole");
+
+    await sweep(31);
+    const after_ = await rowOf(doomed.att);
+    assert.deepEqual(asked, [after_.storage_key], "past them, the deleted site's picture and no other");
+    assert.equal(after_.state, "orphaned");
+    assert.ok(after_.deleted_at, "and the row says it is gone");
+    assert.equal((await rowOf(kept.att)).state, "bound", "a live site's picture is not touched, however old");
+    const [words] = await sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM comments c JOIN projects p ON p.id = c.project_id WHERE p.uid = ${doomed.site} AND c.body IS NOT NULL`;
+    assert.equal(words!.n, 1, "what the client wrote is still in the database");
+    await sweep(40);
+    assert.equal(asked.length, 1, "and it is taken out once");
+  } finally {
+    bucket.server.close();
+  }
 });
