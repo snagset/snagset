@@ -29,9 +29,9 @@ export const Route = createFileRoute("/_app/studio/")({
       // As it answers every studio but the operator's, so only that one asks.
       if (isOperator(me)) void context.queryClient.prefetchQuery(q.instance());
     }
-    return { crumb: "General" };
+    return { crumb: "Studio settings" };
   },
-  component: () => (can(useMe().user.role, "settings") ? <General /> : <AdminsOnly title="General" />),
+  component: () => (can(useMe().user.role, "settings") ? <General /> : <AdminsOnly title="Studio settings" />),
 });
 
 function General() {
@@ -52,6 +52,7 @@ function General() {
   // Where plans are sold, the counts live on Plan & billing beside the limits.
   const setup = useQuery(q.setupState());
   const countsHere = !setup.data?.billingUrl;
+  const closeUrl = me.user.role === "owner" ? (setup.data?.closeUrl ?? null) : null;
   const [name, setName] = useState(me.org.name);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   useEffect(() => setName(me.org.name), [me.org.name]);
@@ -59,7 +60,7 @@ function General() {
 
   return (
     <div className="flex flex-col gap-10 p-7">
-      <PageHeader title="General" sub={me.org.name} actions={<SaveState saving={rename.isPending} savedAt={savedAt} />} />
+      <PageHeader title="Studio settings" sub={me.org.name} actions={<SaveState saving={rename.isPending} savedAt={savedAt} />} />
       <SettingsRow title="Studio" description="The name at the top of every screen.">
         <form
           className="flex flex-col gap-1.5"
@@ -127,6 +128,19 @@ function General() {
         </SettingsRow>
       )}
       {storage === "instance" ? <InstanceRows owner={owner} /> : storage === "usage" ? <StudioStorage /> : null}
+      {closeUrl && (
+        // SNAGSET_CLOSE_URL: closing is the operator's page, not this
+        // instance's — it may end a paid plan, and a self-hosted studio is
+        // ended by whoever owns the database. This row only points there.
+        <SettingsRow danger title="Close this studio" description="Its sites stop, and after a grace period it is erased with everything in it.">
+          <div className="flex flex-wrap items-center gap-4">
+            <p className="m-0 flex-1 text-[13px] text-ink-soft">The next page says what closing does, and asks you to type the studio's name.</p>
+            <Button variant="outline" className="border-destructive text-destructive" render={<a href={closeUrl} />}>
+              Close {me.org.name}…
+            </Button>
+          </div>
+        </SettingsRow>
+      )}
     </div>
   );
 }

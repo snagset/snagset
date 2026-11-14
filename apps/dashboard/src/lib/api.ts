@@ -661,7 +661,8 @@ export interface MintedInvite {
  * anybody: whether it has an owner, whether a stranger may make a studio,
  * whether it can mail a reset link, and where a studio is made when
  * that is a page of the operator's own (`SNAGSET_SIGNUP_URL`), and where an
- * owner changes the plan when the operator sells plans (`SNAGSET_BILLING_URL`).
+ * owner changes the plan when the operator sells plans (`SNAGSET_BILLING_URL`),
+ * and where an owner closes the studio when the operator offers it (`SNAGSET_CLOSE_URL`).
  */
 export interface SetupState {
   claimed: boolean;
@@ -669,6 +670,8 @@ export interface SetupState {
   mail: boolean;
   signupUrl: string | null;
   billingUrl: string | null;
+  /** Where an owner closes the studio, when the operator offers that (`SNAGSET_CLOSE_URL`). Optional: an older server omits it. */
+  closeUrl?: string | null;
   /** The hosted service (`SNAGSET_CLOUD`): a studio there is not shown the instance it runs on. Optional: an older server omits it. */
   cloud?: boolean;
 }

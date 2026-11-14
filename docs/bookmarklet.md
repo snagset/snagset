@@ -42,7 +42,7 @@ The bookmarklet loads the widget, but the widget still has to talk to your
 server, and your server only accepts the addresses on the site's allow-list.
 
 If nothing happens after you comment, that is why. Add the site's address in
-the site's **Settings**, under **Also allowed**, or, if you host it yourself:
+the site's **Site settings**, under **Also allowed**, or, if you host it yourself:
 
 ```bash
 snagset allow-origin prj_… https://the-site-you-are-on.com

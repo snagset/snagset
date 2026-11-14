@@ -96,7 +96,7 @@ small object — and a failure is a loud warning rather than a crash, because
 credentials that are merely well-formed are the ones that fail on the first
 screenshot, in front of a reviewer, an hour later.
 
-Both can also be connected later, from **Studio › General**, without a
+Both can also be connected later, from **Studio settings**, without a
 restart. The environment wins if both are set.
 
 Mail is also what lets a person back in. With a transport connected, the
@@ -209,7 +209,7 @@ can keep it warm.
 
 You do not set it. When you claim the instance, the address your browser is at
 is kept as the instance's address, and every review link, issue, Slack message
-and email is built from it; Studio › General shows it and an owner can change
+and email is built from it; Studio settings shows it and an owner can change
 it there. On Vercel, Railway, Render and Fly the platform's own variable names
 the deployment and is used before the claim. `SNAGSET_BASE_URL` exists to say
 otherwise — set it and it wins and locks the row.
@@ -242,7 +242,7 @@ One shape that works for a studio showing work to clients, and the one
 our own instance runs: **Supabase** for the database (Neon or any other
 Postgres slots in the same way), a **DigitalOcean Space** for screenshots,
 **Resend** for mail, and any host that runs Node. Nothing below is required
-except the database; the rest can be added later from Studio › General. In
+except the database; the rest can be added later from Studio settings. In
 order, because each step produces a value the next one wants:
 
 1. **Supabase.** New project, in the region nearest your clients, on a paid
@@ -338,7 +338,7 @@ menu. Leave it unset and nothing changes.
 
 What the instance itself is connected to stays with the studio that claimed
 it: its address, storage, mail and the remote MCP switch. That studio's
-owners change them on Studio › General and its admins see them; no other
+owners change them on Studio settings and its admins see them; no other
 studio is shown them or can change them. So claim the instance before you
 open sign-up: with the door open, the first sign-up on an unclaimed instance
 is the claim.

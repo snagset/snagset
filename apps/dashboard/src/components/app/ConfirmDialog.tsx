@@ -2,7 +2,7 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { CheckIcon, CopyIcon } from "lucide-react";
 
 /**
  * A confirmation — the tiers. Tier one bolds the thing in the description;
@@ -37,6 +37,7 @@ export function ConfirmDialog({
   onConfirm: () => void;
 }) {
   const [typed, setTyped] = useState("");
+  const [copied, setCopied] = useState(false);
   const id = useId();
   useEffect(() => {
     if (open) setTyped("");
@@ -66,11 +67,32 @@ export function ConfirmDialog({
           {children}
           {confirmWord && (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor={id}>
-                Type <b className="font-semibold text-foreground">{confirmWord}</b> to confirm
-              </Label>
+              {/* The name is a button: one click copies it and puts the cursor
+                  in the box, so the person pastes what they have just read
+                  rather than retyping a long name. It is still their act. */}
+              <p className="m-0 flex flex-wrap items-center gap-1 text-sm font-medium">
+                Type
+                <button
+                  type="button"
+                  disabled={busy}
+                  title="Copy the name"
+                  className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 font-semibold text-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(confirmWord).catch(() => {});
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                    document.getElementById(id)?.focus();
+                  }}
+                >
+                  {confirmWord}
+                  {copied ? <CheckIcon className="size-3.5 text-muted-foreground" /> : <CopyIcon className="size-3.5 text-muted-foreground" />}
+                  <span className="sr-only">{copied ? " copied" : " — copy"}</span>
+                </button>
+                to confirm
+              </p>
               <Input
                 id={id}
+                aria-label={`Type ${confirmWord} to confirm`}
                 value={typed}
                 autoComplete="off"
                 spellCheck={false}

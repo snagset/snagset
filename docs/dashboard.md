@@ -18,7 +18,7 @@ the tag to paste. No site ready yet? **Skip for now** leaves it, and Sites opens
 empty; add one there when it is.
 
 Each site has three screens of its own: **Comments**, **Reviewers** and
-**Settings**.
+**Site settings**.
 
 ## Comments
 
@@ -123,7 +123,7 @@ The studio's name, top left, is a menu when you belong to more than one
 studio, or when the instance lets you make another: every studio you are in,
 the current one marked, and **New studio…** where it is offered.
 
-**General** — the studio's name; the instance's version with a "check for
+**Studio settings** — the studio's name; the instance's version with a "check for
 updates" that asks npm from your browser and never from the server; the
 instance's **address**, which is what every review link, issue and email is
 built from — kept from the moment you claimed the instance, and editable here

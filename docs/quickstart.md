@@ -56,7 +56,7 @@ toolbar works, comments are written, and every request is refused.
 
 The site's domain already covers every subdomain, scheme and port of it, and
 `localhost` always works. Anything else, such as a preview URL on another
-domain, goes in the site's **Settings**, under **Also allowed**.
+domain, goes in the site's **Site settings**, under **Also allowed**.
 
 On your own server, the CLI does the same:
 

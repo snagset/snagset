@@ -339,7 +339,9 @@ export function createApp(deps: Deps): Hono<Env> {
   // passwd`. `signupUrl`: where a new studio is made, when that is
   // a page of the operator's own rather than this instance's form.
   // `billingUrl`: where an owner changes the plan, when the
-  // operator sells plans; the sidebar's one link to it. `cloud`: the
+  // operator sells plans; the sidebar's one link to it. `closeUrl`
+  // where an owner closes the studio, when that is a page of
+  // the operator's; Studio settings' one link to it. `cloud`: the
   // hosted service, where a studio is not shown the instance it runs on.
   //
   // `mail` must never be what breaks this route. The dashboard reads a
@@ -364,6 +366,7 @@ export function createApp(deps: Deps): Hono<Env> {
       mail,
       signupUrl: cfg.get("SNAGSET_SIGNUP_URL") ?? null,
       billingUrl: cfg.get("SNAGSET_BILLING_URL") ?? null,
+      closeUrl: cfg.get("SNAGSET_CLOSE_URL") ?? null,
       cloud: !!cfg.get("SNAGSET_CLOUD"),
     });
   });

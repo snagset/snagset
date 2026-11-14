@@ -30,7 +30,7 @@ export const Route = createFileRoute("/_app/s/$site/settings")({
   loader: ({ context }) => {
     void context.queryClient.prefetchQuery(q.origins(context.site.uid));
     void context.queryClient.prefetchQuery(q.rounds(context.site.uid));
-    return { crumb: "Settings" };
+    return { crumb: "Site settings" };
   },
   // Every control here is an owner's or an admin's, so a member who
   // opens the URL is told so, not handed a page of controls the server refuses.
@@ -38,7 +38,7 @@ export const Route = createFileRoute("/_app/s/$site/settings")({
     can(useMe().user.role, "settings") ? (
       <SiteSettings />
     ) : (
-      <AdminsOnly title="Settings">
+      <AdminsOnly title="Site settings">
         <p className="m-0">A site's addresses, who may comment, the widget and its rounds are set by an owner or an admin of the studio.</p>
       </AdminsOnly>
     ),
@@ -73,7 +73,7 @@ function SiteSettings() {
 
   return (
     <div className="flex flex-col gap-10 p-7">
-      <PageHeader title="Settings" sub={site.name} actions={<SaveState saving={edit.isPending} savedAt={savedAt} />} />
+      <PageHeader title="Site settings" sub={site.name} actions={<SaveState saving={edit.isPending} savedAt={savedAt} />} />
 
       <SettingsRow title="Site" description="Its name, its ID for the tag, and where the widget may run.">
         <div className="flex flex-col gap-1.5">

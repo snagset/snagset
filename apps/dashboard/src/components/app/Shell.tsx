@@ -197,7 +197,7 @@ function AppSidebar({ me, site }: { me: Me; site: Site | null }) {
                       render={<Link to="/s/$site/settings" params={{ site: site.uid }} />}
                     >
                       <SlidersHorizontalIcon />
-                      <span>Settings</span>
+                      <span>Site settings</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )}
@@ -238,7 +238,7 @@ function AppSidebar({ me, site }: { me: Me; site: Site | null }) {
                   <SidebarMenuItem>
                     <SidebarMenuButton isActive={path === "/studio"} render={<Link to="/studio" />}>
                       <Building2Icon />
-                      <span>General</span>
+                      <span>Studio settings</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 </>
