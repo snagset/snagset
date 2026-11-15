@@ -8,6 +8,7 @@ import { PageHeader, SettingsRow } from "@/components/app/parts";
 import { SaveState } from "@/components/app/SaveState";
 import { ThemeChoice } from "@/components/app/ThemeChoice";
 import { McpCard } from "@/components/app/McpTokens";
+import { isOperator } from "@/lib/operator";
 import { useMe } from "@/lib/me";
 import { can } from "@/lib/roles";
 import { reason } from "@/lib/mutations";
@@ -68,7 +69,7 @@ function You() {
       {/* A member's own agent tokens. Admins keep theirs, and
           everyone's, on Studio › Integrations, which a member is not shown. */}
       {!can(me.user.role, "settings") && can(me.user.role, "review") && (
-        <McpCard owner mine instanceOwner={false} sites={me.projects} />
+        <McpCard owner mine instanceOwner={false} operator={isOperator(me)} sites={me.projects} />
       )}
       <SettingsRow title="Appearance" description="Also in your menu at the bottom of the sidebar.">
         <ThemeChoice

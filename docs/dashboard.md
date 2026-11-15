@@ -143,8 +143,9 @@ shows them, and no other studio's owner can change them.
 **Members** — the people in the studio, by email, with a role. There are
 three:
 
-- **Owner** — everything, including who is in the studio, their roles, the
-  studio's name and what the instance is connected to.
+- **Owner** — everything, including who is in the studio, their roles and
+  the studio's own settings. In the studio that claimed the instance, also
+  what the instance is connected to.
 - **Admin** — everything about sites, rounds, integrations and comments, and
   invites members. Admins see the list; only an owner changes a role or
   removes somebody, and only an owner invites an owner or an admin.

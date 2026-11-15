@@ -129,7 +129,7 @@ test("off by default: POST /mcp is a 404 naming the switch and the flag, whateve
   const res = await off.request("/mcp", { method: "POST", headers: { Authorization: `Bearer ${readToken}`, "content-type": "application/json", accept: "application/json, text/event-stream" }, body: "{}" });
   assert.equal(res.status, 404);
   const message = ((await res.json()) as any).error.message as string;
-  assert.match(message, /Studio › Integrations › MCP/);
+  assert.match(message, /Whoever runs the server turns it on/);
   assert.match(message, /SNAGSET_MCP_HTTP_ENABLED/);
 });
 

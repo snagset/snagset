@@ -526,10 +526,15 @@ export function ownerRoutes(deps: OwnerDeps): Hono<Env> {
       signupOpen: deps.signupOpen?.() ?? false,
       // The migrations this build ships that the database has not run
       // (db/migrate.ts says why a serverless deploy can be behind). Empty
-      // when current; the dashboard shows a banner otherwise.
-      pendingMigrations: await pendingMigrations(sql),
+      // when current; the dashboard shows a banner otherwise. Both this and
+      // the region below are the operator's to act on and about the
+      // operator's machines, so only the operator's studio is told (C29):
+      // on a hosted server a studio's owner cannot run `snagset migrate`,
+      // and where the database lives is nothing of theirs. Another studio
+      // gets an empty list, which a dashboard of any age reads as "current".
+      pendingMigrations: operator ? await pendingMigrations(sql) : [],
       // Functions on one continent, the database on another (instance/region.ts).
-      ...(deps.regionMismatch ? { regionMismatch: deps.regionMismatch } : {}),
+      ...(operator && deps.regionMismatch ? { regionMismatch: deps.regionMismatch } : {}),
       // Archived sites, and active ones beyond the cap (newest first,
       // the same order holds.ts reads), are read-only.
       projects: ((n) => projects.map((p) => ({

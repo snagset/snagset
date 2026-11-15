@@ -6,6 +6,7 @@ import { loadConfig } from "../src/config.ts";
 import { migrate } from "../src/db/migrate.ts";
 import { rlsStatus } from "../src/db/rls.ts";
 import { createApp } from "../src/app.ts";
+import { forgetPendingMigrations } from "../src/db/migrate.ts";
 import { HTTP_HEADER } from "@snagset/types/names";
 
 /**
@@ -113,7 +114,7 @@ test("the claim goes through under the policies, and signs its owner in", { skip
   const body = (await res.json()) as any;
   ada = { cookie: cookiesOf(res), csrf: body.csrfToken };
   uid = body.project.uid;
-  assert.deepEqual(await (await app.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: false, signupUrl: null, billingUrl: null, cloud: false });
+  assert.deepEqual(await (await app.request("/api/v1/setup")).json(), { claimed: true, signup: true, mail: false, signupUrl: null, billingUrl: null, closeUrl: null, cloud: false });
 });
 
 test("sign in by email, and /me sees the studio's own rows", { skip }, async () => {
@@ -236,6 +237,21 @@ test("a second studio never sees the first: not its sites, not its threads, not 
   assert.equal(m.body.org.operator, false);
   assert.equal((await app.request("/api/v1/instance", { headers: as(ada) })).status, 200, "the first studio still reads them");
   assert.equal((await me(ada)).body.org.operator, true);
+
+  // C29: a migration the database has not run is the operator's to run, so
+  // only the operator's studio is told. A ledger row taken away makes the
+  // database one behind; the other studio still hears nothing of it.
+  const row = (await admin`SELECT * FROM _migrations ORDER BY name DESC LIMIT 1`)[0]!;
+  const last = row["name"] as string;
+  await admin`DELETE FROM _migrations WHERE name = ${last}`;
+  try {
+    forgetPendingMigrations();
+    assert.deepEqual((await me(ada)).body.pendingMigrations, [last], "the operator's studio is told");
+    assert.deepEqual((await me(bob)).body.pendingMigrations, [], "another studio is not");
+  } finally {
+    await admin`INSERT INTO _migrations ${admin(row)}`;
+    forgetPendingMigrations();
+  }
 
   // And the first studio still sees exactly its own.
   assert.equal((await me(ada)).body.projects.length, 2);

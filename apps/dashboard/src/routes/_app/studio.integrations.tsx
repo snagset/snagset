@@ -229,7 +229,7 @@ function Integrations() {
         );
       })}
 
-      <McpCard owner={owner} instanceOwner={instanceOwner} sites={me.projects} />
+      <McpCard owner={owner} instanceOwner={instanceOwner} operator={isOperator(me)} sites={me.projects} />
 
       <ConnectGitHub
         open={connecting === "github"}

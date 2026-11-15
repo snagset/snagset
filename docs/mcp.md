@@ -170,7 +170,9 @@ Two things are different there, both on purpose:
   decision you make per token, and the dialog offers it as a tick, off.
 
 **It is off until an owner turns it on.** The switch is on the MCP card, at
-Studio › Integrations › MCP, above the tokens; it counts from the next request,
+Studio › Integrations › MCP, above the tokens. It is the server's, so where a
+server holds more than one studio only an owner of the studio that claimed it
+can move it; anywhere else the card shows where it stands. It counts from the next request,
 no restart. An endpoint an agent can reach is a surface, and turning one on
 should be a decision someone can see. If the deployment should decide instead,
 set `SNAGSET_MCP_HTTP_ENABLED` in the instance's environment — to `true` or

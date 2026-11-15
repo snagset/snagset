@@ -27,7 +27,8 @@
  *              only (`invitable`).
  *   tokens     see every agent token in the studio, not only one's own.
  *   people     change a role, remove somebody, invite an owner or an admin.
- *   studio     rename the studio; what the instance is connected to.
+ *   studio     rename the studio; in the operator's studio alone, what the
+ *              instance is connected to (routes/instance.ts, C27).
  *
  * `viewer` is in the enum since 0001 and holds nothing here: a read-only
  * seat is still undesigned (01 F-27), and an empty row is the honest way to
@@ -63,7 +64,7 @@ export function invitable(role: string | null | undefined): AssignableRole[] {
 
 /** One line per role, for the invite dialog and the role picker. */
 export const ROLE_SUMMARY: Record<AssignableRole, string> = {
-  owner: "Everything, including who is in the studio and what the instance is connected to.",
+  owner: "Everything, including who is in the studio and the studio's own settings.",
   admin: "Everything about sites, rounds, integrations and comments; invites members.",
   member: "Comments, status, assignees and rounds on every site; no settings.",
 };

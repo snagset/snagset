@@ -80,6 +80,7 @@ const UPGRADE_URL = "https://snagset.com/docs/self-hosting/#upgrade";
  */
 export function Shell({ children }: { children: ReactNode }) {
   const me = useMe();
+  const operator = isOperator(me);
   const site = useCurrentSite(me);
   const [palette, setPalette] = usePalette();
   useForgetOnRoleChange();
@@ -88,8 +89,9 @@ export function Shell({ children }: { children: ReactNode }) {
       <AppSidebar me={me} site={site} />
       <SidebarInset className="min-w-0">
         <Header onSearch={() => setPalette(true)} />
-        <DatabaseBehind names={me.pendingMigrations ?? []} owner={me.user.role === "owner"} />
-        {me.regionMismatch && can(me.user.role, "settings") && <FarFromDatabase {...me.regionMismatch} />}
+        {/* C29: both are about the operator's machines. The server sends them to the operator's studio only; this is the same rule, for an older server. */}
+        {operator && <DatabaseBehind names={me.pendingMigrations ?? []} owner={me.user.role === "owner"} />}
+        {operator && me.regionMismatch && can(me.user.role, "settings") && <FarFromDatabase {...me.regionMismatch} />}
         <div className="min-h-0 flex-1">{children}</div>
       </SidebarInset>
       {/* ⌘K from anywhere signed in, including the screens with no search box of their own. */}

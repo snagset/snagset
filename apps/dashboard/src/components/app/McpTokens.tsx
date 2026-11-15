@@ -31,6 +31,7 @@ import { q } from "@/lib/query";
 export function McpCard({
   owner,
   instanceOwner,
+  operator,
   sites,
   mine = false,
 }: {
@@ -40,6 +41,8 @@ export function McpCard({
   mine?: boolean;
   /** The remote-transport switch is instance-wide: an owner's, in the operator's studio, and nobody else's. */
   instanceOwner: boolean;
+  /** Whether this is the operator's studio: who to name when the switch is not this person's. */
+  operator: boolean;
   sites: { uid: string; name: string }[];
 }) {
   const qc = useQueryClient();
@@ -98,7 +101,7 @@ export function McpCard({
                   Off. Agents reach this studio only from a machine with the checkout. On, <code className="font-mono text-[11.5px]">{http.url}</code> serves the same tools to an agent anywhere, with a token as a bearer.
                 </>
               )}
-              {http.source === "env" ? " Set by the environment (SNAGSET_MCP_HTTP_ENABLED)." : ""}
+              {http.source === "env" ? " Set by the environment (SNAGSET_MCP_HTTP_ENABLED)." : !instanceOwner ? (operator ? " Only an owner can switch it." : " Only whoever runs this server can switch it.") : ""}
             </p>
           </div>
           <Switch

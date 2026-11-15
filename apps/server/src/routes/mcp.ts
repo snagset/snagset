@@ -54,7 +54,7 @@ export function mcpHttpRoutes(deps: McpHttpDeps): Hono<Env> {
 
   app.all("/mcp", async (c) => {
     if (!(await deps.mcpHttp()).enabled) {
-      return fail(c, 404, "not_found", "The remote MCP transport is off. An owner turns it on at Studio › Integrations › MCP, or set SNAGSET_MCP_HTTP_ENABLED=true in the environment; the stdio server needs nothing here.");
+      return fail(c, 404, "not_found", "The remote MCP transport is off on this server. Whoever runs the server turns it on, from their own studio or with SNAGSET_MCP_HTTP_ENABLED=true; the stdio server needs nothing here.");
     }
     const presented = /^Bearer (.+)$/i.exec(c.req.header("Authorization") ?? "")?.[1];
     if (!presented?.startsWith(CREDENTIAL_PREFIX.mcp) || !c.get("mcp")) {
