@@ -10,7 +10,8 @@ import { AdminsOnly, PageHeader, SettingsRow } from "@/components/app/parts";
 import { isOperator, storageRow } from "@/lib/operator";
 import { can } from "@/lib/roles";
 import { SaveState } from "@/components/app/SaveState";
-import { api } from "@/lib/api";
+import { api, csrfToken } from "@/lib/api";
+import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { useMe } from "@/lib/me";
 import { reason } from "@/lib/mutations";
 import { q } from "@/lib/query";
@@ -128,20 +129,61 @@ function General() {
         </SettingsRow>
       )}
       {storage === "instance" ? <InstanceRows owner={owner} /> : storage === "usage" ? <StudioStorage /> : null}
-      {closeUrl && (
-        // SNAGSET_CLOSE_URL: closing is the operator's page, not this
-        // instance's — it may end a paid plan, and a self-hosted studio is
-        // ended by whoever owns the database. This row only points there.
-        <SettingsRow danger title="Close this studio" description="Its sites stop, and after a grace period it is erased with everything in it.">
-          <div className="flex flex-wrap items-center gap-4">
-            <p className="m-0 flex-1 text-[13px] text-ink-soft">The next page says what closing does, and asks you to type the studio's name.</p>
-            <Button variant="outline" className="border-destructive text-destructive" render={<a href={closeUrl} />}>
-              Close {me.org.name}…
-            </Button>
-          </div>
-        </SettingsRow>
-      )}
+      {closeUrl && <CloseStudio url={closeUrl} name={me.org.name} />}
     </div>
+  );
+}
+
+/**
+ * SNAGSET_CLOSE_URL: closing is the operator's to carry out, not this
+ * instance's — it may end a paid plan, and a self-hosted studio is ended by
+ * whoever owns the database. The dialog asks here, over the settings, and the
+ * confirmed form is posted to the operator's page, which checks the name, the
+ * double-submit token and the origin again and answers with the closed page.
+ */
+function CloseStudio({ url, name }: { url: string; name: string }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const submit = () => {
+    setBusy(true);
+    const form = document.createElement("form");
+    form.method = "post";
+    form.action = url;
+    for (const [k, v] of [["csrf", csrfToken()], ["confirm", name]] as const) {
+      const i = document.createElement("input");
+      i.type = "hidden";
+      i.name = k;
+      i.value = v;
+      form.append(i);
+    }
+    document.body.append(form);
+    form.submit();
+  };
+  return (
+    <SettingsRow danger title="Close this studio" description="Its sites stop, and after a grace period it is erased with everything in it.">
+      <div className="flex flex-wrap items-center justify-end gap-4">
+        <Button variant="outline" className="border-destructive text-destructive" onClick={() => setOpen(true)}>
+          Close {name}…
+        </Button>
+      </div>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={`Close ${name}`}
+        description="Closing stops the studio now and erases it thirty days later."
+        confirmLabel="Close this studio"
+        confirmWord={name}
+        busy={busy}
+        onConfirm={submit}
+      >
+        <ul className="m-0 flex list-disc flex-col gap-1.5 pl-5 text-[13px] text-ink-soft">
+          <li>Every site stops at once: the widget leaves your clients' pages, nobody can comment, and the dashboard closes for everyone in the studio.</li>
+          <li>If the studio pays for a plan, it is cancelled now, with no refund for the rest of the period.</li>
+          <li>For thirty days you can reopen it, with every site as it was.</li>
+          <li>After that it is erased for good: its sites, threads, comments and screenshots. People who belong to no other studio lose their account with it.</li>
+        </ul>
+      </ConfirmDialog>
+    </SettingsRow>
   );
 }
 

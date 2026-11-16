@@ -27,7 +27,7 @@ export class ApiFailure extends Error {
 }
 
 /** The double-submit half, read from the cookie the server set. */
-function csrfToken(): string {
+export function csrfToken(): string {
   for (const part of document.cookie.split(";")) {
     const i = part.indexOf("=");
     if (i > 0 && part.slice(0, i).trim() === DASHBOARD_CSRF_COOKIE) return part.slice(i + 1).trim();
