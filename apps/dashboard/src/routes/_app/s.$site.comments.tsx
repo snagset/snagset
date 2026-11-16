@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Brief } from "@/components/app/Brief";
-import { InstallTag } from "@/components/app/InstallTag";
+import { InstallWays } from "@/components/app/InstallTag";
 import { EmptyState, StatusPill } from "@/components/app/parts";
 import { MoveToRound, RoundMenu } from "@/components/app/RoundMenu";
 import type { Reviewer, Round, Thread, Tracker } from "@/lib/api";
@@ -413,7 +413,7 @@ function Comments() {
               <EmptyState icon={<InboxIcon className="size-5" />} title="No comments yet">
                 <p className="m-0">When someone leaves a comment on {site.name} it appears here, grouped by page.</p>
                 <div className="mt-4 text-left">
-                  <InstallTag uid={uid} />
+                  <InstallWays uid={uid} />
                 </div>
               </EmptyState>
             </div>
