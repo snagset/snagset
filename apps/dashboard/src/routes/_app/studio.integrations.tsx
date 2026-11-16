@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Picker } from "@/components/app/Picker";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -337,18 +338,7 @@ function ConnectGitHub({
           )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="gh-site">Site</Label>
-            <select
-              id="gh-site"
-              value={chosen}
-              onChange={(e) => setSite(e.target.value)}
-              className="h-8 rounded-md border border-input bg-background px-2.5 text-[13px]"
-            >
-              {sites.map((s) => (
-                <option key={s.uid} value={s.uid}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <Picker id="gh-site" value={chosen} onChange={setSite} options={sites.map((s) => ({ value: s.uid, label: s.name }))} />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="gh-repo">Repository</Label>
@@ -417,9 +407,9 @@ function WebhookSetup({
           </DialogDescription>
         </DialogHeader>
         {state && (
-          <dl className="m-0 grid grid-cols-[110px_1fr] gap-x-3 gap-y-2 text-[13px]">
+          <dl className="m-0 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[13px]">
             <dt className="text-muted-foreground">Payload URL</dt>
-            <dd className="m-0 flex items-center gap-2">
+            <dd className="m-0 flex min-w-0 items-center gap-2">
               <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 font-mono text-[12px]">{state.hook.url}</code>
               <CopyButton text={state.hook.url} label="Copy the payload URL" />
             </dd>
@@ -430,7 +420,7 @@ function WebhookSetup({
             {secret && (
               <>
                 <dt className="text-muted-foreground">Secret</dt>
-                <dd className="m-0 flex items-center gap-2">
+                <dd className="m-0 flex min-w-0 items-center gap-2">
                   <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 font-mono text-[12px]" data-testid="webhook-secret">
                     {secret}
                   </code>
@@ -513,13 +503,7 @@ function ConnectLinear({
           )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ln-site">Site</Label>
-            <select id="ln-site" value={chosen} onChange={(e) => setSite(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2.5 text-[13px]">
-              {sites.map((s) => (
-                <option key={s.uid} value={s.uid}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <Picker id="ln-site" value={chosen} onChange={setSite} options={sites.map((s) => ({ value: s.uid, label: s.name }))} />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="ln-team">Team key</Label>
@@ -630,13 +614,7 @@ function ConnectJira({
           )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="jr-site">Site</Label>
-            <select id="jr-site" value={chosen} onChange={(e) => setSite(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2.5 text-[13px]">
-              {sites.map((s) => (
-                <option key={s.uid} value={s.uid}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <Picker id="jr-site" value={chosen} onChange={setSite} options={sites.map((s) => ({ value: s.uid, label: s.name }))} />
           </div>
           {field("url", "Jira site", siteUrl, setSiteUrl, "https://kilnwork.atlassian.net")}
           {field("project", "Project key", project, setProject, "KAN", "text", "The prefix of the project's issues, like the KAN in KAN-12.")}
@@ -725,13 +703,7 @@ function ConnectSlack({
           )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="sl-site">Site</Label>
-            <select id="sl-site" value={chosen} onChange={(e) => setSite(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2.5 text-[13px]">
-              {sites.map((s) => (
-                <option key={s.uid} value={s.uid}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <Picker id="sl-site" value={chosen} onChange={setSite} options={sites.map((s) => ({ value: s.uid, label: s.name }))} />
           </div>
           <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2 text-[13px]">
             <span className="flex-1">

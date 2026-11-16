@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Picker } from "@/components/app/Picker";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -246,14 +247,7 @@ function NewToken({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="mcp-site">Site</Label>
-            <select id="mcp-site" value={site} onChange={(e) => setSite(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2.5 text-[13px]">
-              <option value="">All sites</option>
-              {sites.map((s) => (
-                <option key={s.uid} value={s.uid}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <Picker id="mcp-site" value={site} onChange={setSite} options={[{ value: "", label: "All sites" }, ...sites.map((s) => ({ value: s.uid, label: s.name }))]} />
           </div>
           <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
             <legend className="mb-1 text-[13px] font-medium">Scopes</legend>
@@ -280,12 +274,17 @@ function NewToken({
           )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="mcp-expires">Expires</Label>
-            <select id="mcp-expires" value={expires} onChange={(e) => setExpires(e.target.value)} className="h-8 rounded-md border border-input bg-background px-2.5 text-[13px]">
-              <option value="">Never</option>
-              <option value="30">In 30 days</option>
-              <option value="90">In 90 days</option>
-              <option value="365">In a year</option>
-            </select>
+            <Picker
+              id="mcp-expires"
+              value={expires}
+              onChange={setExpires}
+              options={[
+                { value: "", label: "Never" },
+                { value: "30", label: "In 30 days" },
+                { value: "90", label: "In 90 days" },
+                { value: "365", label: "In a year" },
+              ]}
+            />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

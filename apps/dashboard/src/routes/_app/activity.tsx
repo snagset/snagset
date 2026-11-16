@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { Picker } from "@/components/app/Picker";
 import { infiniteQueryOptions, useInfiniteQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
@@ -98,19 +99,14 @@ function Activity() {
         <div className="flex-1" />
         <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
           Site
-          <select
+          <Picker
             aria-label="Site"
+            size="sm"
+            className="w-auto min-w-40 text-foreground"
             value={site ?? ""}
-            onChange={(e) => go({ site: e.target.value || undefined })}
-            className="h-8 rounded-md border border-input bg-background px-2.5 text-[13px] text-foreground"
-          >
-            <option value="">All sites</option>
-            {me.projects.map((p) => (
-              <option key={p.uid} value={p.uid}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => go({ site: v || undefined })}
+            options={[{ value: "", label: "All sites" }, ...me.projects.map((p) => ({ value: p.uid, label: p.name }))]}
+          />
         </label>
       </div>
 
