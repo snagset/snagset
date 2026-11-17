@@ -905,6 +905,9 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       return true;
     });
     if (!queued) return fail(c, 404, "thread_not_found", "No such thread in this project.");
+    // This thread's own row first (seen live on 0.1.57: a queue-wide drain
+    // spent the whole wait on other studios' rows), then the rest as before.
+    await drainNow(sql, deps.push, 2, { threadId: threadRow, provider: pv });
     await drainNow(sql, deps.push);
     // The drain above may not be the one that takes this thread's row: the
     // minute worker, or another request's drain, can hold it in flight, and
@@ -941,7 +944,7 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
         return c.json({ ref: null, queued: true, message: `${NAME[pv]} is still being asked. The link appears on this comment when it answers.` }, 202);
       }
       await new Promise((r) => setTimeout(r, 250));
-      await drainNow(sql, deps.push, 1);
+      await drainNow(sql, deps.push, 1, { threadId: threadRow, provider: pv });
     }
   });
 

@@ -1340,6 +1340,29 @@ test("Create … issue waits on the thread's own row: one another worker holds a
   await sql`DELETE FROM threads WHERE id = ${t2}`;
 });
 
+test("Create … issue works its own row first: a backlog of other rows ahead of it does not use up the wait", { skip }, async () => {
+  const t3 = randomUUID();
+  await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+    const [env] = await tx<{ id: string }[]>`SELECT id FROM environments WHERE project_id = ${projectId} AND is_default`;
+    const [round] = await tx<{ id: string }[]>`SELECT id FROM rounds WHERE project_id = ${projectId}`;
+    await tx`
+      INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number, anchor, context, created_by)
+      VALUES (${t3}, ${orgId}, ${projectId}, 'SN-91', ${env!.id}, ${round!.id}, 91,
+              ${tx.json({ label: "y", css: "main", page: { origin: "https://kilnwork.studio", pathname: "/", route: "/" }, offset: {} })}, ${tx.json({})}, ${adaId})`;
+    // Sixty older rows due before it, none of them this thread's.
+    for (let k = 0; k < 60; k++) {
+      await tx`INSERT INTO outbox (id, org_id, project_id, provider, topic, dedupe_key, next_attempt_at)
+               VALUES (${randomUUID()}, ${orgId}, ${projectId}, 'github', 'issue.state', ${`backlog:${k}`}, now() - interval '1 hour')`;
+    }
+  });
+  const res = await app.request(`/api/v1/projects/${uid}/threads/thr_${t3}/integrations/trello`, { method: "POST", headers: as(owner) });
+  assert.equal(res.status, 200, await res.clone().text());
+  assert.ok((await json(res))["ref"].url, "the card's link, not queued");
+  await sql`DELETE FROM outbox WHERE dedupe_key LIKE 'backlog:%'`;
+  await sql`DELETE FROM threads WHERE id = ${t3}`;
+});
+
 test("Trello: a second site on the same board, token and Power-Up shares the one webhook; a failed re-register keeps the webhook that works", { skip }, async () => {
   const made = await app.request("/api/v1/projects", { method: "POST", headers: as(owner), body: JSON.stringify({ name: "Kilnwork staging", domain: "staging.kilnwork.studio" }) });
   assert.equal(made.status, 201, await made.clone().text());

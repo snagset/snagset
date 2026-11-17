@@ -326,7 +326,13 @@ function slackInput(thread: Record<string, any>, baseUrl: string) {
   };
 }
 
-export function pushToTrackers(sql0: postgres.Sql, deps: PushDeps): Job {
+/** A drain narrowed to one thread's rows for one tracker: "Create … issue" works its own row first. */
+export interface DrainOnly {
+  threadId: string;
+  provider: string;
+}
+
+export function pushToTrackers(sql0: postgres.Sql, deps: PushDeps, only?: DrainOnly): Job {
   return {
     name: "push-to-trackers",
     everyMs: 15_000,
@@ -341,6 +347,7 @@ export function pushToTrackers(sql0: postgres.Sql, deps: PushDeps): Job {
             -- and a database whose clock runs a second ahead of the process
             -- (a container's does) would otherwise hold it for a whole tick.
             WHERE provider IN ('github', 'linear', 'jira', 'trello', 'slack') AND status = 'pending' AND next_attempt_at <= GREATEST(${now}, now())
+              ${only ? sql`AND thread_id = ${only.threadId}::uuid AND provider = ${only.provider}::snag_provider` : sql``}
             ORDER BY next_attempt_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1
@@ -426,8 +433,8 @@ export function pushToTrackers(sql0: postgres.Sql, deps: PushDeps): Job {
 }
 
 /** Drain the queue now — the dashboard's "Create issue" wants the link back in the same click. */
-export async function drainNow(sql: postgres.Sql, deps: PushDeps, limit = 5): Promise<void> {
-  const job = pushToTrackers(sql, deps);
+export async function drainNow(sql: postgres.Sql, deps: PushDeps, limit = 5, only?: DrainOnly): Promise<void> {
+  const job = pushToTrackers(sql, deps, only);
   const ctx: JobContext = { sql, now: new Date(), log: () => {} } as JobContext;
   for (let i = 0; i < limit; i++) {
     const out = await job.run(ctx);
