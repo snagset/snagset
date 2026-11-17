@@ -33,6 +33,12 @@ export interface IssueStateEvent {
   externalId: string;
   /** Our status, already mapped by state type — or `detach` when the tracker deleted the issue. */
   status: "resolved" | "progress" | "open" | "detach";
+  /**
+   * The tracker's in-progress place also holds our review (Trello: one list
+   * for both), so an inbound "progress" leaves a thread in review as it is —
+   * otherwise our own move of the card would come back and undo the review.
+   */
+  progressHoldsReview?: boolean;
 }
 
 export type Applied =
@@ -70,6 +76,7 @@ export async function applyIssueState(sql: postgres.Sql, ev: IssueStateEvent): P
     `;
     if (!t) return { kind: "ignored", why: "no-thread" };
     if (t.status === ev.status) return { kind: "ignored", why: "unchanged" };
+    if (ev.progressHoldsReview && ev.status === "progress" && t.status === "review") return { kind: "ignored", why: "unchanged" };
     const [row] = await tx<{ version: number }[]>`
       UPDATE threads
          SET status = ${ev.status}::snag_thread_status,

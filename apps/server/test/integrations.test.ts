@@ -231,6 +231,63 @@ function fakeJira(): Promise<{ server: Server; url: string }> {
   });
 }
 
+/** Enough of Trello's REST v1: the member, the board and its lists, cards, webhooks. */
+const TR_BOARD = "b0".repeat(12);
+const TR_LISTS = { open: "1a".repeat(12), progress: "2b".repeat(12), resolved: "3c".repeat(12), other: "4d".repeat(12) };
+const TR_AUTH = 'OAuth oauth_consumer_key="trkey", oauth_token="trtoken_good"';
+let tr: Server;
+let trUrl: string;
+let trWebhookMode: "ok" | "fail" = "ok";
+const trSeen: { method: string; path: string; auth: string; body: any }[] = [];
+let nextCard = 1;
+function fakeTrello(): Promise<{ server: Server; url: string }> {
+  return new Promise((resolve) => {
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c: Buffer) => chunks.push(c));
+      req.on("end", () => {
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : undefined;
+        const auth = req.headers.authorization ?? "";
+        const path = req.url!.split("?")[0]!;
+        trSeen.push({ method: req.method!, path, auth, body });
+        const json = (status: number, payload: unknown) => {
+          res.writeHead(status, { "content-type": "application/json" });
+          res.end(JSON.stringify(payload));
+        };
+        if (auth !== TR_AUTH) return json(401, { message: "invalid token" });
+        if (path === "/1/members/me") return json(200, { fullName: "Ada Lovelace", username: "ada" });
+        if (path === "/1/members/me/boards") return json(200, [{ id: TR_BOARD, name: "Kilnwork site" }]);
+        if (path === `/1/boards/${TR_BOARD}`) return json(200, { id: TR_BOARD, name: "Kilnwork site", url: "https://trello.com/b/abc/kilnwork-site" });
+        if (path === `/1/boards/${TR_BOARD}/lists`) {
+          return json(200, [
+            { id: TR_LISTS.open, name: "To do" },
+            { id: TR_LISTS.progress, name: "Doing" },
+            { id: TR_LISTS.resolved, name: "Done" },
+            { id: TR_LISTS.other, name: "Ideas" },
+          ]);
+        }
+        if (path.startsWith("/1/boards/")) return json(404, { message: "not found" });
+        if (path === "/1/cards" && req.method === "POST") {
+          const n = nextCard++;
+          const id = String(n).padStart(24, "c");
+          return json(200, { id, shortUrl: `https://trello.com/c/card${n}`, idList: body?.idList });
+        }
+        if (/^\/1\/cards\/[^/]+$/.test(path) && req.method === "PUT") return json(200, { id: path.slice(9), idList: body?.idList });
+        if (path === "/1/webhooks" && req.method === "POST") {
+          if (trWebhookMode === "fail") return json(400, "URL (https://review.example.dev/x) did not return 200 status code, got 404");
+          return json(200, { id: "w".repeat(24), idModel: body?.idModel, callbackURL: body?.callbackURL });
+        }
+        if (/^\/1\/webhooks\/[^/]+$/.test(path) && req.method === "DELETE") return json(200, {});
+        return json(404, { message: "not found" });
+      });
+    });
+    server.listen(0, "127.0.0.1", () => {
+      const port = (server.address() as { port: number }).port;
+      resolve({ server, url: `http://127.0.0.1:${port}/1` });
+    });
+  });
+}
+
 /** The suite's app. `afterResponse` is the hook: absent, a write's queued work waits for a worker run. */
 function build(extra: { afterResponse?: (drain: Promise<void>) => Promise<void> | void } = {}, privateJira = true) {
   return createApp({
@@ -253,6 +310,7 @@ function build(extra: { afterResponse?: (drain: Promise<void>) => Promise<void> 
     githubApiBase: ghUrl,
     linearApiBase: lnUrl,
     slackApiBase: slUrl,
+    trelloApiBase: trUrl,
     ...extra,
   });
 }
@@ -274,7 +332,7 @@ const as = (who: { cookie: string; csrf: string }) => ({ "content-type": "applic
 const json = (res: Response) => res.json() as Promise<Record<string, any>>;
 const gh_ = () => `/api/v1/projects/${uid}/integrations/github`;
 const runWorker = async () => {
-  const job = pushToTrackers(sql, { keys: createKeyring(SECRET), baseUrl: async () => "https://review.example.dev", githubApiBase: ghUrl, linearApiBase: lnUrl, slackApiBase: slUrl, jiraPrivate: true });
+  const job = pushToTrackers(sql, { keys: createKeyring(SECRET), baseUrl: async () => "https://review.example.dev", githubApiBase: ghUrl, linearApiBase: lnUrl, slackApiBase: slUrl, trelloApiBase: trUrl, jiraPrivate: true });
   for (let i = 0; i < 5; i++) {
     const out = await job.run({ sql, now: new Date(), log: () => {} } as JobContext);
     if (!out.more) break;
@@ -294,6 +352,7 @@ before(async () => {
   ({ server: ln, url: lnUrl } = await fakeLinear());
   ({ server: jr, url: jrUrl } = await fakeJira());
   ({ server: sl, url: slUrl } = await fakeSlack());
+  ({ server: tr, url: trUrl } = await fakeTrello());
 
   orgId = randomUUID();
   await sql.begin(async (tx) => {
@@ -356,6 +415,7 @@ after(async () => {
   ln?.close();
   jr?.close();
   sl?.close();
+  tr?.close();
   if (!skip) {
     await sql`DROP SCHEMA IF EXISTS public CASCADE`;
     await sql`CREATE SCHEMA public`;
@@ -1090,4 +1150,205 @@ test("SSRF: by default the Jira address is reached only on the public internet �
   // Connecting goes the same way: nothing stored.
   const put = await guarded.request(jr_(), { method: "PUT", headers: as(owner), body: JSON.stringify({ siteUrl: jrUrl, project: "KAN", email: "ada@kilnwork.studio", apiToken: "jira_good" }) });
   assert.equal(put.status, 422);
+});
+
+const tr_ = () => `/api/v1/projects/${uid}/integrations/trello`;
+const TR_CALLBACK = "https://review.example.dev/api/v1/integrations/trello/inbound";
+const trSigned = (payload: unknown, secret: string) => {
+  const raw = JSON.stringify(payload);
+  const sig = createHmac("sha1", secret).update(raw + TR_CALLBACK).digest("base64");
+  return { method: "POST", headers: { "content-type": "application/json", "x-trello-webhook": sig }, body: raw };
+};
+
+test("Trello: discover lists boards then lists; connecting probes three distinct open lists and registers the webhook itself", { skip }, async () => {
+  const boards = await app.request("/api/v1/integrations/trello/discover", { method: "POST", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good" }) });
+  assert.equal(boards.status, 200, await boards.clone().text());
+  assert.deepEqual(JSON.stringify(await json(boards)).includes(TR_BOARD), true);
+  const lists = await json(await app.request("/api/v1/integrations/trello/discover", { method: "POST", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good", boardId: TR_BOARD }) }));
+  assert.ok(JSON.stringify(lists).includes("Doing"));
+  const badBoard = await app.request("/api/v1/integrations/trello/discover", { method: "POST", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good", boardId: "../x" }) });
+  assert.equal(badBoard.status, 422);
+
+  const put = (lists: Record<string, string>, token = "trtoken_good") =>
+    app.request(tr_(), { method: "PUT", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token, boardId: TR_BOARD, openList: lists.open, progressList: lists.progress, resolvedList: lists.resolved, createOn: "manual" }) });
+  const wrong = await put(TR_LISTS, "trtoken_bad");
+  assert.equal(wrong.status, 422);
+  assert.match((await json(wrong))["error"].message, /API key and token were refused/);
+  const same = await put({ ...TR_LISTS, progress: TR_LISTS.open });
+  assert.equal(same.status, 422);
+  assert.match((await json(same))["error"].message, /three different lists/);
+  const foreign = await put({ ...TR_LISTS, resolved: "9f".repeat(12) });
+  assert.equal(foreign.status, 422);
+  assert.match((await json(foreign))["error"].message, /not an open list/);
+  assert.equal((await sql`SELECT 1 FROM integrations WHERE provider = 'trello'`).length, 0, "nothing stored on a refusal");
+
+  // Trello cannot reach us: connected all the same, and the card says why.
+  trWebhookMode = "fail";
+  const noHook = await put(TR_LISTS);
+  assert.equal(noHook.status, 200, await noHook.clone().text());
+  const nh = await json(noHook);
+  assert.equal(nh["webhook"].registered, false);
+  assert.match(String(nh["webhook"].error), /did not return 200/);
+  assert.equal(nh["integration"].webhookRegistered, false);
+
+  trWebhookMode = "ok";
+  trSeen.length = 0;
+  const ok = await put(TR_LISTS);
+  assert.equal(ok.status, 200, await ok.clone().text());
+  const body = await json(ok);
+  assert.equal(body["integration"].boardName, "Kilnwork site");
+  assert.deepEqual(body["integration"].listNames, { open: "To do", progress: "Doing", resolved: "Done" });
+  assert.equal(body["integration"].webhookRegistered, true);
+  assert.equal(body["webhook"].url, TR_CALLBACK);
+  const reg = trSeen.find((r) => r.method === "POST" && r.path === "/1/webhooks");
+  assert.deepEqual(reg?.body, { callbackURL: TR_CALLBACK, idModel: TR_BOARD, description: reg?.body?.description });
+  assert.ok(!JSON.stringify(body).includes("trtoken"), "the token never comes back");
+
+  // Trello's HEAD check on the callback answers 200.
+  const head = await app.request("/api/v1/integrations/trello/inbound", { method: "HEAD" });
+  assert.equal(head.status, 200);
+
+  // The Power-Up secret is pasted, never minted or echoed.
+  const empty = await app.request(`${tr_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({}) });
+  assert.equal(empty.status, 422);
+  const pasted = await app.request(`${tr_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: "tr-powerup-secret" }) });
+  assert.equal(pasted.status, 200, await pasted.clone().text());
+  assert.ok(!JSON.stringify(await json(pasted)).includes("tr-powerup-secret"));
+});
+
+test("Trello: the card is made in the list for our status and moved as the status moves", { skip }, async () => {
+  await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { method: "PATCH", headers: as(owner), body: JSON.stringify({ status: "progress" }) });
+  await runWorker();
+  trSeen.length = 0;
+  const res = await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}/integrations/trello`, { method: "POST", headers: as(owner) });
+  assert.equal(res.status, 200, await res.clone().text());
+  const ref = (await json(res))["ref"];
+  assert.equal(ref.provider, "trello");
+  assert.match(ref.url, /^https:\/\/trello\.com\/c\/card\d+$/);
+  const created = trSeen.find((r) => r.method === "POST" && r.path === "/1/cards");
+  assert.ok(created, "a card was created");
+  assert.equal(created!.body.idList, TR_LISTS.progress, "in progress here is the Doing list there");
+  assert.match(created!.body.name, /^\/pricing — The buy button is the wrong blue\./);
+  assert.match(created!.body.desc, /# SN-1/);
+  assert.ok(!/(^|[^\\`])@torvalds\b/m.test(created!.body.desc), "the mention is neutralised");
+  assert.ok(!created!.body.desc.includes("secret-ua"));
+
+  trSeen.length = 0;
+  await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { method: "PATCH", headers: as(owner), body: JSON.stringify({ status: "resolved" }) });
+  await runWorker();
+  const moved = trSeen.find((r) => r.method === "PUT" && r.path.startsWith("/1/cards/"));
+  assert.ok(moved, "Trello was told");
+  assert.equal(moved!.body.idList, TR_LISTS.resolved);
+  trSeen.length = 0;
+  await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { method: "PATCH", headers: as(owner), body: JSON.stringify({ status: "open" }) });
+  await runWorker();
+  assert.equal(trSeen.find((r) => r.method === "PUT")!.body.idList, TR_LISTS.open);
+});
+
+let uid2: string;
+const tr2_ = () => `/api/v1/projects/${uid2}/integrations/trello`;
+const trPut = (path: string, extra: Record<string, unknown> = {}) =>
+  app.request(path, { method: "PUT", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good", boardId: TR_BOARD, openList: TR_LISTS.open, progressList: TR_LISTS.progress, resolvedList: TR_LISTS.resolved, createOn: "manual", ...extra }) });
+
+test("Trello: a second site on the same board, token and Power-Up shares the one webhook; a failed re-register keeps the webhook that works", { skip }, async () => {
+  const made = await app.request("/api/v1/projects", { method: "POST", headers: as(owner), body: JSON.stringify({ name: "Kilnwork staging", domain: "staging.kilnwork.studio" }) });
+  assert.equal(made.status, 201, await made.clone().text());
+  uid2 = ((await made.json()) as { uid: string }).uid;
+  const second = await trPut(tr2_());
+  assert.equal(second.status, 200, await second.clone().text());
+  await app.request(`${tr2_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: "tr-powerup-secret" }) });
+  const ids = await sql<{ w: string }[]>`SELECT config->>'webhookId' AS w FROM integrations WHERE provider = 'trello' AND deleted_at IS NULL`;
+  assert.deepEqual(ids.map((r) => r.w), ["w".repeat(24), "w".repeat(24)], "Trello gave both the same webhook");
+
+  // Reconnecting the first site to change nothing, while Trello cannot be reached:
+  // the webhook that works is neither removed at Trello nor forgotten here.
+  trWebhookMode = "fail";
+  trSeen.length = 0;
+  const again = await trPut(tr_());
+  trWebhookMode = "ok";
+  assert.equal(again.status, 200, await again.clone().text());
+  assert.equal((await json(again))["integration"].webhookRegistered, true);
+  assert.ok(!trSeen.some((r) => r.method === "DELETE"), "the working webhook was not taken down");
+});
+
+test("Trello → us: a signed card move maps its list back, another list and a replay do nothing, a wrong secret is refused, a delete detaches", { skip }, async () => {
+  const [ref] = await sql<{ external_id: string }[]>`SELECT external_id FROM external_refs WHERE thread_id = ${threadId} AND provider = 'trello'`;
+  const cardId = ref!.external_id;
+  const status = async () => (await sql<{ status: string }[]>`SELECT status FROM threads WHERE id = ${threadId}`)[0]!.status;
+  const move = (id: string, listId: string) => ({
+    action: { id, type: "updateCard", data: { card: { id: cardId, name: "Café ✓ — the hero" }, listBefore: { id: TR_LISTS.open }, listAfter: { id: listId }, board: { id: TR_BOARD } } },
+    model: { id: TR_BOARD },
+  });
+  const done = await app.request("/api/v1/integrations/trello/inbound", trSigned(move("ta-1", TR_LISTS.resolved), "tr-powerup-secret"));
+  assert.equal(done.status, 200, await done.clone().text());
+  assert.equal((await json(done))["applied"], "resolved");
+  assert.equal(await status(), "resolved");
+  // One delivery, two connections that verify it: each was heard from, and the
+  // site without the card did not spend the delivery for the one with it.
+  const heard = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM integrations WHERE provider = 'trello' AND last_delivery_at IS NOT NULL`;
+  assert.equal(heard[0]!.n, 2);
+  const [pending] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM outbox WHERE status = 'pending' AND provider = 'trello'`;
+  assert.equal(pending!.n, 0, "no echo back to Trello");
+
+  const replay = await app.request("/api/v1/integrations/trello/inbound", trSigned(move("ta-1", TR_LISTS.open), "tr-powerup-secret"));
+  assert.equal((await json(replay))["why"], "replay");
+  assert.equal(await status(), "resolved");
+
+  const ideas = await app.request("/api/v1/integrations/trello/inbound", trSigned(move("ta-2", TR_LISTS.other), "tr-powerup-secret"));
+  assert.equal(ideas.status, 200);
+  assert.equal(await status(), "resolved", "a list that is none of the three changes nothing");
+
+  const back = await app.request("/api/v1/integrations/trello/inbound", trSigned(move("ta-3", TR_LISTS.progress), "tr-powerup-secret"));
+  assert.equal((await json(back))["applied"], "reopened");
+  assert.equal(await status(), "progress");
+
+  // Our review sits in the in-progress list too: the card arriving there, as it
+  // does when we move it, leaves a thread in review as it is.
+  await sql`UPDATE threads SET status = 'review', resolved_at = NULL WHERE id = ${threadId}`;
+  const echo = await app.request("/api/v1/integrations/trello/inbound", trSigned(move("ta-3b", TR_LISTS.progress), "tr-powerup-secret"));
+  assert.equal((await json(echo))["why"], "unchanged");
+  assert.equal(await status(), "review");
+  await sql`UPDATE threads SET status = 'progress', resolved_at = NULL WHERE id = ${threadId}`;
+
+  // Two Power-Ups, two webhooks on the board: Trello delivers one action to
+  // each with the same action id. The staging site's copy (no card there)
+  // must not spend the delivery for the site that has the card.
+  await app.request(`${tr2_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: "tr-other-secret" }) });
+  const toStaging = await app.request("/api/v1/integrations/trello/inbound", trSigned(move("ta-shared", TR_LISTS.resolved), "tr-other-secret"));
+  assert.equal((await json(toStaging))["why"], "no-thread");
+  const toLive = await app.request("/api/v1/integrations/trello/inbound", trSigned(move("ta-shared", TR_LISTS.resolved), "tr-powerup-secret"));
+  assert.equal((await json(toLive))["applied"], "resolved");
+  assert.equal(await status(), "resolved");
+  await sql`UPDATE threads SET status = 'progress', resolved_at = NULL WHERE id = ${threadId}`;
+  await app.request(`${tr2_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: "tr-powerup-secret" }) });
+
+  const forged = await app.request("/api/v1/integrations/trello/inbound", trSigned(move("ta-4", TR_LISTS.resolved), "not-the-secret"));
+  assert.equal(forged.status, 401);
+  assert.equal(await status(), "progress");
+  // Two connections watch this board, so a refusal is no one's to report: the
+  // record is written only when the board has exactly one connection.
+  const recs = await sql`SELECT 1 FROM integrations WHERE provider = 'trello' AND last_refused_error IS NOT NULL`;
+  assert.equal(recs.length, 0);
+  // A delivery signed for another callback URL does not verify either.
+  const raw = JSON.stringify(move("ta-5", TR_LISTS.resolved));
+  const otherUrl = createHmac("sha1", "tr-powerup-secret").update(raw + "https://evil.test/hook").digest("base64");
+  const moved = await app.request("/api/v1/integrations/trello/inbound", { method: "POST", headers: { "content-type": "application/json", "x-trello-webhook": otherUrl }, body: raw });
+  assert.equal(moved.status, 401);
+
+  const del = await app.request("/api/v1/integrations/trello/inbound", trSigned({ action: { id: "ta-6", type: "deleteCard", data: { card: { id: cardId }, board: { id: TR_BOARD } } }, model: { id: TR_BOARD } }, "tr-powerup-secret"));
+  assert.equal(del.status, 200, await del.clone().text());
+  assert.equal((await json(del))["applied"], "detached");
+  const [after] = await sql<{ status: string }[]>`SELECT status FROM external_refs WHERE thread_id = ${threadId} AND provider = 'trello'`;
+  assert.equal(after!.status, "detached");
+});
+
+test("Trello: disconnecting removes the webhook from Trello, but only once no other site holds it", { skip }, async () => {
+  trSeen.length = 0;
+  const first = await app.request(tr2_(), { method: "DELETE", headers: as(owner) });
+  assert.ok(first.status === 200 || first.status === 204);
+  assert.ok(!trSeen.some((r) => r.method === "DELETE"), "the other site still uses the webhook");
+  trSeen.length = 0;
+  const res = await app.request(tr_(), { method: "DELETE", headers: as(owner) });
+  assert.ok(res.status === 200 || res.status === 204, await res.clone().text());
+  assert.ok(trSeen.some((r) => r.method === "DELETE" && r.path === `/1/webhooks/${"w".repeat(24)}`), "the webhook was removed");
 });

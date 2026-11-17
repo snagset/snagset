@@ -1,18 +1,19 @@
 # Integrations
 
-A comment becomes work somewhere else. Five cards on Studio › Integrations —
-your coding agent first, then GitHub, Linear, Jira and Slack — connect a site
+A comment becomes work somewhere else. Six cards on Studio › Integrations —
+your coding agent first, then GitHub, Linear, Jira, Trello and Slack — connect a site
 to that somewhere, and every one of them is a token you paste, not an app you
 register: the setup story a self-host can finish in a few minutes.
 
 Three rules hold across all of them.
 
 - **Your status is canonical.** A mirror is moved by *state type* (open or
-  closed, a workflow state's type, a Jira status category), never by a state's
+  closed, a workflow state's type, a Jira status category, the Trello list you
+  picked for each status), never by a state's
   name, and a change on the other side comes back the same way. Nothing
   echoes: a change that arrived from GitHub is not sent back to GitHub.
 - **One issue per comment per tracker.** Ask twice and you get the same issue.
-  A comment can be in GitHub, Linear and Jira at once.
+  A comment can be in GitHub, Linear, Jira and Trello at once.
 - **A reviewer's words cannot act.** The issue body, the Slack message and the
   brief are the same text, and every reviewer-typed field is escaped for the
   destination: no `@channel`, no `@mention`, no `#123` that resolves, no HTML,
@@ -26,7 +27,7 @@ back to the screen.
 
 ## How connecting works
 
-GitHub, Linear and Jira connect in three steps, in one dialog:
+GitHub, Linear, Jira and Trello connect in three steps, in one dialog:
 
 1. **Access.** Paste the key the tracker gives you. It is checked straight
    away, and the answer lists what it can see. The eye beside the field shows
@@ -137,6 +138,43 @@ the project's workflow by **status category**: resolved goes to a done status,
 in progress to an in-progress one, open and in review to a new one. A workflow
 that offers no such transition is reported on the card rather than guessed. A
 status change in Jira comes back the same way; a deleted issue detaches.
+
+## Trello
+
+**1. Access — an API key and a token.** Trello gives both from a Power-Up,
+which is just the place your key lives; nothing is published.
+
+1. Open [Trello's Power-Ups admin](https://trello.com/power-ups/admin) and
+   create a Power-Up (name it Snagset, any workspace).
+2. Open its *API key* tab and *Generate a new API key*. Paste the key in
+   step 1.
+3. The dialog then shows a *Generate a token* link for that key. Open it,
+   allow read and write, and paste the token it shows.
+
+**2. Connect.** Pick the board, then three of its lists: one for **Open**,
+one for **In progress**, one for **Resolved**. The dialog guesses them from
+their names (*To do*, *Doing*, *Done*); change any guess. The three must be
+different lists.
+
+**3. Way back.** Snagset registers the board's webhook itself, so there is
+nothing to create in Trello. Trello signs its deliveries with the Power-Up's
+secret:
+
+1. On the Power-Up's *API key* tab, copy the **Secret**.
+2. Paste it in step 3 as the *Power-Up secret*.
+3. Move any card on the board to another list once. The dialog ticks.
+
+Trello checks the address before it agrees to the webhook, so your server
+must be reachable from the internet. If it is not, the site still connects,
+the card says the webhook could not be registered and why, and connecting
+again once it is reachable registers it.
+
+**What happens:** the card is made at the top of the list for the comment's
+status, with the brief as its description. Our status moves the card between
+the three lists; in review counts as in progress. Moving the card to one of
+the three lists in Trello moves the comment the same way. A move to any other
+list changes nothing, and a deleted card detaches. Disconnecting removes the
+webhook from Trello.
 
 ## Slack
 

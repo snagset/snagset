@@ -1,0 +1,11 @@
+-- ───────────────────────────────────────
+-- Trello joins the providers (0.1.56).
+--
+-- A card's status in Trello is the list it sits in, so a connection names a
+-- board and three of its lists (open, in progress, resolved) in `config`;
+-- no new columns. ADD VALUE cannot run inside a transaction block on every
+-- Postgres this ships on, and the new value cannot be used in the
+-- transaction that added it — hence `.no-txn`, as 0007 did for Jira.
+--
+-- Under D71, 05 §3.1's enum is amended in the same commit.
+ALTER TYPE snag_provider ADD VALUE IF NOT EXISTS 'trello';

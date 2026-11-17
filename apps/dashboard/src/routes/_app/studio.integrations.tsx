@@ -128,7 +128,7 @@ function Integrations() {
         </div>
       )}
 
-      {(["github", "linear", "jira", "slack"] as const).map((provider) => {
+      {(["github", "linear", "jira", "trello", "slack"] as const).map((provider) => {
         const mine = rowsFor(provider);
         const free = freeFor(provider);
         return (
@@ -142,7 +142,9 @@ function Integrations() {
                   ? "A comment becomes an issue in the site's team, with the brief as its body; our status moves it between the team's workflow states by type, and a webhook from Linear moves it back. A personal API key per site — no OAuth app to register."
                   : provider === "jira"
                     ? "A comment becomes an issue in the site's Jira project, with the brief as its description; our status moves it through the workflow by status category, and a webhook from Jira moves it back. An API token with the account's email — what Atlassian gives a self-hoster."
-                    : "One message per comment in a channel, edited in place as the status moves — never a second message, never a reply. A bot token from an app you create in a click from our manifest; Slack sends nothing back."
+                    : provider === "trello"
+                      ? "A comment becomes a card on the site's board, with the brief as its description. A card's list is its status: our status moves it between the three lists you pick, and moving it there moves the comment here. An API key and token from your own Power-Up; Snagset sets up the webhook."
+                      : "One message per comment in a channel, edited in place as the status moves — never a second message, never a reply. A bot token from an app you create in a click from our manifest; Slack sends nothing back."
             }
           >
             {list.isPending && <RowsPending rows={2} />}
@@ -156,7 +158,9 @@ function Integrations() {
                       ? "No site is connected to a team yet."
                       : provider === "jira"
                         ? "No site is connected to a project yet."
-                        : "No site is connected to a channel yet."}
+                        : provider === "trello"
+                          ? "No site is connected to a board yet."
+                          : "No site is connected to a channel yet."}
                 </span>
               </div>
             )}
@@ -175,7 +179,9 @@ function Integrations() {
                             ? `${r.teamKey} · ${r.teamName}`
                             : r.provider === "jira"
                               ? `${r.projectKey} · ${r.projectName}`
-                              : `#${r.channelName} · ${r.teamName}`}
+                              : r.provider === "trello"
+                                ? `${r.boardName} · ${r.listNames.open} / ${r.listNames.progress} / ${r.listNames.resolved}`
+                                : `#${r.channelName} · ${r.teamName}`}
                       </code>
                       <Badge variant="outline" className={h.tone === "ok" ? "border-ok text-ok" : h.tone === "bad" ? "border-destructive text-destructive" : ""}>
                         {h.label}
@@ -210,7 +216,9 @@ function Integrations() {
                                       ? { label: `${r.owner}/${r.repo}`, repo: `${r.owner}/${r.repo}` }
                                       : r.provider === "linear"
                                         ? { label: r.teamName }
-                                        : { label: r.projectName, jiraSite: r.siteUrl },
+                                        : r.provider === "trello"
+                                          ? { label: r.boardName }
+                                          : { label: r.projectName, jiraSite: r.siteUrl },
                                 })
                               }
                             >
@@ -241,7 +249,7 @@ function Integrations() {
         );
       })}
 
-      {(["github", "linear", "jira"] as const).map((pv) => (
+      {(["github", "linear", "jira", "trello"] as const).map((pv) => (
         <ConnectTracker key={pv} provider={pv} open={connecting === pv} onOpenChange={(o) => !o && setConnecting(null)} sites={freeFor(pv)} />
       ))}
       <ConnectSlack open={connecting === "slack"} onOpenChange={(o) => !o && setConnecting(null)} sites={freeFor("slack")} onDone={() => void refresh()} />
@@ -390,6 +398,8 @@ function WayBackLine({ r }: { r: Exclude<TrackerIntegration, { provider: "slack"
         Webhook refused {ago(r.lastRefusedAt)}: {r.lastRefusedError} Unsigned, so check {name}'s webhook log first.
       </span>
     );
-  if (r.provider === "linear" && !r.hasWebhookSecret) return <span className="basis-full text-[12px] text-muted-foreground">No webhook yet, so {name} cannot move comments here. Webhook… sets it up.</span>;
+  if (r.provider === "trello" && !r.webhookRegistered)
+    return <span className="basis-full text-[12px] text-destructive">Snagset could not register the webhook on {r.boardName}: Trello must reach this server's address. Connect again once it can.</span>;
+  if ((r.provider === "linear" || r.provider === "trello") && !r.hasWebhookSecret) return <span className="basis-full text-[12px] text-muted-foreground">No webhook yet, so {name} cannot move comments here. Webhook… sets it up.</span>;
   return <span className="basis-full text-[12px] text-muted-foreground">No webhook delivery seen yet. Webhook… shows how to set it up.</span>;
 }

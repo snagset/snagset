@@ -124,7 +124,7 @@ export function Brief({
         {(trackers ?? []).map((provider) => {
           const issue = thread.refs?.find((r) => r.provider === provider && r.kind === REF_KIND[provider] && r.status !== "detached");
           if (issue) {
-            // GitHub's id is the number; Jira's is the key; Linear's is a uuid, and its key sits in the URL; Slack's is a message.
+            // GitHub's id is the number; Jira's is the key; Linear's is a uuid, and its key sits in the URL; Trello's is a card; Slack's is a message.
             const label =
               provider === "github"
                 ? `Issue #${issue.externalId}`
@@ -132,6 +132,8 @@ export function Brief({
                   ? issue.externalId
                   : provider === "slack"
                     ? "Slack message"
+                    : provider === "trello"
+                      ? "Trello card"
                     : (/\/issue\/([A-Z][A-Z0-9]*-\d+)/.exec(issue.url)?.[1] ?? `${TRACKER_NAME[provider]} issue`);
             return (
               <Button key={provider} variant="ghost" size="sm" render={<a href={issue.url} target="_blank" rel="noreferrer" />}>
@@ -143,7 +145,7 @@ export function Brief({
           if (!onCreateIssue) return null;
           return (
             <Button key={provider} variant="ghost" size="sm" disabled={!!creatingIssue} onClick={() => onCreateIssue(provider)}>
-              {creatingIssue === provider ? (provider === "slack" ? "Posting…" : "Creating…") : provider === "slack" ? "Post to Slack" : `Create ${TRACKER_NAME[provider]} issue`}
+              {creatingIssue === provider ? (provider === "slack" ? "Posting…" : "Creating…") : provider === "slack" ? "Post to Slack" : provider === "trello" ? "Create Trello card" : `Create ${TRACKER_NAME[provider]} issue`}
             </Button>
           );
         })}

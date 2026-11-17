@@ -212,10 +212,10 @@ export interface GitHubWebhook {
 }
 
 /** A site's tracker connection (GitHub, Linear, Jira, Slack) — never a token. */
-export type Tracker = "github" | "linear" | "jira" | "slack";
-export const TRACKER_NAME: Record<Tracker, string> = { github: "GitHub", linear: "Linear", jira: "Jira", slack: "Slack" };
+export type Tracker = "github" | "linear" | "jira" | "trello" | "slack";
+export const TRACKER_NAME: Record<Tracker, string> = { github: "GitHub", linear: "Linear", jira: "Jira", trello: "Trello", slack: "Slack" };
 /** What a thread's mirror is called in each: an issue, or Slack's message. */
-export const REF_KIND: Record<Tracker, "issue" | "message"> = { github: "issue", linear: "issue", jira: "issue", slack: "message" };
+export const REF_KIND: Record<Tracker, "issue" | "message"> = { github: "issue", linear: "issue", jira: "issue", trello: "issue", slack: "message" };
 interface TrackerBase {
   site: string;
   siteName?: string;
@@ -224,7 +224,6 @@ interface TrackerBase {
   lastError: string | null;
   updatedAt: string;
   hasWebhookSecret: boolean;
-  /** The tracker's last webhook delivery here, and the refusal in words if it was refused. */
   /** The last webhook delivery taken — signed with this connection's secret, so the tracker's. */
   lastDeliveryAt: string | null;
   /** The last one refused, and why. Unsigned, so it may not be the tracker's. */
@@ -250,6 +249,14 @@ export interface JiraIntegration extends TrackerBase {
   issueType: string;
   email: string;
 }
+export interface TrelloIntegration extends TrackerBase {
+  provider: "trello";
+  boardName: string;
+  boardUrl: string;
+  listNames: { open: string; progress: string; resolved: string };
+  /** Whether Snagset's webhook is on the board — it registers it itself. */
+  webhookRegistered: boolean;
+}
 export interface SlackIntegration extends TrackerBase {
   provider: "slack";
   teamName: string;
@@ -257,7 +264,7 @@ export interface SlackIntegration extends TrackerBase {
   channelId: string;
   channelName: string;
 }
-export type TrackerIntegration = GitHubIntegration | LinearIntegration | JiraIntegration | SlackIntegration;
+export type TrackerIntegration = GitHubIntegration | LinearIntegration | JiraIntegration | TrelloIntegration | SlackIntegration;
 
 /** One line of the studio's cross-site feed. */
 export interface ActivityRow {
@@ -557,9 +564,18 @@ export const api = {
       | { repository: string; token?: string; labels?: string; createOn: "manual" | "thread.created" }
       | { team: string; apiKey?: string; webhookSecret?: string; createOn: "manual" | "thread.created" }
       | { siteUrl: string; project: string; email: string; apiToken?: string; webhookSecret?: string; createOn: "manual" | "thread.created" }
-      | { channel: string; token?: string; createOn: "manual" | "thread.created" },
+      | { channel: string; token?: string; createOn: "manual" | "thread.created" }
+      | {
+          apiKey: string;
+          token: string;
+          boardId: string;
+          openList: string;
+          progressList: string;
+          resolvedList: string;
+          createOn: "manual" | "thread.created";
+        },
   ) =>
-    call<{ integration: TrackerIntegration; webhook?: { url: string; secret?: string } }>(
+    call<{ integration: TrackerIntegration; webhook?: { url: string; secret?: string; registered?: boolean; error?: string } }>(
       "PUT",
       `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}`,
       input,
@@ -569,8 +585,8 @@ export const api = {
   /** A new GitHub webhook secret, shown once; the old one stops working. */
   regenerateGitHubWebhook: (uid: string) =>
     call<{ webhook: GitHubWebhook }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/github/webhook-secret`),
-  /** 0.1.55: GitHub and Jira mint a new secret (shown once); Linear stores the one pasted from Linear. */
-  setWebhookSecret: (uid: string, provider: "github" | "linear" | "jira", secret?: string) =>
+  /** 0.1.55: GitHub and Jira mint a new secret (shown once); Linear and Trello store the one pasted. */
+  setWebhookSecret: (uid: string, provider: "github" | "linear" | "jira" | "trello", secret?: string) =>
     call<{ webhook: { url: string; secret?: string } }>(
       "POST",
       `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}/webhook-secret`,
@@ -578,8 +594,8 @@ export const api = {
     ),
   /** 0.1.55: who the credentials are, and the repositories, teams or projects they can see. */
   discoverTracker: (
-    provider: "github" | "linear" | "jira",
-    input: { token: string } | { apiKey: string } | { siteUrl: string; email: string; apiToken: string },
+    provider: "github" | "linear" | "jira" | "trello",
+    input: { token: string } | { apiKey: string } | { siteUrl: string; email: string; apiToken: string } | { apiKey: string; token: string; boardId?: string },
   ) => call<{ who: string; options: { value: string; label: string; canWrite?: boolean }[] }>("POST", `/api/v1/integrations/${provider}/discover`, input),
   disconnectTracker: (uid: string, provider: Tracker) =>
     call<{ integration: null }>("DELETE", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}`),

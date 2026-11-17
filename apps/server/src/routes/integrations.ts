@@ -10,6 +10,7 @@ import { githubClient } from "../integrations/github.ts";
 import { linearClient, statusForLinearState, verifyLinearSignature } from "../integrations/linear.ts";
 import { jiraClient, statusForJiraCategory, verifyJiraSignature } from "../integrations/jira.ts";
 import { slackClient, slackManifest } from "../integrations/slack.ts";
+import { statusForTrelloList, trelloClient, verifyTrelloSignature } from "../integrations/trello.ts";
 import type { AddressSource } from "../instance/address.ts";
 import { LimitReached, planLimitReached, type LimitsSource } from "../plan.ts";
 import {
@@ -29,6 +30,7 @@ import {
   type JiraIntegrationConfig,
   type LinearIntegrationConfig,
   type SlackIntegrationConfig,
+  type TrelloIntegrationConfig,
   type Tracker,
   REF_KIND,
 } from "../integrations/store.ts";
@@ -41,7 +43,8 @@ import { looksLikeEmail } from "../email.ts";
 
 /**
  * Integrations from the dashboard — 05 endpoint 25 shaped for a self-host
- * a token, not an OAuth app. GitHub and Linear.
+ * a token, not an OAuth app. GitHub, Linear, Jira, Trello
+ * (0.1.56) and Slack.
  *
  *   GET    /api/v1/integrations                            every connection in the studio, for the cards
  *   GET    /api/v1/projects/:uid/integrations              this site's connections, for the brief
@@ -79,15 +82,16 @@ function fail(c: Ctx, status: number, code: string, message: string, details?: u
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const NAME: Record<Tracker, string> = { github: "GitHub", linear: "Linear", jira: "Jira", slack: "Slack" };
-/** What the card says when a delivery arrived but its signature did not match: the fix, in words. */
+const NAME: Record<Tracker, string> = { github: "GitHub", linear: "Linear", jira: "Jira", trello: "Trello", slack: "Slack" };
 /** Access checks a studio may make in a minute. */
 const DISCOVER_PER_MINUTE = 20;
 
+/** What the card says when a delivery arrived but its signature did not match: the fix, in words. */
 const SIGNATURE_REFUSED: Record<Exclude<Tracker, "slack">, string> = {
   github: "GitHub's delivery was signed with a different secret. Make a new secret here and give it to the repository's webhook.",
   linear: "Linear's delivery was signed with a different secret. Copy the signing secret from Linear's webhook and paste it here.",
   jira: "Jira's delivery was signed with a different secret. Give Jira's webhook the secret Snagset shows, or make a new one here.",
+  trello: "Trello's delivery was signed with a different secret. Copy the secret from your Power-Up's API key page in Trello and paste it here.",
 };
 
 export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
@@ -95,6 +99,7 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
   const app = new Hono<Env>();
   const webhookUrl = async (provider: Tracker) => `${(await deps.baseUrl()).replace(/\/+$/, "")}/api/v1/integrations/${provider}/inbound`;
   const ghOpts = () => ({ ...(deps.push.githubApiBase ? { apiBase: deps.push.githubApiBase } : {}), ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) });
+  const trOpts = () => ({ ...(deps.push.trelloApiBase ? { apiBase: deps.push.trelloApiBase } : {}), ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) });
   const lnOpts = () => ({ ...(deps.push.linearApiBase ? { apiBase: deps.push.linearApiBase } : {}), ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) });
 
   const mustBeOwner = (c: Ctx): OwnerClaims | Response => {
@@ -117,7 +122,7 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
   };
   const provider = (c: Ctx): Tracker | Response => {
     const v = c.req.param("provider") ?? "";
-    return isTracker(v) ? v : fail(c, 404, "integration_not_configured", `No tracker called ${JSON.stringify(v)}. This build speaks: github, linear, jira, slack.`);
+    return isTracker(v) ? v : fail(c, 404, "integration_not_configured", `No tracker called ${JSON.stringify(v)}. This build speaks: github, linear, jira, trello, slack.`);
   };
 
   /** The card's view of a connection — never a token. */
@@ -142,6 +147,10 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     if (i.provider === "jira") {
       const cfg = i.config as unknown as JiraIntegrationConfig;
       return { provider: "jira" as const, ...base, siteUrl: cfg.siteUrl, projectKey: cfg.projectKey, projectName: cfg.projectName, issueType: cfg.issueTypeName, email: cfg.email };
+    }
+    if (i.provider === "trello") {
+      const cfg = i.config as unknown as TrelloIntegrationConfig;
+      return { provider: "trello" as const, ...base, boardName: cfg.boardName, boardUrl: cfg.boardUrl, listNames: cfg.listNames, webhookRegistered: !!cfg.webhookId };
     }
     if (i.provider === "slack") {
       const cfg = i.config as unknown as SlackIntegrationConfig;
@@ -234,6 +243,18 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       const r = await linearClient({ apiKey, ...lnOpts() }).discover();
       return r.ok ? c.json({ who: r.who, options: r.options }) : fail(c, 422, "validation_failed", r.detail, { field: "apiKey" });
     }
+    if (pv === "trello") {
+      const apiKey = str("apiKey");
+      if (!apiKey) return fail(c, 422, "validation_failed", "Paste your Power-Up's API key first.", { field: "apiKey" });
+      const token = str("token");
+      if (!token) return fail(c, 422, "validation_failed", "Paste a token first — the Generate a token link makes one.", { field: "token" });
+      // A board id narrows the answer to that board's lists: the second
+      // half of the Connect step, asked once a board is picked.
+      const boardId = str("boardId");
+      if (boardId && !/^[0-9a-f]{24}$/i.test(boardId)) return fail(c, 422, "validation_failed", "That is not a Trello board id.", { field: "boardId" });
+      const r = await trelloClient({ apiKey, token, ...trOpts() }).discover(boardId || undefined);
+      return r.ok ? c.json({ who: r.who, options: r.options }) : fail(c, 422, "validation_failed", r.detail, { field: "token" });
+    }
     const siteUrl = str("siteUrl").replace(/\/+$/, "");
     if (!/^https?:\/\/[^\s/]+$/.test(siteUrl)) return fail(c, 422, "validation_failed", "Give the site's address, like https://kilnwork.atlassian.net.", { field: "siteUrl" });
     const email = str("email").toLowerCase();
@@ -278,6 +299,65 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     const createOn = body?.["createOn"] === "thread.created" ? "thread.created" : body?.["createOn"] === "manual" ? "manual" : pv === "slack" ? "thread.created" : "manual";
     const existing = await getIntegration(sql, keys, p.org_id, p.id, pv);
     const had = trackerSecrets(existing?.secret ?? null);
+
+    if (pv === "trello") {
+      // Trello (0.1.56): an API key and a token, a board, and three of its
+      // lists for open, in progress and resolved — probed before anything
+      // is stored. The way back is a webhook we register on the board
+      // ourselves; Trello signs deliveries with the Power-Up's secret, which
+      // the owner pastes on the next step (or here).
+      const prev = existing?.config as TrelloIntegrationConfig | undefined;
+      const apiKey = str("apiKey") || prev?.apiKey || "";
+      if (!apiKey) return fail(c, 422, "validation_failed", "Paste your Power-Up's API key.", { field: "apiKey" });
+      const token = str("token") || had.token || "";
+      if (!token) return fail(c, 422, "validation_failed", "Paste a token — the Generate a token link makes one.", { field: "token" });
+      const boardId = str("boardId");
+      if (!/^[0-9a-f]{24}$/i.test(boardId)) return fail(c, 422, "validation_failed", "Pick a board.", { field: "boardId" });
+      const lists = { open: str("openList"), progress: str("progressList"), resolved: str("resolvedList") };
+      for (const [k, v] of Object.entries(lists)) {
+        if (!/^[0-9a-f]{24}$/i.test(v)) return fail(c, 422, "validation_failed", "Pick a list for open, in progress and resolved.", { field: `${k}List` });
+      }
+      const tc = trelloClient({ apiKey, token, ...trOpts() });
+      const probe = await tc.probe(boardId, lists);
+      if (!probe.ok) return fail(c, 422, "validation_failed", `Trello: ${probe.detail}.`, { field: "boardId" });
+      const url = await webhookUrl("trello");
+      let webhookId: string | null = null;
+      let webhookError: string | null = null;
+      try {
+        webhookId = (await tc.registerWebhook(boardId, url)).id;
+      } catch (e) {
+        // Trello checks the address with a HEAD before it registers, so a
+        // server it cannot reach (a laptop, a private network) lands here.
+        // The connection still works one way; the dialog says why the way
+        // back does not.
+        webhookError = e instanceof Error ? e.message : String(e);
+      }
+      // Re-registering on the same board failed: the webhook that was working
+      // stays, rather than being taken down with nothing in its place.
+      if (!webhookId && prev?.webhookId && prev.boardId === boardId) webhookId = prev.webhookId;
+      // A board change leaves the old board's webhook behind: take it down,
+      // unless another connection holds the same webhook (one token, one
+      // board, one callback is one webhook at Trello).
+      if (prev?.webhookId && prev.webhookId !== webhookId && !(await webhookShared(prev.webhookId, p.id))) await tc.removeWebhook(prev.webhookId).catch(() => {});
+      await putIntegration(sql, keys, {
+        orgId: p.org_id,
+        projectId: p.id,
+        provider: "trello",
+        config: {
+          apiKey,
+          boardId: probe.board.id,
+          boardName: probe.board.name,
+          boardUrl: probe.board.url,
+          lists,
+          listNames: probe.names,
+          webhookId,
+          createOn,
+        } satisfies TrelloIntegrationConfig,
+        secret: JSON.stringify({ token, webhookSecret: str("webhookSecret") || had.webhookSecret }),
+      });
+      const i = await getIntegration(sql, keys, p.org_id, p.id, "trello");
+      return c.json({ integration: i ? shape(i, p.uid) : null, webhook: { url, registered: !!webhookId, ...(webhookError ? { error: webhookError } : {}) } });
+    }
 
     if (pv === "slack") {
       // Slack: a bot token from the app the operator created from our
@@ -422,6 +502,14 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     if (pv instanceof Response) return pv;
     const p = await site(c, owner);
     if (!p) return fail(c, 404, "project_not_found", "No project with that uid.");
+    if (pv === "trello") {
+      // The board's webhook is ours to take down; best effort, since a
+      // revoked token cannot, and Trello drops a webhook whose token goes.
+      const i = await getIntegration(sql, keys, p.org_id, p.id, "trello");
+      const cfg = i?.config as TrelloIntegrationConfig | undefined;
+      const token = trackerSecrets(i?.secret ?? null).token;
+      if (cfg?.webhookId && token && !(await webhookShared(cfg.webhookId, p.id))) await trelloClient({ apiKey: cfg.apiKey, token, ...trOpts() }).removeWebhook(cfg.webhookId).catch(() => {});
+    }
     await removeIntegration(sql, p.org_id, p.id, pv);
     return c.json({ integration: null });
   });
@@ -445,6 +533,10 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       const cfg = i.config as unknown as JiraIntegrationConfig;
       const r = await jiraClient({ siteUrl: cfg.siteUrl, email: cfg.email, apiToken: token, allowPrivate: !!deps.push.jiraPrivate, ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) }).probe(cfg.projectKey);
       ok = r.ok ? { ok: true, target: `${r.project.key} · ${r.project.name}` } : r;
+    } else if (pv === "trello") {
+      const cfg = i.config as unknown as TrelloIntegrationConfig;
+      const r = await trelloClient({ apiKey: cfg.apiKey, token, ...trOpts() }).probe(cfg.boardId, cfg.lists);
+      ok = r.ok ? { ok: true, target: r.board.name } : r;
     } else if (pv === "slack") {
       const cfg = i.config as unknown as SlackIntegrationConfig;
       try {
@@ -483,10 +575,15 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     if (!i || !had.token) return fail(c, 409, "integration_not_configured", `${NAME[pv]} is not connected on this site.`);
     let secret: string;
     let show = true;
-    if (pv === "linear") {
+    if (pv === "linear" || pv === "trello") {
+      // Theirs, not ours: Linear's webhook shows its signing secret, and
+      // Trello signs with the Power-Up's secret. Pasted, and never echoed.
       const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
       secret = typeof body?.["secret"] === "string" ? body["secret"].trim() : "";
-      if (!secret) return fail(c, 422, "validation_failed", "Paste the signing secret Linear shows on the webhook.", { field: "secret" });
+      if (!secret) {
+        const how = pv === "linear" ? "Paste the signing secret Linear shows on the webhook." : "Paste the secret from your Power-Up's API key page in Trello.";
+        return fail(c, 422, "validation_failed", how, { field: "secret" });
+      }
       show = false;
     } else {
       secret = mintWebhookSecret();
@@ -535,6 +632,12 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     });
   const secretOf = (r: { credentials: Buffer | null; credentials_iv: Buffer | null }) =>
     trackerSecrets(r.credentials && r.credentials_iv ? open(keys, { ciphertext: r.credentials, iv: r.credentials_iv }) : null).webhookSecret;
+  /** Whether a live Trello connection on another site holds this webhook (Trello hands one token the same webhook for the same board and callback). */
+  const webhookShared = async (webhookId: string, exceptProjectId: string) =>
+    (await candidatesFor("trello", (tx) => tx`
+      SELECT id, org_id, project_id, credentials, credentials_iv FROM integrations
+       WHERE provider = 'trello' AND deleted_at IS NULL AND config->>'webhookId' = ${webhookId} AND project_id <> ${exceptProjectId}::uuid
+    `)).length > 0;
 
   /**
    * The tracker → us (05 endpoint 25c). Unauthenticated in the session
@@ -543,6 +646,10 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
    * pasted from Linear's form for Linear. The target named in the
    * payload picks the candidate connections; the signature picks the one.
    */
+  // Trello checks the address with a HEAD before it will register a webhook
+  // (and again from time to time). Nothing is read or written. Hono answers a
+  // HEAD from the GET route, so the route is a GET.
+  app.get("/api/v1/integrations/trello/inbound", (c) => c.body(null, 200));
   app.post("/api/v1/integrations/:provider/inbound", async (c) => {
     const pv = provider(c);
     if (pv instanceof Response) return pv;
@@ -641,6 +748,60 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       });
       await noticeIfResolved(applied, match.org_id, match.project_id, "Jira");
       return c.json({ ok: true, applied: applied.kind, ...("why" in applied ? { why: applied.why } : {}) });
+    }
+
+    if (pv === "trello") {
+      // Trello (0.1.56): X-Trello-Webhook is the base64 HMAC-SHA1 of the raw
+      // body followed by the callback URL, keyed with the Power-Up's secret;
+      // the action's id is the replay key. The board picks the candidates.
+      const signature = c.req.header("x-trello-webhook");
+      const action = payload?.action as Record<string, any> | undefined;
+      const boardId = String(payload?.model?.id ?? action?.data?.board?.id ?? "");
+      if (!/^[0-9a-f]{24}$/i.test(boardId)) return fail(c, 400, "validation_failed", "The payload names no board.");
+      const callbackURL = await webhookUrl("trello");
+      const candidates = await candidatesFor("trello", (tx) => tx`
+        SELECT id, org_id, project_id, credentials, credentials_iv, config FROM integrations
+         WHERE provider = 'trello' AND deleted_at IS NULL AND enabled AND config->>'boardId' = ${boardId}
+      `);
+      // Several connections can share one board, and one Power-Up's secret
+      // (a studio's staging and live sites; one token's single webhook). The
+      // delivery is applied to EVERY connection it verifies for, each with
+      // its own ledger key: Trello's action id is the same in every
+      // webhook's delivery of that action, so a bare id would let one
+      // connection's delivery spend another's.
+      const matches = candidates.filter((r) => {
+        const s = secretOf(r);
+        return !!s && verifyTrelloSignature(raw, callbackURL, signature, s);
+      });
+      if (!matches.length) {
+        if (candidates.length === 1) await markRefused(sql, candidates[0]!.id, SIGNATURE_REFUSED.trello);
+        return fail(c, 401, "provider_signature_invalid", "The signature does not match this board's secret — paste the Power-Up's secret from Trello into Snagset.");
+      }
+      const type = String(action?.type ?? "");
+      const cardId = String(action?.data?.card?.id ?? "");
+      const actionId = String(action?.id ?? "") || `${cardId}:${type}:${Date.now()}`;
+      let shown: Awaited<ReturnType<typeof applyIssueState>> | null = null;
+      for (const match of matches) {
+        await markDelivered(sql, match.id);
+        const cfg = (match as unknown as { config: TrelloIntegrationConfig }).config;
+        let status: "resolved" | "progress" | "open" | "detach" | null = null;
+        if (type === "deleteCard") status = "detach";
+        else if (type === "updateCard" && action?.data?.listAfter?.id) status = statusForTrelloList(String(action.data.listAfter.id), cfg.lists);
+        if (!status || !cardId) continue;
+        const applied = await applyIssueState(sql, {
+          provider: "trello",
+          orgId: match.org_id,
+          projectId: match.project_id,
+          deliveryId: `${match.id}:${actionId}`,
+          externalId: cardId,
+          status,
+          progressHoldsReview: true,
+        });
+        await noticeIfResolved(applied, match.org_id, match.project_id, "Trello");
+        if (!shown || (shown.kind === "ignored" && shown.why === "no-thread")) shown = applied;
+      }
+      if (!shown) return c.json({ ok: true, applied: "ignored", why: "action" });
+      return c.json({ ok: true, applied: shown.kind, ...("why" in shown ? { why: shown.why } : {}) });
     }
 
     // Linear: Linear-Signature is the hex HMAC over the raw body

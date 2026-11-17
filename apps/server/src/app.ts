@@ -98,6 +98,8 @@ export interface Deps {
   githubApiBase?: string;
   /** Test hook: where Linear's GraphQL endpoint is — a fake in tests. */
   linearApiBase?: string;
+  /** Test hook (0.1.56): where Trello's REST API is — a fake in tests. */
+  trelloApiBase?: string;
   /** Test hook: where Slack's Web API is — a fake in tests. */
   slackApiBase?: string;
   /** The plan seam: the private caller's answer for an
@@ -242,6 +244,7 @@ export function createApp(deps: Deps): Hono<Env> {
     keys,
     githubApiBase: deps.githubApiBase,
     linearApiBase: deps.linearApiBase,
+    trelloApiBase: deps.trelloApiBase,
     slackApiBase: deps.slackApiBase,
   });
 
@@ -682,12 +685,14 @@ export function createApp(deps: Deps): Hono<Env> {
   const githubApiBase = deps.githubApiBase ?? cfg.get("SNAGSET_GITHUB_API_BASE");
   const linearApiBase = deps.linearApiBase ?? cfg.get("SNAGSET_LINEAR_API_BASE");
   const slackApiBase = deps.slackApiBase ?? cfg.get("SNAGSET_SLACK_API_BASE");
+  const trelloApiBase = deps.trelloApiBase ?? cfg.get("SNAGSET_TRELLO_API_BASE");
   const push: PushDeps = {
     keys,
     baseUrl: address,
     ...(githubApiBase ? { githubApiBase } : {}),
     ...(linearApiBase ? { linearApiBase } : {}),
     ...(slackApiBase ? { slackApiBase } : {}),
+    ...(trelloApiBase ? { trelloApiBase } : {}),
     jiraPrivate: cfg.bool("SNAGSET_JIRA_PRIVATE_ADDRESSES"),
   };
   // A9b's features, and the plan's word on them: a bucket makes screenshots

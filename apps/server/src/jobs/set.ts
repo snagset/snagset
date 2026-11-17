@@ -34,6 +34,7 @@ export interface JobSetDeps {
   readonly githubApiBase?: string | undefined;
   readonly linearApiBase?: string | undefined;
   readonly slackApiBase?: string | undefined;
+  readonly trelloApiBase?: string | undefined;
 }
 
 export interface JobSet {
@@ -49,12 +50,14 @@ export function jobSet(d: JobSetDeps): JobSet {
   const githubApiBase = d.githubApiBase ?? d.cfg.get("SNAGSET_GITHUB_API_BASE");
   const linearApiBase = d.linearApiBase ?? d.cfg.get("SNAGSET_LINEAR_API_BASE");
   const slackApiBase = d.slackApiBase ?? d.cfg.get("SNAGSET_SLACK_API_BASE");
+  const trelloApiBase = d.trelloApiBase ?? d.cfg.get("SNAGSET_TRELLO_API_BASE");
   const push: PushDeps = {
     keys: d.keys,
     baseUrl: address,
     ...(githubApiBase ? { githubApiBase } : {}),
     ...(linearApiBase ? { linearApiBase } : {}),
     ...(slackApiBase ? { slackApiBase } : {}),
+    ...(trelloApiBase ? { trelloApiBase } : {}),
     jiraPrivate: d.cfg.bool("SNAGSET_JIRA_PRIVATE_ADDRESSES"),
   };
 

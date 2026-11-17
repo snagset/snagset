@@ -275,7 +275,7 @@ export function threadRoutes(
    * issues are made on every new thread. Injected so this file never opens
    * a token; the worker does that.
    */
-  trackers: (orgId: string, projectId: string) => Promise<{ id: string; provider: "github" | "linear" | "jira" | "slack"; createOn: "manual" | "thread.created" }[]> = async () => [],
+  trackers: (orgId: string, projectId: string) => Promise<{ id: string; provider: "github" | "linear" | "jira" | "trello" | "slack"; createOn: "manual" | "thread.created" }[]> = async () => [],
   /** How long an assignment waits before its email (SNAGSET_ASSIGN_MAIL_DELAY_S). */
   assignDelayMs?: number,
   /** Whether the site is archived or over the plan's cap; the config says so to the widget. */

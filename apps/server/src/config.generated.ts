@@ -17,7 +17,7 @@ export interface VarRow {
   readonly section: string;
 }
 
-/** 87 variables, parsed. */
+/** 88 variables, parsed. */
 export const REGISTRY: readonly VarRow[] = [
   { name: "SNAGSET_BASE_URL", type: "url", default: "http://localhost:8080", required: false, oneOf: null, secret: false, section: "4.2" },
   { name: "SNAGSET_PORT", type: "int", default: "8080", required: false, oneOf: null, secret: false, section: "4.2" },
@@ -101,6 +101,7 @@ export const REGISTRY: readonly VarRow[] = [
   { name: "SNAGSET_LINEAR_CLIENT_ID", type: "string", default: null, required: false, oneOf: null, secret: false, section: "4.9" },
   { name: "SNAGSET_LINEAR_CLIENT_SECRET", type: "string", default: null, required: false, oneOf: null, secret: true, section: "4.9" },
   { name: "SNAGSET_LINEAR_WEBHOOK_SECRET", type: "string", default: null, required: false, oneOf: null, secret: true, section: "4.9" },
+  { name: "SNAGSET_TRELLO_API_BASE", type: "url", default: "https://api.trello.com/1", required: false, oneOf: null, secret: false, section: "4.9" },
   { name: "SNAGSET_LINEAR_API_BASE", type: "url", default: "https://api.linear.app/graphql", required: false, oneOf: null, secret: false, section: "4.9" },
   { name: "SNAGSET_SLACK_API_BASE", type: "url", default: "https://slack.com/api", required: false, oneOf: null, secret: false, section: "4.9" },
   { name: "SNAGSET_JIRA_PRIVATE_ADDRESSES", type: "bool", default: "false", required: false, oneOf: null, secret: false, section: "4.9" },

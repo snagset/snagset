@@ -9,6 +9,7 @@ import { noteQueued } from "../jobs/soon.ts";
 import { githubClient, GitHubError, issueTitle } from "./github.ts";
 import { linearClient, LinearError, linearStateFor } from "./linear.ts";
 import { escapeForJiraWiki, jiraCategoryFor, jiraClient, JiraError } from "./jira.ts";
+import { trelloClient, TrelloError, trelloListFor } from "./trello.ts";
 import { slackClient, SlackError, slackMessage, slackPermalink } from "./slack.ts";
 import type { AddressSource } from "../instance/address.ts";
 import {
@@ -19,6 +20,7 @@ import {
   type IntegrationRow,
   type JiraIntegrationConfig,
   type LinearIntegrationConfig,
+  type TrelloIntegrationConfig,
   type SlackIntegrationConfig,
   type Tracker,
   REF_KIND,
@@ -93,6 +95,8 @@ export interface PushDeps {
   githubApiBase?: string;
   /** api.linear.app/graphql unless a test says otherwise. */
   linearApiBase?: string;
+  /** api.trello.com/1 unless a test says otherwise. */
+  trelloApiBase?: string;
   /** slack.com/api unless a test says otherwise. */
   slackApiBase?: string;
   fetch?: typeof globalThis.fetch;
@@ -127,7 +131,9 @@ async function loadThread(sql: postgres.Sql, orgId: string, threadId: string) {
   });
 }
 
-type BodyTarget = "github" | "linear" | "jira";
+type BodyTarget = "github" | "linear" | "jira" | "trello";
+/** Trello's card description is Markdown with @mentions, as GitHub's is: the same neutralising. */
+const sanitiseTarget = (t: BodyTarget) => (t === "jira" ? "plain" : t === "trello" ? "github" : t);
 
 /** Every reviewer-typed string goes through the outbound sanitiser for the target before the brief sees it. */
 const fenceFor =
@@ -137,7 +143,7 @@ const fenceFor =
     // Jira's v2 description is wiki markup: the plain target, then the few
     // wiki specials escaped so a reviewer's text cannot steer the page.
     if (target === "jira") return escapeForJiraWiki(String(sanitise(value, "plain", opts)));
-    return String(sanitise(value, target, opts));
+    return String(sanitise(value, sanitiseTarget(target), opts));
   };
 
 export function issueBody(t: Record<string, any>, baseUrl: string, target: BodyTarget = "github"): string {
@@ -187,7 +193,7 @@ const titleOf = (thread: Record<string, any>, target: BodyTarget) => {
     key: thread.key,
     route: thread.route ?? "/",
     firstBody: first?.body ?? null,
-    author: String(sanitise(String(thread.created_by_name ?? ""), target === "jira" ? "plain" : target, { singleLine: true, max: 80 })),
+    author: String(sanitise(String(thread.created_by_name ?? ""), sanitiseTarget(target), { singleLine: true, max: 80 })),
   });
 };
 
@@ -253,6 +259,22 @@ const OPS: Record<Tracker, TrackerOps> = {
     authError: (e) => e instanceof JiraError && (e.status === 401 || e.status === 403 || e.status === 404),
     retryable: (e) => (e instanceof JiraError ? e.retryable : true),
   },
+  trello: {
+    async create({ integration, token, thread, deps, base }) {
+      const cfg = integration.config as unknown as TrelloIntegrationConfig;
+      const tc = trelloClient({ apiKey: cfg.apiKey, token, ...(deps.trelloApiBase ? { apiBase: deps.trelloApiBase } : {}), ...(deps.fetch ? { fetch: deps.fetch } : {}) });
+      // Born in the list for its status, so a comment resolved before the row ran lands in Resolved.
+      const made = await tc.createCard({ listId: trelloListFor(thread.status, cfg.lists), name: titleOf(thread, "trello"), desc: issueBody(thread, base, "trello") });
+      return { externalId: made.id, url: made.url };
+    },
+    async setState({ integration, token, thread, deps }, externalId) {
+      const cfg = integration.config as unknown as TrelloIntegrationConfig;
+      const tc = trelloClient({ apiKey: cfg.apiKey, token, ...(deps.trelloApiBase ? { apiBase: deps.trelloApiBase } : {}), ...(deps.fetch ? { fetch: deps.fetch } : {}) });
+      await tc.moveCard(externalId, trelloListFor(thread.status, cfg.lists));
+    },
+    authError: (e) => e instanceof TrelloError && (e.status === 401 || e.status === 403),
+    retryable: (e) => (e instanceof TrelloError ? e.retryable : true),
+  },
   slack: {
     async create({ integration, token, thread, deps, base }) {
       const cfg = integration.config as unknown as SlackIntegrationConfig;
@@ -313,7 +335,7 @@ export function pushToTrackers(sql0: postgres.Sql, deps: PushDeps): Job {
             -- moment ago must be claimable by a drain that starts at once,
             -- and a database whose clock runs a second ahead of the process
             -- (a container's does) would otherwise hold it for a whole tick.
-            WHERE provider IN ('github', 'linear', 'jira', 'slack') AND status = 'pending' AND next_attempt_at <= GREATEST(${now}, now())
+            WHERE provider IN ('github', 'linear', 'jira', 'trello', 'slack') AND status = 'pending' AND next_attempt_at <= GREATEST(${now}, now())
             ORDER BY next_attempt_at
             FOR UPDATE SKIP LOCKED
             LIMIT 1

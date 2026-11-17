@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckIcon, CircleAlertIcon, EyeIcon, EyeOffIcon, LoaderCircleIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -26,12 +26,26 @@ import { cn } from "@/lib/utils";
  *      that turns into a tick when the tracker's first delivery arrives, or
  *      says in words why it was refused.
  *
+ * Trello (0.1.56) picks a board and then three of its lists, and its
+ * webhook is registered by Snagset; the owner pastes only the secret.
+ *
  * Slack has no way back and keeps its own dialog.
  */
 
-export type WayBack = "github" | "linear" | "jira";
+export type WayBack = "github" | "linear" | "jira" | "trello";
 const GUIDE = "https://snagset.com/docs/integrations/";
-const PICK: Record<WayBack, string> = { github: "Repository", linear: "Team", jira: "Project" };
+const PICK: Record<WayBack, string> = { github: "Repository", linear: "Team", jira: "Project", trello: "Board" };
+/** Trello's own page that hands a token to the key typed above it. */
+const trelloAuthorize = (key: string) =>
+  `https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&name=Snagset&key=${encodeURIComponent(key.trim())}`;
+/** A first guess at which list is which, by the names most boards use; the owner changes any of them. */
+function guessLists(lists: { value: string; label: string }[]) {
+  const by = (re: RegExp) => lists.find((l) => re.test(l.label))?.value;
+  const open = by(/^(to ?do|backlog|open|new|inbox)/i) ?? lists[0]?.value ?? "";
+  const resolved = by(/^(done|complete|resolved|shipped|fixed)/i) ?? lists[lists.length - 1]?.value ?? "";
+  const progress = by(/(doing|progress|review|working)/i) ?? lists.find((l) => l.value !== open && l.value !== resolved)?.value ?? "";
+  return { open, progress, resolved };
+}
 
 /** A key or secret field with an eye to show what was pasted. */
 export function SecretInput({ id, value, onChange, placeholder }: { id: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -117,9 +131,24 @@ function Ext({ href, children }: { href: string; children: ReactNode }) {
 const failed = (err: unknown) => (err instanceof ApiFailure ? err.message : "Could not reach the server.");
 
 /** Where each tracker hands out the credential step 1 asks for, as numbered steps. */
-function AccessHowTo({ provider, jiraSite }: { provider: WayBack; jiraSite: string }) {
+function AccessHowTo({ provider, jiraSite, trelloKey = "" }: { provider: WayBack; jiraSite: string; trelloKey?: string }) {
   const steps =
-    provider === "github"
+    provider === "trello"
+      ? [
+          <>
+            Open <Ext href="https://trello.com/power-ups/admin">Trello › Power-Ups admin</Ext>. Make a Power-Up called Snagset if you have none (any workspace), then
+            open its API key tab and generate a key.
+          </>,
+          <>Paste the API key below.</>,
+          trelloKey.trim() ? (
+            <>
+              <Ext href={trelloAuthorize(trelloKey)}>Generate a token</Ext> for that key: Allow, copy the token, paste it below.
+            </>
+          ) : (
+            <>Then a link here makes the token for that key: Allow, copy it, paste it below.</>
+          ),
+        ]
+      : provider === "github"
       ? [
           <>
             Open <Ext href="https://github.com/settings/personal-access-tokens/new">GitHub › Fine-grained tokens › Generate new token</Ext>.
@@ -171,7 +200,7 @@ export function WayBackStep({
   /** A secret Snagset minted, shown this once (GitHub, Jira). */
   shownSecret: string | null;
   /** What the connection points at, for the instructions: "acme/site", the team, the Jira site. */
-  target: { label: string; jiraSite?: string; repo?: string };
+  target: { label: string; jiraSite?: string; repo?: string; trelloNote?: string };
   onSecret: (secret: string | null) => void;
 }) {
   const qc = useQueryClient();
@@ -188,7 +217,7 @@ export function WayBackStep({
       setPaste("");
       onSecret(r.webhook.secret ?? null);
       void qc.invalidateQueries({ queryKey: ["integrations"] });
-      toast.success(provider === "linear" ? "Signing secret saved" : "New secret made — the old one has stopped working");
+      toast.success(provider === "linear" ? "Signing secret saved" : provider === "trello" ? "Secret saved" : "New secret made — the old one has stopped working");
     },
     onError: (err) => setError(failed(err)),
   });
@@ -198,12 +227,14 @@ export function WayBackStep({
   const at = row?.lastDeliveryAt ? Date.parse(row.lastDeliveryAt) : 0;
   const refusedAt = row?.lastRefusedAt ? Date.parse(row.lastRefusedAt) : 0;
   const state: "waiting" | "ok" | "refused" | "nosecret" =
-    provider === "linear" && row && !row.hasWebhookSecret ? "nosecret" : at ? "ok" : refusedAt ? "refused" : "waiting";
+    (provider === "linear" || provider === "trello") && row && !row.hasWebhookSecret ? "nosecret" : at ? "ok" : refusedAt ? "refused" : "waiting";
   const laterRefusal = state === "ok" && refusedAt > at;
   const trigger =
     provider === "github"
       ? "GitHub sends a test delivery the moment the webhook is saved."
-      : provider === "linear"
+      : provider === "trello"
+        ? `Then move any card on ${target.label} to another list once.`
+        : provider === "linear"
         ? `Then move any issue in ${target.label} to another status once.`
         : `Then move any issue in ${target.label} once.`;
 
@@ -222,6 +253,19 @@ export function WayBackStep({
             </li>
             <li>Paste the address and the secret below; content type application/json.</li>
             <li>"Let me select individual events" → tick Issues only. Add webhook.</li>
+          </>
+        ) : provider === "trello" ? (
+          <>
+            <li>
+              {row && !(row as { webhookRegistered?: boolean }).webhookRegistered
+                ? `Snagset could not register the webhook on ${target.label}${target.trelloNote ? `: ${target.trelloNote}` : ""}. Trello must be able to reach this server's address; connect again once it can.`
+                : `Snagset registered the webhook on ${target.label} for you: nothing to set up in Trello.`}
+            </li>
+            <li>
+              Trello signs each delivery with your Power-Up's secret. Open <Ext href="https://trello.com/power-ups/admin">Trello › Power-Ups admin</Ext>, your Power-Up's
+              API key tab, and copy the Secret.
+            </li>
+            <li>Paste it below.</li>
           </>
         ) : provider === "linear" ? (
           <>
@@ -252,7 +296,7 @@ export function WayBackStep({
           </code>
           <CopyButton text={url} label="Copy the address" />
         </dd>
-        {provider !== "linear" && (
+        {provider !== "linear" && provider !== "trello" && (
           <>
             <dt className="text-muted-foreground">Secret</dt>
             <dd className="m-0 flex min-w-0 items-center gap-2">
@@ -283,11 +327,15 @@ export function WayBackStep({
       </dl>
       {shownSecret && <p className="m-0 -mt-2 text-[12px] text-muted-foreground">Copy it now: it is not shown again. A new one can be made here any time.</p>}
 
-      {provider === "linear" && (
-        <Field id="wb-secret" label="Signing secret" hint={row?.hasWebhookSecret ? "Saved. Paste a new one to replace it." : "From the webhook Linear just made."}>
+      {(provider === "linear" || provider === "trello") && (
+        <Field
+          id="wb-secret"
+          label={provider === "linear" ? "Signing secret" : "Power-Up secret"}
+          hint={row?.hasWebhookSecret ? "Saved. Paste a new one to replace it." : provider === "linear" ? "From the webhook Linear just made." : "Next to the API key in Trello."}
+        >
           <div className="flex gap-2">
             <div className="min-w-0 flex-1">
-              <SecretInput id="wb-secret" value={paste} onChange={setPaste} placeholder="lin_wh_…" />
+              <SecretInput id="wb-secret" value={paste} onChange={setPaste} placeholder={provider === "linear" ? "lin_wh_…" : ""} />
             </div>
             <Button type="button" variant="outline" disabled={!paste.trim()} loading={save.isPending} onClick={() => save.mutate(paste.trim())}>
               Save
@@ -334,7 +382,7 @@ export function WayBackStep({
               </span>
             </>
           ) : state === "nosecret" ? (
-            <>Waiting for the signing secret. Without it, Linear's deliveries are refused.</>
+            <>Waiting for the {provider === "linear" ? "signing secret" : "Power-Up's secret"}. Without it, {TRACKER_NAME[provider]}'s deliveries are refused.</>
           ) : (
             <>
               <span className="font-medium">Waiting for the first delivery.</span> {trigger}
@@ -346,7 +394,7 @@ export function WayBackStep({
   );
 }
 
-/** The three-step connect for GitHub, Linear and Jira. */
+/** The three-step connect for GitHub, Linear, Jira and Trello. */
 export function ConnectTracker({
   provider,
   open,
@@ -365,6 +413,10 @@ export function ConnectTracker({
   const [token, setToken] = useState("");
   const [jiraSite, setJiraSite] = useState("");
   const [email, setEmail] = useState("");
+  const [trKey, setTrKey] = useState("");
+  const [trLists, setTrLists] = useState<{ value: string; label: string }[]>([]);
+  const [trPick, setTrPick] = useState({ open: "", progress: "", resolved: "" });
+  const [trNote, setTrNote] = useState("");
   const [who, setWho] = useState("");
   const [options, setOptions] = useState<{ value: string; label: string; canWrite?: boolean }[]>([]);
   const [target, setTarget] = useState("");
@@ -382,6 +434,10 @@ export function ConnectTracker({
     setToken("");
     setJiraSite("");
     setEmail("");
+    setTrKey("");
+    setTrLists([]);
+    setTrPick({ open: "", progress: "", resolved: "" });
+    setTrNote("");
     setWho("");
     setOptions([]);
     setTarget("");
@@ -395,7 +451,37 @@ export function ConnectTracker({
   const chosen = site || sites[0]?.uid || "";
   const siteUrl = jiraSite.trim().replace(/\/+$/, "").replace(/^(?!https?:\/\/)/, "https://");
   const access =
-    provider === "github" ? { token: token.trim() } : provider === "linear" ? { apiKey: token.trim() } : { siteUrl, email: email.trim(), apiToken: token.trim() };
+    provider === "github"
+      ? { token: token.trim() }
+      : provider === "linear"
+        ? { apiKey: token.trim() }
+        : provider === "trello"
+          ? { apiKey: trKey.trim(), token: token.trim() }
+          : { siteUrl, email: email.trim(), apiToken: token.trim() };
+
+  // Trello's second half of step 2: a board's lists, asked when a board is picked.
+  // The board asked for last is the only one whose answer counts: pick A then
+  // B quickly, and A's late answer must not fill B's three lists.
+  const askedBoard = useRef("");
+  const lists = useMutation({
+    mutationFn: (boardId: string) => api.discoverTracker("trello", { apiKey: trKey.trim(), token: token.trim(), boardId }),
+    onSuccess: (r, boardId) => {
+      if (boardId !== askedBoard.current) return;
+      setError("");
+      setTrLists(r.options);
+      setTrPick(guessLists(r.options));
+    },
+    onError: (err, boardId) => {
+      if (boardId === askedBoard.current) setError(failed(err));
+    },
+  });
+  const pickBoard = (boardId: string) => {
+    askedBoard.current = boardId;
+    setTarget(boardId);
+    setTrLists([]);
+    setTrPick({ open: "", progress: "", resolved: "" });
+    if (boardId) lists.mutate(boardId);
+  };
 
   const discover = useMutation({
     mutationFn: () => api.discoverTracker(provider, access),
@@ -403,7 +489,9 @@ export function ConnectTracker({
       setError("");
       setWho(r.who);
       setOptions(r.options);
-      setTarget(r.options.find((o) => o.canWrite !== false)?.value ?? r.options[0]?.value ?? "");
+      const first = r.options.find((o) => o.canWrite !== false)?.value ?? r.options[0]?.value ?? "";
+      if (provider === "trello") pickBoard(first);
+      else setTarget(first);
       setStep(2);
     },
     onError: (err) => setError(failed(err)),
@@ -416,12 +504,23 @@ export function ConnectTracker({
         ? api.connectTracker(chosen, "github", { repository: target.trim(), token: token.trim(), labels: labels.trim(), createOn })
         : provider === "linear"
           ? api.connectTracker(chosen, "linear", { team: target.trim(), apiKey: token.trim(), createOn })
-          : api.connectTracker(chosen, "jira", { siteUrl, project: target.trim(), email: email.trim(), apiToken: token.trim(), createOn });
+          : provider === "trello"
+            ? api.connectTracker(chosen, "trello", {
+                apiKey: trKey.trim(),
+                token: token.trim(),
+                boardId: target,
+                openList: trPick.open,
+                progressList: trPick.progress,
+                resolvedList: trPick.resolved,
+                createOn,
+              })
+            : api.connectTracker(chosen, "jira", { siteUrl, project: target.trim(), email: email.trim(), apiToken: token.trim(), createOn });
     },
     onSuccess: (r) => {
       setError("");
       setToken("");
       setSecret(r.webhook?.secret ?? null);
+      setTrNote(r.webhook?.error ?? "");
       setConnectedSite(chosen);
       void qc.invalidateQueries({ queryKey: ["integrations"] });
       toast.success(`${name} connected`);
@@ -430,7 +529,9 @@ export function ConnectTracker({
     onError: (err) => setError(failed(err)),
   });
 
-  const accessReady = !!chosen && !!token.trim() && (provider !== "jira" || (!!jiraSite.trim() && !!email.trim()));
+  const accessReady =
+    !!chosen && !!token.trim() && (provider !== "jira" || (!!jiraSite.trim() && !!email.trim())) && (provider !== "trello" || !!trKey.trim());
+  const trReady = provider !== "trello" || (!!trPick.open && !!trPick.progress && !!trPick.resolved && new Set([trPick.open, trPick.progress, trPick.resolved]).size === 3);
   const picked = options.find((o) => o.value === target);
   const teamLabel = picked?.label ?? target;
 
@@ -443,7 +544,7 @@ export function ConnectTracker({
           onSubmit={(e) => {
             e.preventDefault();
             if (step === 1 && accessReady) discover.mutate();
-            else if (step === 2 && target.trim()) connect.mutate();
+            else if (step === 2 && target.trim() && trReady) connect.mutate();
             else if (step === 3) onOpenChange(false);
           }}
         >
@@ -466,7 +567,12 @@ export function ConnectTracker({
               <Field id="ct-site" label="Site">
                 <Picker id="ct-site" value={chosen} onChange={setSite} options={sites.map((s) => ({ value: s.uid, label: s.name }))} />
               </Field>
-              <AccessHowTo provider={provider} jiraSite={siteUrl} />
+              <AccessHowTo provider={provider} jiraSite={siteUrl} trelloKey={trKey} />
+              {provider === "trello" && (
+                <Field id="ct-trello-key" label="API key">
+                  <Input id="ct-trello-key" value={trKey} onChange={(e) => setTrKey(e.target.value)} autoComplete="off" spellCheck={false} />
+                </Field>
+              )}
               {provider === "jira" && (
                 <>
                   <Field id="ct-jira-site" label="Jira site" hint="The address you open Jira at.">
@@ -477,7 +583,7 @@ export function ConnectTracker({
                   </Field>
                 </>
               )}
-              <Field id="ct-token" label={provider === "github" ? "Token" : provider === "linear" ? "API key" : "API token"}>
+              <Field id="ct-token" label={provider === "github" || provider === "trello" ? "Token" : provider === "linear" ? "API key" : "API token"}>
                 <SecretInput
                   id="ct-token"
                   value={token}
@@ -502,7 +608,12 @@ export function ConnectTracker({
                         : undefined
                   }
                 >
-                  <Picker id="ct-target" value={target} onChange={setTarget} options={options.map((o) => ({ value: o.value, label: o.label }))} />
+                  <Picker
+                    id="ct-target"
+                    value={target}
+                    onChange={provider === "trello" ? pickBoard : setTarget}
+                    options={options.map((o) => ({ value: o.value, label: o.label }))}
+                  />
                 </Field>
               ) : (
                 <Field
@@ -513,6 +624,30 @@ export function ConnectTracker({
                   <Input id="ct-target" value={target} onChange={(e) => setTarget(e.target.value)} autoComplete="off" />
                 </Field>
               )}
+              {provider === "trello" &&
+                (lists.isPending ? (
+                  <p className="m-0 text-[13px] text-muted-foreground">Reading the board's lists…</p>
+                ) : trLists.length > 0 ? (
+                  <div className="flex flex-col gap-3">
+                    <p className="m-0 text-[13px] text-muted-foreground">
+                      A card's list is its status. Moving a card between these three moves the comment here, and back.
+                    </p>
+                    {(
+                      [
+                        ["open", "Open"],
+                        ["progress", "In progress"],
+                        ["resolved", "Resolved"],
+                      ] as const
+                    ).map(([k, label]) => (
+                      <Field key={k} id={`ct-list-${k}`} label={label}>
+                        <Picker id={`ct-list-${k}`} value={trPick[k]} onChange={(v) => setTrPick((p) => ({ ...p, [k]: v }))} options={trLists} />
+                      </Field>
+                    ))}
+                    {!trReady && <p className="m-0 text-[12px] text-destructive">Pick three different lists.</p>}
+                  </div>
+                ) : target ? (
+                  <p className="m-0 text-[13px] text-muted-foreground">This board has no open lists. Add three in Trello (for example To do, Doing, Done), then pick it again.</p>
+                ) : null)}
               {provider === "github" && (
                 <Field id="ct-labels" label="Labels" hint="Optional, comma-separated. Put on every issue Snagset opens.">
                   <Input id="ct-labels" placeholder="review" value={labels} onChange={(e) => setLabels(e.target.value)} autoComplete="off" />
@@ -536,7 +671,12 @@ export function ConnectTracker({
               site={connectedSite}
               shownSecret={secret}
               onSecret={setSecret}
-              target={{ label: teamLabel, ...(provider === "jira" ? { jiraSite: siteUrl } : {}), ...(provider === "github" ? { repo: target } : {}) }}
+              target={{
+                label: teamLabel,
+                ...(provider === "jira" ? { jiraSite: siteUrl } : {}),
+                ...(provider === "github" ? { repo: target } : {}),
+                ...(provider === "trello" && trNote ? { trelloNote: trNote } : {}),
+              }}
             />
           )}
 
@@ -556,7 +696,7 @@ export function ConnectTracker({
                 <Button type="button" variant="outline" onClick={() => setStep(1)}>
                   Back
                 </Button>
-                <Button type="submit" loading={connect.isPending} disabled={!target.trim()}>
+                <Button type="submit" loading={connect.isPending} disabled={!target.trim() || !trReady || lists.isPending}>
                   {connect.isPending ? "Connecting…" : "Connect"}
                 </Button>
               </>

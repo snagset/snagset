@@ -11,7 +11,7 @@ import { open, seal } from "../crypto.ts";
  * somebody has to go and read.
  */
 
-export type Provider = "github" | "linear" | "slack" | "webhook" | "jira";
+export type Provider = "github" | "linear" | "slack" | "webhook" | "jira" | "trello";
 
 export interface GitHubIntegrationConfig {
   owner: string;
@@ -42,6 +42,19 @@ export interface JiraIntegrationConfig {
 }
 
 /** A site's Slack connection — the workspace, the channel, and whether every new comment is posted. */
+/** 0.1.56: a board and three of its lists; the key is Trello's public half, the token is the secret. */
+export interface TrelloIntegrationConfig {
+  apiKey: string;
+  boardId: string;
+  boardName: string;
+  boardUrl: string;
+  lists: { open: string; progress: string; resolved: string };
+  listNames: { open: string; progress: string; resolved: string };
+  /** The webhook this server registered on the board, so a disconnect can take it down. */
+  webhookId: string | null;
+  createOn: "manual" | "thread.created";
+}
+
 export interface SlackIntegrationConfig {
   teamName: string;
   teamUrl: string;
@@ -51,11 +64,11 @@ export interface SlackIntegrationConfig {
 }
 
 /** The providers a site can be connected to today; the enum has more. */
-export const TRACKERS = ["github", "linear", "jira", "slack"] as const;
+export const TRACKERS = ["github", "linear", "jira", "trello", "slack"] as const;
 export type Tracker = (typeof TRACKERS)[number];
 export const isTracker = (s: string): s is Tracker => (TRACKERS as readonly string[]).includes(s);
 /** What a thread's mirror is called in each tracker — `external_refs.kind`. */
-export const REF_KIND: Record<Tracker, "issue" | "message"> = { github: "issue", linear: "issue", jira: "issue", slack: "message" };
+export const REF_KIND: Record<Tracker, "issue" | "message"> = { github: "issue", linear: "issue", jira: "issue", trello: "issue", slack: "message" };
 
 export interface IntegrationRow<C = Record<string, unknown>> {
   id: string;
