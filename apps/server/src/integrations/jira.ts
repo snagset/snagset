@@ -160,9 +160,13 @@ export function verifyJiraSignature(raw: string, header: string | undefined, sec
   return given.length === want.length && timingSafeEqual(given, want);
 }
 
-/** Our status → the status category to transition to; their category → our status. */
+/**
+ * Our status → the status category to transition to; their category → our
+ * status. In review is work under way, so it shares the in-progress category
+ * (0.1.57): sent to "new", Jira's echo came back as open and undid the review.
+ */
 export function jiraCategoryFor(status: string): JiraCategory {
-  return status === "resolved" ? "done" : status === "progress" ? "indeterminate" : "new";
+  return status === "resolved" ? "done" : status === "progress" || status === "review" ? "indeterminate" : "new";
 }
 export function statusForJiraCategory(category: string): "resolved" | "progress" | "open" {
   return category === "done" ? "resolved" : category === "indeterminate" ? "progress" : "open";

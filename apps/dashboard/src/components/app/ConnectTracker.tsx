@@ -36,6 +36,9 @@ export type WayBack = "github" | "linear" | "jira" | "trello";
 const GUIDE = "https://snagset.com/docs/integrations/";
 const PICK: Record<WayBack, string> = { github: "Repository", linear: "Team", jira: "Project", trello: "Board" };
 /** Trello's own page that hands a token to the key typed above it. */
+/** The board picker's "New board…" choice. */
+const NEW_BOARD = "__new_board__";
+
 const trelloAuthorize = (key: string) =>
   `https://trello.com/1/authorize?expiration=never&scope=read,write&response_type=token&name=Snagset&key=${encodeURIComponent(key.trim())}`;
 /** A first guess at which list is which, by the names most boards use; the owner changes any of them. */
@@ -136,17 +139,20 @@ function AccessHowTo({ provider, jiraSite, trelloKey = "" }: { provider: WayBack
     provider === "trello"
       ? [
           <>
-            Open <Ext href="https://trello.com/power-ups/admin">Trello › Power-Ups admin</Ext>. Make a Power-Up called Snagset if you have none (any workspace), then
-            open its API key tab and generate a key.
+            Open <Ext href="https://trello.com/power-ups/admin">Trello › Power-Ups admin</Ext> › New. Name it Snagset, any workspace, and tick that it does not use
+            Power-Up capabilities. Skip the OAuth 2.0 page.
           </>,
-          <>Paste the API key below.</>,
-          trelloKey.trim() ? (
-            <>
-              <Ext href={trelloAuthorize(trelloKey)}>Generate a token</Ext> for that key: Allow, copy the token, paste it below.
-            </>
-          ) : (
-            <>Then a link here makes the token for that key: Allow, copy it, paste it below.</>
-          ),
+          <>Open its API key tab, generate a key, and paste the key below.</>,
+          <>
+            On that same page, click the Token link beside the key
+            {trelloKey.trim() ? (
+              <>
+                {" "}
+                (or <Ext href={trelloAuthorize(trelloKey)}>this one</Ext>)
+              </>
+            ) : null}
+            : Allow, then copy the whole token (it starts ATTA) and paste it below.
+          </>,
         ]
       : provider === "github"
       ? [
@@ -208,6 +214,9 @@ export function WayBackStep({
   const [since] = useState(() => Date.now());
   const [paste, setPaste] = useState("");
   const [error, setError] = useState("");
+  // The field empties on a save (a secret is never shown back), so the hint
+  // says "Saved" at once rather than after the next refetch.
+  const [justSaved, setJustSaved] = useState(false);
   const list = useQuery({ ...q.integrations(), refetchInterval: 3000 });
   const row = list.data?.data.find((i) => i.site === site && i.provider === provider) as TrackerIntegration | undefined;
   const save = useMutation({
@@ -215,6 +224,7 @@ export function WayBackStep({
     onSuccess: (r) => {
       setError("");
       setPaste("");
+      setJustSaved(true);
       onSecret(r.webhook.secret ?? null);
       void qc.invalidateQueries({ queryKey: ["integrations"] });
       toast.success(provider === "linear" ? "Signing secret saved" : provider === "trello" ? "Secret saved" : "New secret made — the old one has stopped working");
@@ -331,7 +341,7 @@ export function WayBackStep({
         <Field
           id="wb-secret"
           label={provider === "linear" ? "Signing secret" : "Power-Up secret"}
-          hint={row?.hasWebhookSecret ? "Saved. Paste a new one to replace it." : provider === "linear" ? "From the webhook Linear just made." : "Next to the API key in Trello."}
+          hint={justSaved || row?.hasWebhookSecret ? "Saved. Paste a new one to replace it." : provider === "linear" ? "From the webhook Linear just made." : "Next to the API key in Trello."}
         >
           <div className="flex gap-2">
             <div className="min-w-0 flex-1">
@@ -475,7 +485,30 @@ export function ConnectTracker({
       if (boardId === askedBoard.current) setError(failed(err));
     },
   });
+  // "New board…" (0.1.57): Snagset makes the board with To do, Doing and
+  // Done, and the dialog lands on it with the three lists already picked.
+  const [making, setMaking] = useState(false);
+  const [boardName, setBoardName] = useState("Snagset feedback");
+  const newBoard = useMutation({
+    mutationFn: (name: string) => api.discoverTracker("trello", { apiKey: trKey.trim(), token: token.trim(), newBoard: name }),
+    onSuccess: (r) => {
+      if (!r.board) return;
+      setError("");
+      setMaking(false);
+      setOptions((o) => [...o, r.board!]);
+      askedBoard.current = r.board.value;
+      setTarget(r.board.value);
+      setTrLists(r.options);
+      setTrPick(guessLists(r.options));
+    },
+    onError: (err) => setError(failed(err)),
+  });
   const pickBoard = (boardId: string) => {
+    if (boardId === NEW_BOARD) {
+      setMaking(true);
+      return;
+    }
+    setMaking(false);
     askedBoard.current = boardId;
     setTarget(boardId);
     setTrLists([]);
@@ -531,7 +564,7 @@ export function ConnectTracker({
 
   const accessReady =
     !!chosen && !!token.trim() && (provider !== "jira" || (!!jiraSite.trim() && !!email.trim())) && (provider !== "trello" || !!trKey.trim());
-  const trReady = provider !== "trello" || (!!trPick.open && !!trPick.progress && !!trPick.resolved && new Set([trPick.open, trPick.progress, trPick.resolved]).size === 3);
+  const trReady = provider !== "trello" || (!making && !!trPick.open && !!trPick.progress && !!trPick.resolved && new Set([trPick.open, trPick.progress, trPick.resolved]).size === 3);
   const picked = options.find((o) => o.value === target);
   const teamLabel = picked?.label ?? target;
 
@@ -555,7 +588,7 @@ export function ConnectTracker({
                 ? `Give Snagset access to ${name}. The key is checked now and stored encrypted with this instance's secret key.`
                 : step === 2
                   ? `Signed in to ${name}${who ? ` as ${who}` : ""}. Choose where this site's comments go.`
-                  : `Connected. Now the way back: a webhook, so that moving an issue in ${name} moves the comment here.`}{" "}
+                  : `Connected. Now the way back: a webhook, so that moving ${provider === "trello" ? "a card" : "an issue"} in ${name} moves the comment here.`}{" "}
               <Ext href={`${GUIDE}#${provider}`}>Step-by-step guide</Ext>
             </DialogDescription>
           </DialogHeader>
@@ -596,7 +629,7 @@ export function ConnectTracker({
 
           {step === 2 && (
             <>
-              {options.length > 0 ? (
+              {options.length > 0 || provider === "trello" ? (
                 <Field
                   id="ct-target"
                   label={PICK[provider]}
@@ -610,9 +643,12 @@ export function ConnectTracker({
                 >
                   <Picker
                     id="ct-target"
-                    value={target}
+                    value={making ? NEW_BOARD : target}
                     onChange={provider === "trello" ? pickBoard : setTarget}
-                    options={options.map((o) => ({ value: o.value, label: o.label }))}
+                    options={[
+                      ...options.map((o) => ({ value: o.value, label: o.label })),
+                      ...(provider === "trello" ? [{ value: NEW_BOARD, label: "New board…" }] : []),
+                    ]}
                   />
                 </Field>
               ) : (
@@ -624,7 +660,18 @@ export function ConnectTracker({
                   <Input id="ct-target" value={target} onChange={(e) => setTarget(e.target.value)} autoComplete="off" />
                 </Field>
               )}
+              {provider === "trello" && making && (
+                <Field id="ct-new-board" label="Board name" hint="Snagset makes it, private to you, with three lists: To do, Doing and Done.">
+                  <div className="flex gap-2">
+                    <Input id="ct-new-board" value={boardName} onChange={(e) => setBoardName(e.target.value)} autoComplete="off" className="min-w-0 flex-1" />
+                    <Button type="button" variant="outline" disabled={!boardName.trim()} loading={newBoard.isPending} onClick={() => newBoard.mutate(boardName.trim())}>
+                      Make board
+                    </Button>
+                  </div>
+                </Field>
+              )}
               {provider === "trello" &&
+                !making &&
                 (lists.isPending ? (
                   <p className="m-0 text-[13px] text-muted-foreground">Reading the board's lists…</p>
                 ) : trLists.length > 0 ? (
@@ -656,9 +703,11 @@ export function ConnectTracker({
               <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border px-3 py-2.5 text-[13px]">
                 <input type="checkbox" className="mt-0.5" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
                 <span>
-                  <span className="block font-medium">An issue for every new comment</span>
+                  <span className="block font-medium">{provider === "trello" ? "A card for every new comment" : "An issue for every new comment"}</span>
                   <span className="block text-[12px] text-muted-foreground">
-                    Off: you make an issue from a comment's brief when you mean it. On: every new comment opens one.
+                    {provider === "trello"
+                      ? "Off: you make a card from a comment's brief when you mean it. On: every new comment makes one."
+                      : "Off: you make an issue from a comment's brief when you mean it. On: every new comment opens one."}
                   </span>
                 </span>
               </label>
@@ -731,7 +780,7 @@ export function WayBackDialog({
                 {TRACKER_NAME[state.provider]} webhook for {state.siteName}
               </DialogTitle>
               <DialogDescription>
-                The way back: moving an issue in {TRACKER_NAME[state.provider]} moves the comment here. <Ext href={`${GUIDE}#${state.provider}`}>Step-by-step guide</Ext>
+                The way back: moving {state.provider === "trello" ? "a card" : "an issue"} in {TRACKER_NAME[state.provider]} moves the comment here. <Ext href={`${GUIDE}#${state.provider}`}>Step-by-step guide</Ext>
               </DialogDescription>
             </DialogHeader>
             <WayBackStep provider={state.provider} site={state.site} shownSecret={secret} onSecret={setSecret} target={state.target} />

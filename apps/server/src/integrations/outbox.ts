@@ -102,6 +102,8 @@ export interface PushDeps {
   fetch?: typeof globalThis.fetch;
   /** SNAGSET_JIRA_PRIVATE_ADDRESSES: the Jira client may reach a private address. */
   jiraPrivate?: boolean;
+  /** How long "Create … issue" waits on its own row before answering that it is queued; tests shorten it. */
+  createWaitMs?: number;
 }
 
 /** The thread as the brief wants it, under the org's claim. */
@@ -248,7 +250,10 @@ const OPS: Record<Tracker, TrackerOps> = {
         description: issueBody(thread, base, "jira"),
       });
       // Born in the project's initial status; moved at once if ours says otherwise.
-      if (thread.status !== "open" && thread.status !== "review") await jc.transitionTo(made.key, jiraCategoryFor(thread.status));
+      // The issue exists now, so a failed move must not fail the create: that
+      // re-ran the create on retry and made a new issue each time (0.1.57
+      // review). The next status change moves it again.
+      if (thread.status !== "open") await jc.transitionTo(made.key, jiraCategoryFor(thread.status)).catch(() => {});
       return { externalId: made.key, url: made.url };
     },
     async setState({ integration, token, thread, deps, base }, externalId) {

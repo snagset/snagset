@@ -176,6 +176,7 @@ const jrSeen: { method: string; path: string; auth: string; body: any }[] = [];
 let nextJira = 1;
 let jiraStatus: "new" | "indeterminate" | "done" = "new";
 
+let jrTransFail = false;
 /** Enough of Jira Cloud's REST v2: myself, the project, issue creation, transitions. */
 function fakeJira(): Promise<{ server: Server; url: string }> {
   return new Promise((resolve) => {
@@ -214,6 +215,7 @@ function fakeJira(): Promise<{ server: Server; url: string }> {
             ].filter((t) => t.to.statusCategory.key !== jiraStatus),
           });
         }
+        if (tr && req.method === "POST" && jrTransFail) return json(500, { errorMessages: ["Jira is down"] });
         if (tr && req.method === "POST") {
           const id = String(body?.transition?.id);
           jiraStatus = id === "31" ? "done" : id === "21" ? "indeterminate" : "new";
@@ -238,6 +240,7 @@ const TR_AUTH = 'OAuth oauth_consumer_key="trkey", oauth_token="trtoken_good"';
 let tr: Server;
 let trUrl: string;
 let trWebhookMode: "ok" | "fail" = "ok";
+let trListFail = false;
 const trSeen: { method: string; path: string; auth: string; body: any }[] = [];
 let nextCard = 1;
 function fakeTrello(): Promise<{ server: Server; url: string }> {
@@ -267,6 +270,13 @@ function fakeTrello(): Promise<{ server: Server; url: string }> {
           ]);
         }
         if (path.startsWith("/1/boards/")) return json(404, { message: "not found" });
+        if (path === "/1/boards" && req.method === "POST") return json(200, { id: "e".repeat(24), name: body?.name });
+        if (path === "/1/lists" && req.method === "POST" && trListFail) return json(500, "Trello is down");
+        if (/^\/1\/boards\/[^/]+$/.test(path) && req.method === "DELETE") return json(200, {});
+        if (path === "/1/lists" && req.method === "POST") {
+          const k = ["To do", "Doing", "Done"].indexOf(body?.name);
+          return json(200, { id: String(k + 5).repeat(24), name: body?.name, idBoard: body?.idBoard });
+        }
         if (path === "/1/cards" && req.method === "POST") {
           const n = nextCard++;
           const id = String(n).padStart(24, "c");
@@ -311,6 +321,7 @@ function build(extra: { afterResponse?: (drain: Promise<void>) => Promise<void> 
     linearApiBase: lnUrl,
     slackApiBase: slUrl,
     trelloApiBase: trUrl,
+    createWaitMs: 1_500,
     ...extra,
   });
 }
@@ -776,6 +787,16 @@ test("Linear → us: a signed Issue update maps the state type back, a stale tim
   const replay = await app.request("/api/v1/integrations/linear/inbound", lnSigned(event("update", "completed"), "lnhook-secret", "ld-2"));
   assert.equal((await json(replay))["why"], "replay");
 
+  // In review goes to the started state too, and Linear's echo of that move
+  // leaves the review in place (0.1.57: it used to come back as open).
+  lnSeen.length = 0;
+  await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { method: "PATCH", headers: as(owner), body: JSON.stringify({ status: "review" }) });
+  await runWorker();
+  assert.equal(lnSeen.find((r) => /SnagsetState/.test(r.query))?.variables.input.stateId, "st-doing");
+  const echo = await app.request("/api/v1/integrations/linear/inbound", lnSigned(event("update", "started"), "lnhook-secret", "ld-2r"));
+  assert.equal((await json(echo))["why"], "unchanged");
+  assert.equal((await sql<{ status: string }[]>`SELECT status FROM threads WHERE id = ${threadId}`)[0]!.status, "review");
+
   const inboundOf = async () =>
     (
       await sql<{ at: Date | null; refusedAt: Date | null; error: string | null }[]>`
@@ -896,10 +917,18 @@ test("Jira: the site, the project and the account are probed, a Task issue type 
 });
 
 test("Jira: the issue is made with the brief as text, moved by status category both ways, and detached on delete", { skip }, async () => {
-  await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { method: "PATCH", headers: as(owner), body: JSON.stringify({ status: "open" }) });
+  // Made for a thread in review while Jira refuses the move that follows: one
+  // issue all the same, its link kept, and no second issue on a retry.
+  await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { method: "PATCH", headers: as(owner), body: JSON.stringify({ status: "review" }) });
   await runWorker();
   jrSeen.length = 0;
+  jrTransFail = true;
   const res = await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}/integrations/jira`, { method: "POST", headers: as(owner) });
+  jrTransFail = false;
+  await runWorker();
+  assert.equal(jrSeen.filter((r) => r.method === "POST" && r.path === "/rest/api/2/issue").length, 1, "one issue, however the move went");
+  await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { method: "PATCH", headers: as(owner), body: JSON.stringify({ status: "open" }) });
+  await runWorker();
   assert.equal(res.status, 200, await res.clone().text());
   const ref = (await json(res))["ref"];
   assert.equal(ref.externalId, "KAN-1");
@@ -956,6 +985,18 @@ test("Jira: the issue is made with the brief as text, moved by status category b
   const doing = await app.request("/api/v1/integrations/jira/inbound", jrSigned(event("jira:issue_updated", "indeterminate"), "jira-hook", "jd-3"));
   assert.equal((await json(doing))["applied"], "reopened");
   assert.equal((await sql<{ status: string }[]>`SELECT status FROM threads WHERE id = ${threadId}`)[0]!.status, "progress");
+  // In review shares the in-progress category, and Jira's echo of that move
+  // leaves the review in place (0.1.57: it used to come back as open).
+  jrSeen.length = 0;
+  await app.request(`/api/v1/projects/${uid}/threads/thr_${threadId}`, { method: "PATCH", headers: as(owner), body: JSON.stringify({ status: "review" }) });
+  await runWorker();
+  assert.equal(jrSeen.find((r) => r.method === "POST" && /\/transitions$/.test(r.path))?.body.transition.id, "21");
+  const echo = await app.request("/api/v1/integrations/jira/inbound", jrSigned(event("jira:issue_updated", "indeterminate"), "jira-hook", "jd-3r"));
+  assert.equal((await json(echo))["why"], "unchanged");
+  // Jira's issue_created carries the status the issue was born in: ignored.
+  const born = await app.request("/api/v1/integrations/jira/inbound", jrSigned(event("jira:issue_created", "new"), "jira-hook", "jd-3c"));
+  assert.equal((await json(born))["why"], "action");
+  assert.equal((await sql<{ status: string }[]>`SELECT status FROM threads WHERE id = ${threadId}`)[0]!.status, "review");
   const removed = await app.request("/api/v1/integrations/jira/inbound", jrSigned(event("jira:issue_deleted", "new"), "jira-hook", "jd-4"));
   assert.equal((await json(removed))["applied"], "detached");
   const [after] = await sql<{ status: string }[]>`SELECT status FROM external_refs WHERE thread_id = ${threadId} AND provider = 'jira'`;
@@ -1166,6 +1207,20 @@ test("Trello: discover lists boards then lists; connecting probes three distinct
   assert.deepEqual(JSON.stringify(await json(boards)).includes(TR_BOARD), true);
   const lists = await json(await app.request("/api/v1/integrations/trello/discover", { method: "POST", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good", boardId: TR_BOARD }) }));
   assert.ok(JSON.stringify(lists).includes("Doing"));
+  // New board…: made with exactly its three lists, nothing stored here.
+  trSeen.length = 0;
+  const fresh = await json(await app.request("/api/v1/integrations/trello/discover", { method: "POST", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good", newBoard: "Kilnwork feedback" }) }));
+  assert.deepEqual(fresh["board"], { value: "e".repeat(24), label: "Kilnwork feedback" });
+  assert.deepEqual((fresh["options"] as any[]).map((o) => o.label), ["To do", "Doing", "Done"]);
+  assert.equal(trSeen.find((r) => r.path === "/1/boards")?.body.defaultLists, false, "Trello's own default lists are left out");
+  assert.equal((await sql`SELECT 1 FROM integrations WHERE provider = 'trello'`).length, 0);
+  // A list Trello will not make: the half-made board is taken down again.
+  trListFail = true;
+  trSeen.length = 0;
+  const half = await app.request("/api/v1/integrations/trello/discover", { method: "POST", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good", newBoard: "Half" }) });
+  trListFail = false;
+  assert.equal(half.status, 422);
+  assert.ok(trSeen.some((r) => r.method === "DELETE" && r.path === `/1/boards/${"e".repeat(24)}`), "the board was removed");
   const badBoard = await app.request("/api/v1/integrations/trello/discover", { method: "POST", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good", boardId: "../x" }) });
   assert.equal(badBoard.status, 422);
 
@@ -1249,6 +1304,41 @@ let uid2: string;
 const tr2_ = () => `/api/v1/projects/${uid2}/integrations/trello`;
 const trPut = (path: string, extra: Record<string, unknown> = {}) =>
   app.request(path, { method: "PUT", headers: as(owner), body: JSON.stringify({ apiKey: "trkey", token: "trtoken_good", boardId: TR_BOARD, openList: TR_LISTS.open, progressList: TR_LISTS.progress, resolvedList: TR_LISTS.resolved, createOn: "manual", ...extra }) });
+
+test("Create … issue waits on the thread's own row: one another worker holds answers queued, then the link once that worker finishes", { skip }, async () => {
+  // A second thread, its Trello create row already in flight elsewhere.
+  const t2 = randomUUID();
+  await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+    const [env] = await tx<{ id: string }[]>`SELECT id FROM environments WHERE project_id = ${projectId} AND is_default`;
+    const [round] = await tx<{ id: string }[]>`SELECT id FROM rounds WHERE project_id = ${projectId}`;
+    await tx`
+      INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number, anchor, context, created_by)
+      VALUES (${t2}, ${orgId}, ${projectId}, 'SN-90', ${env!.id}, ${round!.id}, 90,
+              ${tx.json({ label: "x", css: "main", page: { origin: "https://kilnwork.studio", pathname: "/", route: "/" }, offset: {} })}, ${tx.json({})}, ${adaId})`;
+  });
+  const [integ] = await sql<{ id: string }[]>`SELECT id FROM integrations WHERE provider = 'trello' AND project_id = ${projectId}`;
+  const held = async () => sql`
+    INSERT INTO outbox (id, org_id, project_id, integration_id, thread_id, provider, topic, dedupe_key, status, attempts)
+    VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${integ!.id}, ${t2}, 'trello', 'issue.create', ${`issue.create:thr_${t2}:0`}, 'inflight', 1)`;
+  await held();
+  const create = () => app.request(`/api/v1/projects/${uid}/threads/thr_${t2}/integrations/trello`, { method: "POST", headers: as(owner) });
+  const queued = await create();
+  assert.equal(queued.status, 202, await queued.clone().text());
+  assert.equal((await json(queued))["queued"], true);
+
+  // The other worker finishes while this request waits: the link comes back.
+  const finish = setTimeout(async () => {
+    await sql`INSERT INTO external_refs (id, org_id, project_id, thread_id, provider, kind, status, external_id, url)
+              VALUES (${randomUUID()}, ${orgId}, ${projectId}, ${t2}, 'trello', 'issue', 'synced', ${"d".repeat(24)}, 'https://trello.com/c/other')`;
+    await sql`UPDATE outbox SET status = 'done' WHERE thread_id = ${t2}`;
+  }, 400);
+  const landed = await create();
+  clearTimeout(finish);
+  assert.equal(landed.status, 200, await landed.clone().text());
+  assert.equal((await json(landed))["ref"].url, "https://trello.com/c/other");
+  await sql`DELETE FROM threads WHERE id = ${t2}`;
+});
 
 test("Trello: a second site on the same board, token and Power-Up shares the one webhook; a failed re-register keeps the webhook that works", { skip }, async () => {
   const made = await app.request("/api/v1/projects", { method: "POST", headers: as(owner), body: JSON.stringify({ name: "Kilnwork staging", domain: "staging.kilnwork.studio" }) });

@@ -113,6 +113,30 @@ export function trelloClient(opts: TrelloClientOptions) {
         return fail(e);
       }
     },
+    /**
+     * A new board with exactly the three lists Snagset needs, To do, Doing and
+     * Done, so the studio picks nothing (0.1.57). Trello's default lists are
+     * left out; the board is private to the token's member.
+     */
+    async createBoard(name: string): Promise<{ ok: true; board: { id: string; name: string }; lists: { id: string; name: string }[] } | { ok: false; detail: string }> {
+      try {
+        const board = await call<{ id: string; name: string }>("POST", "/boards", { name: name.slice(0, 16384), defaultLists: false, prefs_permissionLevel: "private" });
+        const lists: { id: string; name: string }[] = [];
+        try {
+          for (const listName of ["To do", "Doing", "Done"]) {
+            const l = await call<{ id: string; name: string }>("POST", "/lists", { name: listName, idBoard: board.id, pos: "bottom" });
+            lists.push({ id: l.id, name: l.name });
+          }
+        } catch (e) {
+          // A half-made board is no use to anybody: take it down again.
+          await call("DELETE", `/boards/${encodeURIComponent(board.id)}`).catch(() => {});
+          throw e;
+        }
+        return { ok: true, board: { id: board.id, name: board.name }, lists };
+      } catch (e) {
+        return fail(e);
+      }
+    },
     async createCard(input: { listId: string; name: string; desc: string }): Promise<{ id: string; url: string }> {
       const made = await call<{ id: string; shortUrl?: string; url?: string }>("POST", "/cards", {
         idList: input.listId,

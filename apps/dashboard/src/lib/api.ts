@@ -595,14 +595,14 @@ export const api = {
   /** 0.1.55: who the credentials are, and the repositories, teams or projects they can see. */
   discoverTracker: (
     provider: "github" | "linear" | "jira" | "trello",
-    input: { token: string } | { apiKey: string } | { siteUrl: string; email: string; apiToken: string } | { apiKey: string; token: string; boardId?: string },
-  ) => call<{ who: string; options: { value: string; label: string; canWrite?: boolean }[] }>("POST", `/api/v1/integrations/${provider}/discover`, input),
+    input: { token: string } | { apiKey: string } | { siteUrl: string; email: string; apiToken: string } | { apiKey: string; token: string; boardId?: string; newBoard?: string },
+  ) => call<{ who: string; board?: { value: string; label: string }; options: { value: string; label: string; canWrite?: boolean }[] }>("POST", `/api/v1/integrations/${provider}/discover`, input),
   disconnectTracker: (uid: string, provider: Tracker) =>
     call<{ integration: null }>("DELETE", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}`),
   testTracker: (uid: string, provider: Tracker) =>
     call<{ ok: boolean; target?: string; detail?: string }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}/test`),
   createIssue: (uid: string, threadId: string, provider: Tracker) =>
-    call<{ ref: ExternalRef }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/threads/${encodeURIComponent(threadId)}/integrations/${provider}`),
+    call<{ ref: ExternalRef | null; queued?: boolean; message?: string }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/threads/${encodeURIComponent(threadId)}/integrations/${provider}`),
 
   // Everything that has happened, across every site.
   activity: (input: { status?: string; site?: string; q?: string; cursor?: string; limit?: number }) => {

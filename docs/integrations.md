@@ -100,9 +100,11 @@ A wrong paste shows as "signed with a different secret". Paste the right one
 over it: it is replaced in place, no disconnecting.
 
 **What happens:** the issue is made in the team's state that matches the
-comment's status, by type: completed, started, unstarted. Our status moves it
-between those states the same way, and a state change in Linear moves the
-comment here. A removed issue detaches the link.
+comment's status, by type: completed for resolved, started for in progress
+and in review, unstarted for open. Our status moves it between those states
+the same way, and a state change in Linear moves the comment here; an issue
+arriving in a started state leaves a comment that is in review as it is. A
+removed issue detaches the link.
 
 ## Jira
 
@@ -135,7 +137,8 @@ once — nothing to invent.
 **What happens:** the issue is made with the brief as its description, in
 Jira's own wiki format with its specials escaped. Our status moves it through
 the project's workflow by **status category**: resolved goes to a done status,
-in progress to an in-progress one, open and in review to a new one. A workflow
+in progress and in review to an in-progress one, open to a new one. An issue
+arriving in an in-progress status leaves a comment that is in review as it is. A workflow
 that offers no such transition is reported on the card rather than guessed. A
 status change in Jira comes back the same way; a deleted issue detaches.
 
@@ -145,16 +148,19 @@ status change in Jira comes back the same way; a deleted issue detaches.
 which is just the place your key lives; nothing is published.
 
 1. Open [Trello's Power-Ups admin](https://trello.com/power-ups/admin) and
-   create a Power-Up (name it Snagset, any workspace).
-2. Open its *API key* tab and *Generate a new API key*. Paste the key in
-   step 1.
-3. The dialog then shows a *Generate a token* link for that key. Open it,
-   allow read and write, and paste the token it shows.
+   click *New*. Name it Snagset, pick any workspace, and tick that the app
+   does not use Power-Up capabilities, so no iframe address is needed.
+2. Skip the *OAuth 2.0* page: Snagset does not use it. Open the *API key*
+   tab and *Generate a new API key*. Paste the key in step 1.
+3. On the same page, click the **Token** link beside the key, allow access,
+   and copy the whole token (it starts `ATTA`). Paste it in step 1. A token
+   made for a different key is refused, so make it from this page.
 
 **2. Connect.** Pick the board, then three of its lists: one for **Open**,
 one for **In progress**, one for **Resolved**. The dialog guesses them from
 their names (*To do*, *Doing*, *Done*); change any guess. The three must be
-different lists.
+different lists. Or pick **New board…**: Snagset makes a private board with
+exactly those three lists, already picked.
 
 **3. Way back.** Snagset registers the board's webhook itself, so there is
 nothing to create in Trello. Trello signs its deliveries with the Power-Up's

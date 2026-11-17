@@ -82,6 +82,9 @@ function fail(c: Ctx, status: number, code: string, message: string, details?: u
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** How long "Create … issue" waits on its own row before answering that it is queued. */
+const CREATE_WAIT_MS = 10_000;
+
 const NAME: Record<Tracker, string> = { github: "GitHub", linear: "Linear", jira: "Jira", trello: "Trello", slack: "Slack" };
 /** Access checks a studio may make in a minute. */
 const DISCOVER_PER_MINUTE = 20;
@@ -247,7 +250,16 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       const apiKey = str("apiKey");
       if (!apiKey) return fail(c, 422, "validation_failed", "Paste your Power-Up's API key first.", { field: "apiKey" });
       const token = str("token");
-      if (!token) return fail(c, 422, "validation_failed", "Paste a token first — the Generate a token link makes one.", { field: "token" });
+      if (!token) return fail(c, 422, "validation_failed", "Paste a token first — the Token link beside your API key in Trello makes one.", { field: "token" });
+      // "New board…": Snagset makes the board with its three lists, and the
+      // answer is that board with them, ready to connect (0.1.57).
+      const newBoard = str("newBoard");
+      if (newBoard) {
+        if (newBoard.length > 200) return fail(c, 422, "validation_failed", "A board name of 200 characters or fewer.", { field: "newBoard" });
+        const made = await trelloClient({ apiKey, token, ...trOpts() }).createBoard(newBoard);
+        if (!made.ok) return fail(c, 422, "validation_failed", made.detail, { field: "newBoard" });
+        return c.json({ who: "", board: { value: made.board.id, label: made.board.name }, options: made.lists.map((l) => ({ value: l.id, label: l.name })) });
+      }
       // A board id narrows the answer to that board's lists: the second
       // half of the Connect step, asked once a board is picked.
       const boardId = str("boardId");
@@ -733,7 +745,9 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       await markDelivered(sql, match.id);
       let status: "resolved" | "progress" | "open" | "detach" | null = null;
       if (event === "jira:issue_deleted") status = "detach";
-      else if (event === "jira:issue_updated" || event === "jira:issue_created") {
+      // issue_created is ignored: an issue Snagset made carries its creation-time
+      // status there, and applying it undid the move that followed (0.1.57).
+      else if (event === "jira:issue_updated") {
         const category = String(issue?.fields?.status?.statusCategory?.key ?? "");
         if (category) status = statusForJiraCategory(category);
       }
@@ -745,6 +759,7 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
         deliveryId: delivery || `${issueKey}:${event}:${String(issue?.fields?.updated ?? Date.now())}`,
         externalId: issueKey,
         status,
+        progressHoldsReview: true,
       });
       await noticeIfResolved(applied, match.org_id, match.project_id, "Jira");
       return c.json({ ok: true, applied: applied.kind, ...("why" in applied ? { why: applied.why } : {}) });
@@ -844,6 +859,7 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       deliveryId: delivery || `${issueId}:${action}:${Date.now()}`,
       externalId: issueId,
       status,
+      progressHoldsReview: true,
     });
     await noticeIfResolved(applied, match.org_id, match.project_id, "Linear");
     return c.json({ ok: true, applied: applied.kind, ...("why" in applied ? { why: applied.why } : {}) });
@@ -890,13 +906,43 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     });
     if (!queued) return fail(c, 404, "thread_not_found", "No such thread in this project.");
     await drainNow(sql, deps.push);
-    const [ref] = await inOrg(sql, p.org_id, (tx) => tx<{ external_id: string; url: string; status: string }[]>`
-      SELECT external_id, url, status FROM external_refs
-       WHERE thread_id = ${threadRow}::uuid AND provider = ${pv}::snag_provider AND kind = ${REF_KIND[pv]}::snag_ref_kind AND status <> 'detached'
-    `);
-    if (ref) return c.json({ ref: { provider: pv, kind: REF_KIND[pv], externalId: ref.external_id, url: ref.url, status: ref.status } });
-    const fresh = await getIntegration(sql, keys, p.org_id, p.id, pv);
-    return fail(c, 502, "integration_push_failed", fresh?.lastError ?? `${NAME[pv]} did not take the ${REF_KIND[pv]}. The card on Studio › Integrations says why.`);
+    // The drain above may not be the one that takes this thread's row: the
+    // minute worker, or another request's drain, can hold it in flight, and
+    // other rows can be ahead of it. So the answer waits on THIS thread's own
+    // create row, a few seconds at most, rather than calling a row still being
+    // worked a failure (seen live: a 502, and the card on the board a moment
+    // later).
+    const deadline = Date.now() + (deps.push.createWaitMs ?? CREATE_WAIT_MS);
+    for (;;) {
+      const [ref] = await inOrg(sql, p.org_id, (tx) => tx<{ external_id: string; url: string; status: string }[]>`
+        SELECT external_id, url, status FROM external_refs
+         WHERE thread_id = ${threadRow}::uuid AND provider = ${pv}::snag_provider AND kind = ${REF_KIND[pv]}::snag_ref_kind AND status <> 'detached'
+      `);
+      if (ref) return c.json({ ref: { provider: pv, kind: REF_KIND[pv], externalId: ref.external_id, url: ref.url, status: ref.status } });
+      const [row] = await inOrg(sql, p.org_id, (tx) => tx<{ status: string; last_error: string | null }[]>`
+        SELECT status, last_error FROM outbox
+         WHERE thread_id = ${threadRow}::uuid AND provider = ${pv}::snag_provider AND topic = 'issue.create'
+         ORDER BY created_at DESC LIMIT 1
+      `);
+      const settled = !row || row.status === "failed" || row.status === "dropped" || row.status === "done" || (row.status === "pending" && !!row.last_error);
+      if (settled) {
+        // The worker writes the ref, then marks the row done: a ref missed on
+        // the read above can have landed since.
+        if (row?.status === "done") {
+          const [late] = await inOrg(sql, p.org_id, (tx) => tx<{ external_id: string; url: string; status: string }[]>`
+            SELECT external_id, url, status FROM external_refs
+             WHERE thread_id = ${threadRow}::uuid AND provider = ${pv}::snag_provider AND kind = ${REF_KIND[pv]}::snag_ref_kind AND status <> 'detached'
+          `);
+          if (late) return c.json({ ref: { provider: pv, kind: REF_KIND[pv], externalId: late.external_id, url: late.url, status: late.status } });
+        }
+        return fail(c, 502, "integration_push_failed", row?.last_error ?? `${NAME[pv]} did not take the ${REF_KIND[pv]}. The card on Studio › Integrations says why.`);
+      }
+      if (Date.now() >= deadline) {
+        return c.json({ ref: null, queued: true, message: `${NAME[pv]} is still being asked. The link appears on this comment when it answers.` }, 202);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+      await drainNow(sql, deps.push, 1);
+    }
   });
 
   return app;

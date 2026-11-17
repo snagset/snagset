@@ -100,6 +100,8 @@ export interface Deps {
   linearApiBase?: string;
   /** Test hook (0.1.56): where Trello's REST API is — a fake in tests. */
   trelloApiBase?: string;
+  /** How long "Create … issue" waits on its own row; tests shorten it. */
+  createWaitMs?: number;
   /** Test hook: where Slack's Web API is — a fake in tests. */
   slackApiBase?: string;
   /** The plan seam: the private caller's answer for an
@@ -693,6 +695,7 @@ export function createApp(deps: Deps): Hono<Env> {
     ...(linearApiBase ? { linearApiBase } : {}),
     ...(slackApiBase ? { slackApiBase } : {}),
     ...(trelloApiBase ? { trelloApiBase } : {}),
+    ...(deps.createWaitMs !== undefined ? { createWaitMs: deps.createWaitMs } : {}),
     jiraPrivate: cfg.bool("SNAGSET_JIRA_PRIVATE_ADDRESSES"),
   };
   // A9b's features, and the plan's word on them: a bucket makes screenshots

@@ -191,9 +191,13 @@ function Integrations() {
                           ? r.createOn === "thread.created"
                             ? "A message for every new comment"
                             : "Messages when you ask, from the brief"
-                          : r.createOn === "thread.created"
-                            ? "An issue for every new comment"
-                            : "Issues when you ask, from the brief"}
+                          : r.provider === "trello"
+                            ? r.createOn === "thread.created"
+                              ? "A card for every new comment"
+                              : "Cards when you ask, from the brief"
+                            : r.createOn === "thread.created"
+                              ? "An issue for every new comment"
+                              : "Issues when you ask, from the brief"}
                         {r.provider === "github" && r.labels.length ? ` · labels ${r.labels.join(", ")}` : ""}
                         {" · "}
                         {ago(r.updatedAt)}

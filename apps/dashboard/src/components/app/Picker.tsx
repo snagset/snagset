@@ -16,6 +16,7 @@ export function Picker({
   className,
   size = "default",
   "aria-label": ariaLabel,
+  placeholder = "Choose…",
 }: {
   id?: string;
   value: string;
@@ -24,12 +25,19 @@ export function Picker({
   className?: string;
   size?: "sm" | "default";
   "aria-label"?: string;
+  /** Shown while nothing is chosen and "" is not itself one of the options. */
+  placeholder?: string;
 }) {
   const items = options.map((o) => ({ value: o.value === "" ? EMPTY : o.value, label: o.label }));
   return (
     <Select items={items} value={value === "" ? EMPTY : value} onValueChange={(v) => v != null && onChange(v === EMPTY ? "" : String(v))}>
       <SelectTrigger id={id} size={size} aria-label={ariaLabel} className={cn("w-full bg-card", className)}>
-        <SelectValue />
+        <SelectValue>
+          {(v: unknown) => {
+            const hit = items.find((o) => o.value === v);
+            return hit ? hit.label : <span className="text-muted-foreground">{placeholder}</span>;
+          }}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         {items.map((o) => (

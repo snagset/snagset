@@ -150,9 +150,13 @@ export function verifyLinearSignature(raw: string, header: string | undefined, s
   return given.length === want.length && timingSafeEqual(given, want);
 }
 
-/** Our status → the team's state (by TYPE); their state type → our status. */
+/**
+ * Our status → the team's state (by TYPE); their state type → our status. In
+ * review shares the started state (0.1.57): sent to unstarted, Linear's echo
+ * came back as open and undid the review.
+ */
 export function linearStateFor(status: string, states: LinearStates): string {
-  return status === "resolved" ? states.completed : status === "progress" ? states.started : states.unstarted;
+  return status === "resolved" ? states.completed : status === "progress" || status === "review" ? states.started : states.unstarted;
 }
 export function statusForLinearState(type: string): "resolved" | "progress" | "open" {
   return type === "completed" || type === "canceled" ? "resolved" : type === "started" ? "progress" : "open";

@@ -114,8 +114,15 @@ export function useCreateIssue(uid: string, key: ListKey) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, provider }: { id: string; provider: Tracker }) => api.createIssue(uid, id, provider),
-    onSuccess: ({ ref }, { id }) =>
-      patchRow(qc, key, id, (t) => ({ ...t, refs: [...(t.refs ?? []).filter((r) => !(r.provider === ref.provider && r.kind === ref.kind)), ref] })),
+    onSuccess: ({ ref, message }, { id }) => {
+      // Still being made (another worker holds it): say so, and look again shortly.
+      if (!ref) {
+        toast.info(message ?? "Still being made. The link appears here when it is ready.");
+        for (const ms of [5_000, 15_000, 30_000]) setTimeout(() => void qc.invalidateQueries({ queryKey: key }), ms);
+        return;
+      }
+      patchRow(qc, key, id, (t) => ({ ...t, refs: [...(t.refs ?? []).filter((r) => !(r.provider === ref.provider && r.kind === ref.kind)), ref] }));
+    },
     onError: (err) => toast.error(reason(err)),
     // The patch above is the fast path; a list refetched while the request
     // was in flight could still hold the row without the link (seen live on
