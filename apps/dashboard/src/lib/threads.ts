@@ -117,6 +117,10 @@ export function useCreateIssue(uid: string, key: ListKey) {
     onSuccess: ({ ref }, { id }) =>
       patchRow(qc, key, id, (t) => ({ ...t, refs: [...(t.refs ?? []).filter((r) => !(r.provider === ref.provider && r.kind === ref.kind)), ref] })),
     onError: (err) => toast.error(reason(err)),
+    // The patch above is the fast path; a list refetched while the request
+    // was in flight could still hold the row without the link (seen live on
+    // Linear), so the list is asked again once it settles.
+    onSettled: () => void qc.invalidateQueries({ queryKey: key }),
   });
 }
 

@@ -60,15 +60,41 @@ for (const [net, bits] of [
 // found by the test that expects 8.8.8.8 to be public. Mapped addresses are
 // unwrapped and judged as IPv4 in isPublicAddress instead.
 
+/** An IPv6 address as its eight 16-bit groups, a trailing dotted IPv4 included. */
+function hextets(address: string): number[] | null {
+  let a = address.toLowerCase().replace(/%.*$/, "");
+  const v4 = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(a);
+  if (v4) {
+    const [b1, b2, b3, b4] = v4.slice(1).map(Number) as [number, number, number, number];
+    a = a.slice(0, v4.index) + `${((b1 << 8) | b2).toString(16)}:${((b3 << 8) | b4).toString(16)}`;
+  }
+  const [head, tail] = a.split("::") as [string, string | undefined];
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const fill = tail === undefined ? [] : new Array(8 - left.length - right.length).fill("0");
+  const groups = [...left, ...fill, ...right].map((g) => parseInt(g, 16));
+  return groups.length === 8 && groups.every((g) => Number.isFinite(g)) ? groups : null;
+}
+
+const v4Of = (hi: number, lo: number) => `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+
 /** True when an address is one the proxy may connect to. */
 export function isPublicAddress(address: string): boolean {
   const family = isIP(address);
   if (family === 4) return !BLOCKED.check(address, "ipv4");
   if (family === 6) {
-    // `::ffff:10.0.0.1` is 10.0.0.1. Judged as what it reaches, not as what
-    // it is written as — the IPv6 range alone would say only "mapped".
-    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)?.[1];
-    if (mapped) return !BLOCKED.check(mapped, "ipv4");
+    // An IPv6 address that carries an IPv4 one is judged as what it reaches,
+    // not as what it is written as — the IPv6 range alone would let
+    // `::ffff:10.0.0.1` through as merely "mapped" (0.1.55 review: the
+    // compatible, SIIT and 6to4 forms too, and Teredo outright).
+    const h = hextets(address);
+    if (!h) return false;
+    const zeros = (n: number) => h.slice(0, n).every((g) => g === 0);
+    if (zeros(5) && h[5] === 0xffff) return isPublicAddress(v4Of(h[6]!, h[7]!)); // ::ffff:a.b.c.d, mapped
+    if (zeros(4) && h[4] === 0xffff && h[5] === 0) return isPublicAddress(v4Of(h[6]!, h[7]!)); // ::ffff:0:a.b.c.d, SIIT
+    if (zeros(6) && (h[6]! !== 0 || h[7]! > 1)) return isPublicAddress(v4Of(h[6]!, h[7]!)); // ::a.b.c.d, compatible
+    if (h[0] === 0x2002) return isPublicAddress(v4Of(h[1]!, h[2]!)); // 6to4
+    if (h[0] === 0x2001 && h[1] === 0) return false; // Teredo: the far end is anyone's guess
     return !BLOCKED.check(address, "ipv6");
   }
   return false;
@@ -227,5 +253,116 @@ function request(
         reject(new PublicFetchError("upstream", e.message));
       } else reject(e);
     });
+  });
+}
+
+/**
+ * A `fetch` for a tracker whose address a person typed — Jira's site URL
+ * (0.1.55, found in review). The same rule as the image proxy: the address is
+ * judged at connect time inside the socket's own lookup, a literal IP before
+ * that, every answer of a name and not just the first. Beyond that:
+ *
+ * - A redirect is followed by hand only to the SAME origin, and judged again.
+ *   The request carries the account's credentials; a redirect elsewhere is
+ *   refused rather than handed the Authorization header.
+ * - A deadline for the whole call, and a cap on the answer's size: an address
+ *   that never answers, or answers forever, ties up nothing.
+ * - Only http and https, no credentials in the URL. Any port: a self-hosted
+ *   Jira often listens on 8080, and the address check is what matters.
+ *
+ * `allowPrivate` is the operator's choice (SNAGSET_JIRA_PRIVATE_ADDRESSES): a
+ * Jira Data Center on the studio's own network is a private address, and on
+ * a self-host that is the point. The hosted cloud leaves it off.
+ */
+export function publicApiFetch(opts: { allowPrivate?: boolean; timeoutMs?: number; maxBytes?: number; maxRedirects?: number } = {}): typeof globalThis.fetch {
+  const timeoutMs = opts.timeoutMs ?? 10_000;
+  const maxBytes = opts.maxBytes ?? 2 * 1024 * 1024;
+  const allowPrivate = !!opts.allowPrivate;
+  return (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const start = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    let url = start;
+    const deadline = Date.now() + timeoutMs;
+    const method = (init?.method ?? "GET").toUpperCase();
+    const headers = new Headers(init?.headers);
+    const body = typeof init?.body === "string" ? init.body : init?.body == null ? undefined : String(init.body);
+    for (let hop = 0; hop <= (opts.maxRedirects ?? 3); hop++) {
+      if (url.protocol !== "http:" && url.protocol !== "https:") throw new PublicFetchError("bad_url", "Only http and https addresses can be reached.");
+      if (url.username || url.password) throw new PublicFetchError("bad_url", "An address with credentials in it is refused.");
+      if (url.origin !== start.origin) throw new PublicFetchError("bad_url", "The server redirected to another address; its credentials are not sent there.");
+      const host = url.hostname.replace(/^\[|\]$/g, "");
+      if (!allowPrivate && isIP(host) && !isPublicAddress(host)) {
+        throw new PublicFetchError("blocked_address", "That address is not on the public internet.");
+      }
+      // A public tracker answers on the web's ports. Any other port is a
+      // probe of somebody's server, not a tracker (0.1.55 review); an
+      // operator who allows private addresses allows their ports too.
+      if (!allowPrivate && !PORTS.has(url.port)) {
+        throw new PublicFetchError("bad_url", "Only the standard web ports (80 and 443) can be reached.");
+      }
+      const res = await apiRequest(url, method, headers, body, deadline, maxBytes, allowPrivate);
+      if (res.status >= 300 && res.status < 400 && res.location) {
+        url = new URL(res.location, url);
+        continue;
+      }
+      return new Response(res.status === 204 || res.status === 304 ? null : res.bytes, {
+        status: res.status,
+        headers: res.contentType ? { "content-type": res.contentType } : {},
+      });
+    }
+    throw new PublicFetchError("too_many_redirects", "The server redirected too many times.");
+  }) as typeof globalThis.fetch;
+}
+
+function apiRequest(
+  url: URL,
+  method: string,
+  headers: Headers,
+  body: string | undefined,
+  deadline: number,
+  maxBytes: number,
+  allowPrivate: boolean,
+): Promise<{ status: number; location?: string; bytes: Uint8Array; contentType?: string }> {
+  const lib = url.protocol === "https:" ? https : http;
+  return new Promise((resolve, reject) => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return reject(new PublicFetchError("timeout", "The server took too long."));
+    const out: Record<string, string> = {};
+    headers.forEach((v, k) => (out[k] = v));
+    if (body !== undefined) out["content-length"] = String(Buffer.byteLength(body));
+    const req = lib.request(url, { method, headers: out, lookup: guardedLookup(allowPrivate) as never, timeout: remaining, agent: false }, (res) => {
+      const status = res.statusCode ?? 0;
+      const location = typeof res.headers.location === "string" ? res.headers.location : undefined;
+      const contentType = typeof res.headers["content-type"] === "string" ? res.headers["content-type"] : undefined;
+      const chunks: Buffer[] = [];
+      let size = 0;
+      res.on("data", (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > maxBytes) {
+          res.destroy();
+          reject(new PublicFetchError("too_large", "The server's answer was larger than expected."));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on("end", () => resolve({ status, ...(location ? { location } : {}), bytes: new Uint8Array(Buffer.concat(chunks)), ...(contentType ? { contentType } : {}) }));
+      res.on("error", (e) => reject(new PublicFetchError("upstream", e.message)));
+    });
+    // The deadline covers the whole call, not only the gaps between packets.
+    const timer = setTimeout(() => {
+      req.destroy();
+      reject(new PublicFetchError("timeout", "The server took too long."));
+    }, remaining);
+    req.on("close", () => clearTimeout(timer));
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new PublicFetchError("timeout", "The server took too long."));
+    });
+    req.on("error", (e: NodeJS.ErrnoException) => {
+      if (e.code === "EBLOCKED" || e.message === "blocked_address") reject(new PublicFetchError("blocked_address", "That address is not on the public internet."));
+      else if (e instanceof PublicFetchError) reject(e);
+      else reject(new PublicFetchError("upstream", e.message));
+    });
+    if (body !== undefined) req.write(body);
+    req.end();
   });
 }

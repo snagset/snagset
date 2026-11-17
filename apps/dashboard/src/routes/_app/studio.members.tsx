@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
+import { Picker } from "@/components/app/Picker";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { MailIcon, PlusIcon, XIcon } from "lucide-react";
@@ -15,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { CopyButton } from "@/components/app/CopyButton";
-import { NativeSelect } from "@/components/app/NativeSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AdminsOnly, PageHeader, SectionTitle } from "@/components/app/parts";
 import type { Invite, Member, MintedInvite } from "@/lib/api";
@@ -273,7 +273,7 @@ function InviteDialog({
   const [made, setMade] = useState<MintedInvite | null>(null);
   const [sent, setSent] = useState<string | null>(null);
   // Member first: the designer's seat is the invite a studio sends most.
-  const { register, handleSubmit, formState, reset, watch } = useForm<Form>({ resolver: zodResolver(form), defaultValues: { role: "member", email: "" } });
+  const { register, handleSubmit, formState, reset, watch, control } = useForm<Form>({ resolver: zodResolver(form), defaultValues: { role: "member", email: "" } });
   const picked = watch("role");
   const close = (o: boolean) => {
     onOpenChange(o);
@@ -328,15 +328,18 @@ function InviteDialog({
             <fieldset disabled={formState.isSubmitting} className="m-0 flex min-w-0 flex-col gap-4 border-0 p-0">
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="invite-role">Role</Label>
-                <NativeSelect id="invite-role" className="w-full" {...register("role")}>
-                  {(["member", "admin", "owner"] as const)
-                    .filter((r) => roles.includes(r))
-                    .map((r) => (
-                      <option key={r} value={r}>
-                        {ROLE_LABEL[r]}
-                      </option>
-                    ))}
-                </NativeSelect>
+                <Controller
+                  control={control}
+                  name="role"
+                  render={({ field }) => (
+                    <Picker
+                      id="invite-role"
+                      value={field.value}
+                      onChange={field.onChange}
+                      options={(["member", "admin", "owner"] as const).filter((r) => roles.includes(r)).map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
+                    />
+                  )}
+                />
                 <p className="m-0 text-[12px] text-muted-foreground" data-testid="invite-role-summary">
                   {ROLE_SUMMARY[picked] ?? ""}
                 </p>

@@ -16,6 +16,9 @@ import {
   getIntegration,
   isTracker,
   listIntegrations,
+  markDelivered,
+  replaceCredentials,
+  markRefused,
   markIntegration,
   mintWebhookSecret,
   putIntegration,
@@ -47,6 +50,7 @@ import { looksLikeEmail } from "../email.ts";
  *   DELETE …                                               disconnect; existing issues keep their links
  *   POST   …/test                                          probe again, for the card's health line
  *   POST   …/webhook-secret                                GitHub: a new minted secret, shown once
+ *   POST   /api/v1/integrations/:provider/discover         what the credentials can see (0.1.55)
  *   POST   /api/v1/integrations/:provider/inbound          the tracker → us
  *   POST   /api/v1/projects/:uid/threads/:id/integrations/:provider   make the issue now
  *
@@ -76,6 +80,15 @@ function fail(c: Ctx, status: number, code: string, message: string, details?: u
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NAME: Record<Tracker, string> = { github: "GitHub", linear: "Linear", jira: "Jira", slack: "Slack" };
+/** What the card says when a delivery arrived but its signature did not match: the fix, in words. */
+/** Access checks a studio may make in a minute. */
+const DISCOVER_PER_MINUTE = 20;
+
+const SIGNATURE_REFUSED: Record<Exclude<Tracker, "slack">, string> = {
+  github: "GitHub's delivery was signed with a different secret. Make a new secret here and give it to the repository's webhook.",
+  linear: "Linear's delivery was signed with a different secret. Copy the signing secret from Linear's webhook and paste it here.",
+  jira: "Jira's delivery was signed with a different secret. Give Jira's webhook the secret Snagset shows, or make a new one here.",
+};
 
 export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
   const { sql, keys, projects } = deps;
@@ -116,6 +129,11 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       lastError: i.lastError,
       updatedAt: i.updatedAt.toISOString(),
       hasWebhookSecret: !!trackerSecrets(i.secret).webhookSecret,
+      // The way back's record: the last delivery the tracker sent this
+      // connection, and the refusal in words if there was one.
+      lastDeliveryAt: i.lastDeliveryAt ? i.lastDeliveryAt.toISOString() : null,
+      lastRefusedAt: i.lastRefusedAt ? i.lastRefusedAt.toISOString() : null,
+      lastRefusedError: i.lastRefusedError,
     };
     if (i.provider === "linear") {
       const cfg = i.config as unknown as LinearIntegrationConfig;
@@ -164,6 +182,68 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
   });
 
   /** The manifest the operator creates the Slack app from — one link, scopes pre-filled. */
+  /**
+   * What a connect dialog offers to pick from (0.1.55): the credentials are
+   * tried, and the answer is who they belong to and the repositories, teams
+   * or projects they can see — so nobody types a key that turns out to be the
+   * wrong one. Nothing is stored; the connect call checks again.
+   */
+  const countDiscover = async (orgId: string) => {
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - 60_000);
+    const expires = new Date(now.getTime() + 60_000);
+    const [row] = await sql.begin(async (tx) => {
+      await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+      return tx<{ count: string }[]>`
+        INSERT INTO rate_counters (org_id, bucket_key, window_start, count, expires_at)
+        VALUES (${orgId}::uuid, 'integrations:discover', ${now}, 1, ${expires})
+        ON CONFLICT (org_id, bucket_key) DO UPDATE
+          SET count = CASE WHEN rate_counters.window_start < ${windowStart} THEN 1 ELSE rate_counters.count + 1 END,
+              window_start = CASE WHEN rate_counters.window_start < ${windowStart} THEN ${now} ELSE rate_counters.window_start END,
+              expires_at = CASE WHEN rate_counters.window_start < ${windowStart} THEN ${expires} ELSE rate_counters.expires_at END
+        RETURNING count::text`;
+    });
+    return Number(row?.count ?? 0);
+  };
+  app.post("/api/v1/integrations/:provider/discover", async (c) => {
+    const owner = mustBeOwner(c);
+    if (owner instanceof Response) return owner;
+    const pv = provider(c);
+    if (pv instanceof Response) return pv;
+    if (pv === "slack") return fail(c, 409, "integration_not_configured", "Slack's channel is typed; there is nothing to list.");
+    // The same plan gate as connecting: this call reaches out to the tracker
+    // with what it is given, and a studio that cannot connect has no reason to.
+    if (!(await deps.limits(owner.orgId)).integrations) return planLimitReached(c, new LimitReached("integrations", 0, 0));
+    // Each check is a request this server makes to an address the caller
+    // chose, so a studio gets a handful a minute — plenty for a person trying
+    // tokens, too few to use the server as a prober (0.1.55 review).
+    if ((await countDiscover(owner.orgId)) > DISCOVER_PER_MINUTE) {
+      return fail(c, 429, "rate_limited", "Too many access checks in a minute. Wait a minute and try again.");
+    }
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    const str = (k: string) => (typeof body?.[k] === "string" ? (body![k] as string).trim() : "");
+    if (pv === "github") {
+      const token = str("token");
+      if (!token) return fail(c, 422, "validation_failed", "Paste a token first.", { field: "token" });
+      const r = await githubClient({ token, ...ghOpts() }).discover();
+      return r.ok ? c.json({ who: r.who, options: r.options }) : fail(c, 422, "validation_failed", r.detail, { field: "token" });
+    }
+    if (pv === "linear") {
+      const apiKey = str("apiKey");
+      if (!apiKey) return fail(c, 422, "validation_failed", "Paste an API key first.", { field: "apiKey" });
+      const r = await linearClient({ apiKey, ...lnOpts() }).discover();
+      return r.ok ? c.json({ who: r.who, options: r.options }) : fail(c, 422, "validation_failed", r.detail, { field: "apiKey" });
+    }
+    const siteUrl = str("siteUrl").replace(/\/+$/, "");
+    if (!/^https?:\/\/[^\s/]+$/.test(siteUrl)) return fail(c, 422, "validation_failed", "Give the site's address, like https://kilnwork.atlassian.net.", { field: "siteUrl" });
+    const email = str("email").toLowerCase();
+    if (!looksLikeEmail(email)) return fail(c, 422, "validation_failed", "Give the Atlassian account's email — the token belongs to it.", { field: "email" });
+    const apiToken = str("apiToken");
+    if (!apiToken) return fail(c, 422, "validation_failed", "Paste an API token first.", { field: "apiToken" });
+    const r = await jiraClient({ siteUrl, email, apiToken, allowPrivate: !!deps.push.jiraPrivate, ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) }).discover();
+    return r.ok ? c.json({ who: r.who, options: r.options }) : fail(c, 422, "validation_failed", r.detail, { field: "apiToken" });
+  });
+
   app.get("/api/v1/integrations/slack/manifest", async (c) => {
     const owner = mustBeOwner(c);
     if (owner instanceof Response) return owner;
@@ -286,8 +366,13 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       if (!looksLikeEmail(email)) return fail(c, 422, "validation_failed", "Give the Atlassian account's email — the token belongs to it.", { field: "email" });
       const apiToken = str("apiToken") || had.token || "";
       if (!apiToken) return fail(c, 422, "validation_failed", "Paste an API token from id.atlassian.com › Security › API tokens.", { field: "apiToken" });
-      const webhookSecret = str("webhookSecret") || had.webhookSecret || null;
-      const probe = await jiraClient({ siteUrl, email, apiToken, ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) }).probe(projectKey);
+      // Jira takes any secret typed into its webhook form, so we mint one, as
+      // for GitHub, and show it once — nobody has to invent a secret. One
+      // typed here (a webhook made before connecting) is kept instead.
+      const typed = str("webhookSecret");
+      const minted = typed || had.webhookSecret ? null : mintWebhookSecret();
+      const webhookSecret = typed || had.webhookSecret || minted!;
+      const probe = await jiraClient({ siteUrl, email, apiToken, allowPrivate: !!deps.push.jiraPrivate, ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) }).probe(projectKey);
       if (!probe.ok) return fail(c, 422, "validation_failed", probe.detail, { field: "apiToken" });
       await putIntegration(sql, keys, {
         orgId: p.org_id,
@@ -306,7 +391,7 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
         secret: JSON.stringify({ token: apiToken, webhookSecret }),
       });
       const i = await getIntegration(sql, keys, p.org_id, p.id, "jira");
-      return c.json({ integration: i ? shape(i, p.uid) : null, webhook: { url: await webhookUrl("jira") } });
+      return c.json({ integration: i ? shape(i, p.uid) : null, webhook: { url: await webhookUrl("jira"), ...(minted ? { secret: minted } : {}) } });
     }
 
     // Linear: an API key belonging to a member of the team, the team's
@@ -358,7 +443,7 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       ok = r.ok ? { ok: true, target: r.fullName } : r;
     } else if (pv === "jira") {
       const cfg = i.config as unknown as JiraIntegrationConfig;
-      const r = await jiraClient({ siteUrl: cfg.siteUrl, email: cfg.email, apiToken: token, ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) }).probe(cfg.projectKey);
+      const r = await jiraClient({ siteUrl: cfg.siteUrl, email: cfg.email, apiToken: token, allowPrivate: !!deps.push.jiraPrivate, ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) }).probe(cfg.projectKey);
       ok = r.ok ? { ok: true, target: `${r.project.key} · ${r.project.name}` } : r;
     } else if (pv === "slack") {
       const cfg = i.config as unknown as SlackIntegrationConfig;
@@ -379,7 +464,12 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     return c.json(ok.ok ? { ok: true, repository: ok.target, target: ok.target } : { ok: false, detail: ok.detail });
   });
 
-  /** GitHub only: a new minted webhook secret, shown once; the old one stops working the moment this answers. */
+  /**
+   * The webhook's secret, after connecting. GitHub and Jira: a new one minted
+   * here and shown once; the old one stops working the moment this answers.
+   * Linear makes its own: the body carries the one Linear shows, and it
+   * replaces the stored one — no disconnecting to fix a wrong paste.
+   */
   app.post("/api/v1/projects/:uid/integrations/:provider/webhook-secret", async (c) => {
     const owner = mustBeOwner(c);
     if (owner instanceof Response) return owner;
@@ -388,21 +478,26 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     const p = await site(c, owner);
     if (!p) return fail(c, 404, "project_not_found", "No project with that uid.");
     if (pv === "slack") return fail(c, 409, "integration_not_configured", "Slack sends nothing back in this version; there is no webhook to secure.");
-    if (pv !== "github") {
-      return fail(c, 409, "integration_not_configured", `${NAME[pv]}'s webhook secret is typed into ${NAME[pv]}'s own webhook form: paste the same secret when connecting.`);
-    }
-    const i = await getIntegration(sql, keys, p.org_id, p.id, "github");
+    const i = await getIntegration(sql, keys, p.org_id, p.id, pv);
     const had = trackerSecrets(i?.secret ?? null);
-    if (!i || !had.token) return fail(c, 409, "integration_not_configured", "GitHub is not connected on this site.");
-    const secret = mintWebhookSecret();
-    await putIntegration(sql, keys, {
+    if (!i || !had.token) return fail(c, 409, "integration_not_configured", `${NAME[pv]} is not connected on this site.`);
+    let secret: string;
+    let show = true;
+    if (pv === "linear") {
+      const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+      secret = typeof body?.["secret"] === "string" ? body["secret"].trim() : "";
+      if (!secret) return fail(c, 422, "validation_failed", "Paste the signing secret Linear shows on the webhook.", { field: "secret" });
+      show = false;
+    } else {
+      secret = mintWebhookSecret();
+    }
+    await replaceCredentials(sql, keys, {
       orgId: p.org_id,
       projectId: p.id,
-      provider: "github",
-      config: i.config as unknown as Record<string, unknown>,
+      provider: pv,
       secret: JSON.stringify({ token: had.token, webhookSecret: secret }),
     });
-    return c.json({ webhook: { url: await webhookUrl("github"), secret } });
+    return c.json({ webhook: { url: await webhookUrl(pv), ...(show ? { secret } : {}) } });
   });
 
   /** After an inbound resolve, the same mail a dashboard resolve sends, signed by the tracker. */
@@ -421,6 +516,13 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
         pageUrl: applied.pageUrl,
       });
     });
+  };
+  const hostOf = (u: unknown) => {
+    try {
+      return new URL(String(u ?? "")).host.toLowerCase();
+    } catch {
+      return "";
+    }
   };
   const candidatesFor = (pv: Tracker, where: (tx: postgres.TransactionSql) => postgres.PendingQuery<postgres.Row[]>) =>
     sql.begin(async (tx) => {
@@ -457,7 +559,6 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       const signature = c.req.header("x-hub-signature-256");
       const event = c.req.header("x-github-event") ?? "";
       const delivery = c.req.header("x-github-delivery") ?? "";
-      if (event === "ping") return c.json({ ok: true, pong: true });
       const fullName = String(payload?.repository?.full_name ?? "").toLowerCase();
       if (!fullName.includes("/")) return fail(c, 400, "validation_failed", "The payload names no repository.");
       const [ownerName, repo] = fullName.split("/") as [string, string];
@@ -471,10 +572,13 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
         return !!s && verifyGitHubSignature(raw, signature, s);
       });
       if (!match) {
-        return candidates.length
-          ? fail(c, 401, "provider_signature_invalid", "The signature does not match this repository's webhook secret.")
-          : fail(c, 409, "integration_not_configured", `No site here is connected to ${fullName}.`);
+        if (candidates.length === 1) await markRefused(sql, candidates[0]!.id, SIGNATURE_REFUSED.github);
+        return fail(c, 401, "provider_signature_invalid", "The signature does not match this repository's webhook secret.");
       }
+      // GitHub pings a webhook the moment it is made: a signed ping is the
+      // first proof the way back works, so it is recorded like any delivery.
+      await markDelivered(sql, match.id);
+      if (event === "ping") return c.json({ ok: true, pong: true });
       if (event !== "issues") return c.json({ ok: true, ignored: event });
       const number = Number(payload?.issue?.number);
       if (!Number.isInteger(number)) return fail(c, 400, "validation_failed", "The payload names no issue.");
@@ -500,26 +604,26 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       const projectId = String(issue?.fields?.project?.id ?? "");
       const issueKey = String(issue?.key ?? "");
       if (!projectId || !issueKey) return fail(c, 400, "validation_failed", "The payload names no issue in a project.");
-      let host = "";
-      try {
-        host = new URL(String(issue?.self ?? "")).host.toLowerCase();
-      } catch {
-        /* no self link — the project id alone will have to do */
-      }
-      const candidates = await candidatesFor("jira", (tx) => tx`
-        SELECT id, org_id, project_id, credentials, credentials_iv FROM integrations
-         WHERE provider = 'jira' AND deleted_at IS NULL AND enabled AND config->>'projectId' = ${projectId}
-           AND (${host} = '' OR lower(config->>'siteUrl') LIKE ${"%//" + host + "%"})
-      `);
+      // The site is the issue's own `self` link, and it must be there: a
+      // project id alone is a small number many Jira sites share, so a
+      // delivery without its site could name every one of them.
+      const host = hostOf(issue?.self);
+      if (!host) return fail(c, 400, "validation_failed", "The payload names no Jira site.");
+      const candidates = (
+        await candidatesFor("jira", (tx) => tx`
+          SELECT id, org_id, project_id, credentials, credentials_iv, config->>'siteUrl' AS site_url FROM integrations
+           WHERE provider = 'jira' AND deleted_at IS NULL AND enabled AND config->>'projectId' = ${projectId}
+        `)
+      ).filter((r) => hostOf((r as { site_url?: string }).site_url) === host);
       const match = candidates.find((r) => {
         const s = secretOf(r);
         return !!s && verifyJiraSignature(raw, signature, s);
       });
       if (!match) {
-        return candidates.length
-          ? fail(c, 401, "provider_signature_invalid", "The signature does not match this project's webhook secret — type the same secret into Jira's webhook and when connecting.")
-          : fail(c, 409, "integration_not_configured", "No site here is connected to that Jira project.");
+        if (candidates.length === 1) await markRefused(sql, candidates[0]!.id, SIGNATURE_REFUSED.jira);
+        return fail(c, 401, "provider_signature_invalid", "The signature does not match this project's webhook secret — give Jira's webhook the secret Snagset shows.");
       }
+      await markDelivered(sql, match.id);
       let status: "resolved" | "progress" | "open" | "detach" | null = null;
       if (event === "jira:issue_deleted") status = "detach";
       else if (event === "jira:issue_updated" || event === "jira:issue_created") {
@@ -559,10 +663,10 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       return !!s && verifyLinearSignature(raw, signature, s);
     });
     if (!match) {
-      return candidates.length
-        ? fail(c, 401, "provider_signature_invalid", "The signature does not match this team's webhook secret — paste the signing secret from Linear's webhook when connecting.")
-        : fail(c, 409, "integration_not_configured", "No site here is connected to that Linear team.");
+      if (candidates.length === 1) await markRefused(sql, candidates[0]!.id, SIGNATURE_REFUSED.linear);
+      return fail(c, 401, "provider_signature_invalid", "The signature does not match this team's webhook secret — paste the signing secret from Linear's webhook into Snagset.");
     }
+    await markDelivered(sql, match.id);
     if (payload?.type !== "Issue") return c.json({ ok: true, ignored: String(payload?.type ?? "") });
     const issueId = String(payload?.data?.id ?? "");
     if (!issueId) return fail(c, 400, "validation_failed", "The payload names no issue.");

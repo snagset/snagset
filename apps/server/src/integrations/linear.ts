@@ -73,6 +73,18 @@ export function linearClient(opts: LinearClientOptions) {
 
   return {
     /** The team by key, and the first state of each type we need — the shape the worker moves issues between. */
+    /** What a connect dialog offers to pick from: who the credentials are, and what they can see. */
+    async discover(): Promise<{ ok: true; who: string; options: { value: string; label: string }[] } | { ok: false; detail: string }> {
+      try {
+        const data = await gql<{ viewer: { name: string }; teams: { nodes: { key: string; name: string }[] } }>(
+          `query SnagsetTeams { viewer { name } teams(first: 100) { nodes { key name } } }`,
+          {},
+        );
+        return { ok: true, who: data.viewer.name, options: data.teams.nodes.map((t) => ({ value: t.key, label: `${t.name} (${t.key})` })) };
+      } catch (e) {
+        return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+      }
+    },
     async probe(teamKey: string): Promise<
       { ok: true; team: { id: string; key: string; name: string }; states: LinearStates; viewer: string } | { ok: false; detail: string }
     > {

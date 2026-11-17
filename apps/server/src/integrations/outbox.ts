@@ -96,6 +96,8 @@ export interface PushDeps {
   /** slack.com/api unless a test says otherwise. */
   slackApiBase?: string;
   fetch?: typeof globalThis.fetch;
+  /** SNAGSET_JIRA_PRIVATE_ADDRESSES: the Jira client may reach a private address. */
+  jiraPrivate?: boolean;
 }
 
 /** The thread as the brief wants it, under the org's claim. */
@@ -232,7 +234,7 @@ const OPS: Record<Tracker, TrackerOps> = {
   jira: {
     async create({ integration, token, thread, deps, base }) {
       const cfg = integration.config as unknown as JiraIntegrationConfig;
-      const jc = jiraClient({ siteUrl: cfg.siteUrl, email: cfg.email, apiToken: token, ...(deps.fetch ? { fetch: deps.fetch } : {}) });
+      const jc = jiraClient({ siteUrl: cfg.siteUrl, email: cfg.email, apiToken: token, allowPrivate: !!deps.jiraPrivate, ...(deps.fetch ? { fetch: deps.fetch } : {}) });
       const made = await jc.createIssue({
         projectId: cfg.projectId,
         issueTypeId: cfg.issueTypeId,
@@ -245,7 +247,7 @@ const OPS: Record<Tracker, TrackerOps> = {
     },
     async setState({ integration, token, thread, deps, base }, externalId) {
       const cfg = integration.config as unknown as JiraIntegrationConfig;
-      const jc = jiraClient({ siteUrl: cfg.siteUrl, email: cfg.email, apiToken: token, ...(deps.fetch ? { fetch: deps.fetch } : {}) });
+      const jc = jiraClient({ siteUrl: cfg.siteUrl, email: cfg.email, apiToken: token, allowPrivate: !!deps.jiraPrivate, ...(deps.fetch ? { fetch: deps.fetch } : {}) });
       await jc.transitionTo(externalId, jiraCategoryFor(thread.status));
     },
     authError: (e) => e instanceof JiraError && (e.status === 401 || e.status === 403 || e.status === 404),

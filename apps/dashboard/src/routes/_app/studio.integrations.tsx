@@ -12,14 +12,14 @@ import { ConfirmDialog } from "@/components/app/ConfirmDialog";
 import { AdminsOnly, PageHeader, SettingsRow } from "@/components/app/parts";
 import { isOperator } from "@/lib/operator";
 import { can } from "@/lib/roles";
-import { api, ApiFailure, TRACKER_NAME, type GitHubWebhook, type Tracker, type TrackerIntegration } from "@/lib/api";
-import { CopyButton } from "@/components/app/CopyButton";
+import { api, ApiFailure, TRACKER_NAME, type Tracker, type TrackerIntegration } from "@/lib/api";
 import { ago } from "@/lib/labels";
 import { useMe } from "@/lib/me";
 import { reason } from "@/lib/mutations";
 import { q } from "@/lib/query";
 import { RowsPending } from "@/components/app/Pending";
 import { McpCard } from "@/components/app/McpTokens";
+import { ConnectTracker, SecretInput, WayBackDialog, type WayBack } from "@/components/app/ConnectTracker";
 
 /**
  * Integrations — the set, GitHub first. One card per provider; a
@@ -71,12 +71,7 @@ function Integrations() {
   const refresh = () => qc.invalidateQueries({ queryKey: ["integrations"] });
   const [connecting, setConnecting] = useState<Tracker | null>(null);
   const [removing, setRemoving] = useState<TrackerIntegration | null>(null);
-  const [webhook, setWebhook] = useState<{ site: string; provider: Tracker; hook: GitHubWebhook | { url: string }; fresh: boolean } | null>(null);
-  const regenerate = useMutation({
-    mutationFn: (uid: string) => api.regenerateGitHubWebhook(uid),
-    onSuccess: ({ webhook: hook }, uid) => setWebhook({ site: uid, provider: "github", hook, fresh: false }),
-    onError: (e) => toast.error(reason(e)),
-  });
+  const [webhook, setWebhook] = useState<{ provider: WayBack; site: string; siteName: string; target: { label: string; jiraSite?: string; repo?: string } } | null>(null);
   const test = useMutation({
     mutationFn: ({ uid, provider }: { uid: string; provider: Tracker }) => api.testTracker(uid, provider).then((r) => ({ ...r, provider })),
     onSuccess: (r) => {
@@ -104,7 +99,9 @@ function Integrations() {
 
   return (
     <div className="flex flex-col gap-10 p-7">
-      <PageHeader title="Integrations" sub="Mirrors converge on the comment's status here; Slack only announces" />
+      <PageHeader title="Integrations" sub="Your coding agent first, then the trackers that mirror a comment's status, then Slack, which only announces" />
+
+      <McpCard owner={owner} instanceOwner={instanceOwner} operator={isOperator(me)} sites={me.projects} />
 
       {blocked && (
         <div role="note" className="flex max-w-[1040px] flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-[13px]">
@@ -192,17 +189,31 @@ function Integrations() {
                             ? "An issue for every new comment"
                             : "Issues when you ask, from the brief"}
                         {r.provider === "github" && r.labels.length ? ` · labels ${r.labels.join(", ")}` : ""}
-                        {r.provider !== "github" && r.provider !== "slack" && !r.hasWebhookSecret ? ` · no webhook secret yet, so ${TRACKER_NAME[r.provider]} cannot move comments here` : ""} · {ago(r.updatedAt)}
+                        {" · "}
+                        {ago(r.updatedAt)}
                       </span>
+                      {r.provider !== "slack" && <WayBackLine r={r} />}
                       {r.lastError && <span className="basis-full text-[12px] text-destructive">{r.lastError}</span>}
                       {owner && (
                         <span className="ml-auto flex gap-1">
-                          {r.provider === "github" ? (
-                            <Button variant="ghost" size="sm" loading={regenerate.isPending} onClick={() => regenerate.mutate(r.site)}>
-                              Webhook…
-                            </Button>
-                          ) : r.provider === "slack" ? null : (
-                            <Button variant="ghost" size="sm" onClick={() => setWebhook({ site: r.site, provider: r.provider, hook: { url: `${location.origin}/api/v1/integrations/${r.provider}/inbound` }, fresh: false })}>
+                          {r.provider !== "slack" && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setWebhook({
+                                  provider: r.provider,
+                                  site: r.site,
+                                  siteName: r.siteName ?? r.site,
+                                  target:
+                                    r.provider === "github"
+                                      ? { label: `${r.owner}/${r.repo}`, repo: `${r.owner}/${r.repo}` }
+                                      : r.provider === "linear"
+                                        ? { label: r.teamName }
+                                        : { label: r.projectName, jiraSite: r.siteUrl },
+                                })
+                              }
+                            >
                               Webhook…
                             </Button>
                           )}
@@ -230,37 +241,11 @@ function Integrations() {
         );
       })}
 
-      <McpCard owner={owner} instanceOwner={instanceOwner} operator={isOperator(me)} sites={me.projects} />
-
-      <ConnectGitHub
-        open={connecting === "github"}
-        onOpenChange={(o) => !o && setConnecting(null)}
-        sites={freeFor("github")}
-        onDone={(uid, hook) => {
-          void refresh();
-          if (hook) setWebhook({ site: uid, provider: "github", hook, fresh: true });
-        }}
-      />
-      <ConnectLinear
-        open={connecting === "linear"}
-        onOpenChange={(o) => !o && setConnecting(null)}
-        sites={freeFor("linear")}
-        onDone={(uid, hook) => {
-          void refresh();
-          setWebhook({ site: uid, provider: "linear", hook, fresh: true });
-        }}
-      />
-      <ConnectJira
-        open={connecting === "jira"}
-        onOpenChange={(o) => !o && setConnecting(null)}
-        sites={freeFor("jira")}
-        onDone={(uid, hook) => {
-          void refresh();
-          setWebhook({ site: uid, provider: "jira", hook, fresh: true });
-        }}
-      />
+      {(["github", "linear", "jira"] as const).map((pv) => (
+        <ConnectTracker key={pv} provider={pv} open={connecting === pv} onOpenChange={(o) => !o && setConnecting(null)} sites={freeFor(pv)} />
+      ))}
       <ConnectSlack open={connecting === "slack"} onOpenChange={(o) => !o && setConnecting(null)} sites={freeFor("slack")} onDone={() => void refresh()} />
-      <WebhookSetup state={webhook} onClose={() => setWebhook(null)} siteName={(uid) => rows.find((r) => r.site === uid)?.siteName ?? "the site"} />
+      <WayBackDialog state={webhook} onClose={() => setWebhook(null)} />
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(o) => !o && setRemoving(null)}
@@ -279,366 +264,6 @@ function Integrations() {
         }}
       />
     </div>
-  );
-}
-
-function ConnectGitHub({
-  open,
-  onOpenChange,
-  sites,
-  onDone,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  sites: { uid: string; name: string }[];
-  onDone: (uid: string, webhook?: GitHubWebhook) => void;
-}) {
-  const [site, setSite] = useState("");
-  const [repository, setRepository] = useState("");
-  const [token, setToken] = useState("");
-  const [labels, setLabels] = useState("");
-  const [auto, setAuto] = useState(false);
-  const [error, setError] = useState("");
-  const connect = useMutation({
-    mutationFn: (uid: string) =>
-      api.connectTracker(uid, "github", { repository: repository.trim(), token: token.trim(), labels, createOn: auto ? "thread.created" : "manual" }),
-  });
-  const chosen = site || sites[0]?.uid || "";
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    try {
-      const made = await connect.mutateAsync(chosen);
-      setRepository("");
-      setToken("");
-      setLabels("");
-      setAuto(false);
-      onOpenChange(false);
-      onDone(chosen, made.webhook && "secret" in made.webhook ? made.webhook : undefined);
-      toast.success("GitHub connected");
-    } catch (err) {
-      setError(err instanceof ApiFailure ? err.message : "Could not reach the server.");
-    }
-  };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4" noValidate>
-          <DialogHeader>
-            <DialogTitle>Connect a site to GitHub</DialogTitle>
-            <DialogDescription>
-              A fine-grained personal access token with <b>Issues: read and write</b> on that one repository. It is checked
-              against the repository before it is saved, and stored encrypted with this instance's secret key.
-            </DialogDescription>
-          </DialogHeader>
-          {error && (
-            <p role="alert" className="m-0 rounded-md border border-destructive/40 bg-warn-soft px-3 py-2 text-[13px] text-destructive">
-              {error}
-            </p>
-          )}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gh-site">Site</Label>
-            <Picker id="gh-site" value={chosen} onChange={setSite} options={sites.map((s) => ({ value: s.uid, label: s.name }))} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gh-repo">Repository</Label>
-            <Input id="gh-repo" placeholder="kilnwork/site" value={repository} onChange={(e) => setRepository(e.target.value)} autoComplete="off" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gh-token">Token</Label>
-            <Input id="gh-token" type="password" placeholder="github_pat_…" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="gh-labels">Labels</Label>
-            <Input id="gh-labels" placeholder="review, bug" value={labels} onChange={(e) => setLabels(e.target.value)} />
-            <p className="m-0 text-[12px] text-muted-foreground">Applied to every issue this makes. Optional.</p>
-          </div>
-          <label className="flex cursor-pointer items-start gap-2.5 text-[13px]">
-            <input type="checkbox" className="mt-0.5" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
-            <span>
-              <span className="block font-medium">An issue for every new comment</span>
-              <span className="block text-[12px] text-muted-foreground">
-                Off by default: a reviewer walking a site leaves twenty comments and half are "never mind". Make issues from the
-                brief when you mean it.
-              </span>
-            </span>
-          </label>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" loading={connect.isPending} disabled={!repository.trim() || !token.trim() || !chosen}>
-              {connect.isPending ? "Checking…" : "Connect"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-/**
- * The other direction: GitHub tells us when an issue is closed or
- * reopened, through a repository webhook the operator registers by hand.
- * The secret is shown ONCE — here, right after connecting, or again after
- * "Webhook…" mints a new one and the old one stops working.
- */
-function WebhookSetup({
-  state,
-  onClose,
-  siteName,
-}: {
-  state: { site: string; provider: Tracker; hook: GitHubWebhook | { url: string }; fresh: boolean } | null;
-  onClose: () => void;
-  siteName: (uid: string) => string;
-}) {
-  const secret = state && "secret" in state.hook ? state.hook.secret : null;
-  return (
-    <Dialog open={state !== null} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{state?.fresh ? "Connected — now the webhook" : "Webhook for " + (state ? siteName(state.site) : "")}</DialogTitle>
-          <DialogDescription>
-            {state?.provider === "linear"
-              ? "Issues moved in Linear move the comment here. In Linear › Settings › API › Webhooks, create one for the team with this URL and Issue events; then paste its signing secret when connecting or replacing the connection."
-              : state?.provider === "jira"
-                ? "Issues moved in Jira move the comment here. In Jira › Settings › System › Webhooks, create one with this URL, the events Issue updated and Issue deleted, and a secret; then paste the same secret when connecting or replacing the connection."
-                : `Issues closed or reopened on GitHub move the comment here. Add a webhook to the repository — Settings › Webhooks › Add webhook — with these values. The secret is shown this once${state?.fresh ? "" : ", and the previous one has stopped working"}.`}
-          </DialogDescription>
-        </DialogHeader>
-        {state && (
-          <dl className="m-0 grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[13px]">
-            <dt className="text-muted-foreground">Payload URL</dt>
-            <dd className="m-0 flex min-w-0 items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 font-mono text-[12px]">{state.hook.url}</code>
-              <CopyButton text={state.hook.url} label="Copy the payload URL" />
-            </dd>
-            <dt className="text-muted-foreground">Content type</dt>
-            <dd className="m-0">
-              <code className="font-mono text-[12px]">application/json</code>
-            </dd>
-            {secret && (
-              <>
-                <dt className="text-muted-foreground">Secret</dt>
-                <dd className="m-0 flex min-w-0 items-center gap-2">
-                  <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 font-mono text-[12px]" data-testid="webhook-secret">
-                    {secret}
-                  </code>
-                  <CopyButton text={secret} label="Copy the secret" />
-                </dd>
-              </>
-            )}
-            <dt className="text-muted-foreground">Events</dt>
-            <dd className="m-0">{state.provider === "linear" ? "Issues" : state.provider === "jira" ? "Issue: updated, deleted" : "Let me select individual events → Issues"}</dd>
-          </dl>
-        )}
-        <DialogFooter>
-          <Button type="button" onClick={onClose}>
-            Done
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ConnectLinear({
-  open,
-  onOpenChange,
-  sites,
-  onDone,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  sites: { uid: string; name: string }[];
-  onDone: (uid: string, webhook: { url: string }) => void;
-}) {
-  const [site, setSite] = useState("");
-  const [team, setTeam] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [webhookSecret, setWebhookSecret] = useState("");
-  const [auto, setAuto] = useState(false);
-  const [error, setError] = useState("");
-  const connect = useMutation({
-    mutationFn: (uid: string) =>
-      api.connectTracker(uid, "linear", {
-        team: team.trim(),
-        apiKey: apiKey.trim(),
-        ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
-        createOn: auto ? "thread.created" : "manual",
-      }),
-  });
-  const chosen = site || sites[0]?.uid || "";
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    try {
-      const made = await connect.mutateAsync(chosen);
-      setTeam("");
-      setApiKey("");
-      setWebhookSecret("");
-      setAuto(false);
-      onOpenChange(false);
-      onDone(chosen, made.webhook ?? { url: `${location.origin}/api/v1/integrations/linear/inbound` });
-      toast.success("Linear connected");
-    } catch (err) {
-      setError(err instanceof ApiFailure ? err.message : "Could not reach the server.");
-    }
-  };
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4" noValidate>
-          <DialogHeader>
-            <DialogTitle>Connect a site to Linear</DialogTitle>
-            <DialogDescription>
-              A personal API key from Linear › Settings › API, belonging to a member of the team. It is checked against the
-              team before it is saved, and stored encrypted with this instance's secret key.
-            </DialogDescription>
-          </DialogHeader>
-          {error && (
-            <p role="alert" className="m-0 rounded-md border border-destructive/40 bg-warn-soft px-3 py-2 text-[13px] text-destructive">
-              {error}
-            </p>
-          )}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ln-site">Site</Label>
-            <Picker id="ln-site" value={chosen} onChange={setSite} options={sites.map((s) => ({ value: s.uid, label: s.name }))} />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ln-team">Team key</Label>
-            <Input id="ln-team" placeholder="ENG" value={team} onChange={(e) => setTeam(e.target.value)} autoComplete="off" />
-            <p className="m-0 text-[12px] text-muted-foreground">The prefix of the team's issues, like the ENG in ENG-123.</p>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ln-key">API key</Label>
-            <Input id="ln-key" type="password" placeholder="lin_api_…" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ln-secret">Webhook signing secret</Label>
-            <Input id="ln-secret" type="password" placeholder="from Linear's webhook, optional" value={webhookSecret} onChange={(e) => setWebhookSecret(e.target.value)} autoComplete="off" />
-            <p className="m-0 text-[12px] text-muted-foreground">
-              Lets Linear move comments here when issues move there. The URL to give Linear is shown after connecting.
-            </p>
-          </div>
-          <label className="flex cursor-pointer items-start gap-2.5 text-[13px]">
-            <input type="checkbox" className="mt-0.5" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
-            <span>
-              <span className="block font-medium">An issue for every new comment</span>
-              <span className="block text-[12px] text-muted-foreground">Off by default. Make issues from the brief when you mean it.</span>
-            </span>
-          </label>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" loading={connect.isPending} disabled={!team.trim() || !apiKey.trim() || !chosen}>
-              {connect.isPending ? "Checking…" : "Connect"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ConnectJira({
-  open,
-  onOpenChange,
-  sites,
-  onDone,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  sites: { uid: string; name: string }[];
-  onDone: (uid: string, webhook: { url: string }) => void;
-}) {
-  const [site, setSite] = useState("");
-  const [siteUrl, setSiteUrl] = useState("");
-  const [project, setProject] = useState("");
-  const [email, setEmail] = useState("");
-  const [apiToken, setApiToken] = useState("");
-  const [webhookSecret, setWebhookSecret] = useState("");
-  const [auto, setAuto] = useState(false);
-  const [error, setError] = useState("");
-  const connect = useMutation({
-    mutationFn: (uid: string) =>
-      api.connectTracker(uid, "jira", {
-        siteUrl: siteUrl.trim(),
-        project: project.trim(),
-        email: email.trim(),
-        apiToken: apiToken.trim(),
-        ...(webhookSecret.trim() ? { webhookSecret: webhookSecret.trim() } : {}),
-        createOn: auto ? "thread.created" : "manual",
-      }),
-  });
-  const chosen = site || sites[0]?.uid || "";
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
-    try {
-      const made = await connect.mutateAsync(chosen);
-      setProject("");
-      setApiToken("");
-      setWebhookSecret("");
-      setAuto(false);
-      onOpenChange(false);
-      onDone(chosen, made.webhook ?? { url: `${location.origin}/api/v1/integrations/jira/inbound` });
-      toast.success("Jira connected");
-    } catch (err) {
-      setError(err instanceof ApiFailure ? err.message : "Could not reach the server.");
-    }
-  };
-  const field = (id: string, label: string, value: string, set: (v: string) => void, placeholder: string, type = "text", hint?: string) => (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={`jr-${id}`}>{label}</Label>
-      <Input id={`jr-${id}`} type={type} placeholder={placeholder} value={value} onChange={(e) => set(e.target.value)} autoComplete="off" />
-      {hint && <p className="m-0 text-[12px] text-muted-foreground">{hint}</p>}
-    </div>
-  );
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={(e) => void submit(e)} className="flex flex-col gap-4" noValidate>
-          <DialogHeader>
-            <DialogTitle>Connect a site to Jira</DialogTitle>
-            <DialogDescription>
-              An API token from id.atlassian.com › Security, with the email of the account it belongs to. It is checked against
-              the project before it is saved, and stored encrypted with this instance's secret key.
-            </DialogDescription>
-          </DialogHeader>
-          {error && (
-            <p role="alert" className="m-0 rounded-md border border-destructive/40 bg-warn-soft px-3 py-2 text-[13px] text-destructive">
-              {error}
-            </p>
-          )}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="jr-site">Site</Label>
-            <Picker id="jr-site" value={chosen} onChange={setSite} options={sites.map((s) => ({ value: s.uid, label: s.name }))} />
-          </div>
-          {field("url", "Jira site", siteUrl, setSiteUrl, "https://kilnwork.atlassian.net")}
-          {field("project", "Project key", project, setProject, "KAN", "text", "The prefix of the project's issues, like the KAN in KAN-12.")}
-          {field("email", "Account email", email, setEmail, "you@kilnwork.studio", "email")}
-          {field("token", "API token", apiToken, setApiToken, "", "password")}
-          {field("secret", "Webhook secret", webhookSecret, setWebhookSecret, "the secret you typed into Jira's webhook, optional", "password", "Lets Jira move comments here when issues move there. The URL to give Jira is shown after connecting.")}
-          <label className="flex cursor-pointer items-start gap-2.5 text-[13px]">
-            <input type="checkbox" className="mt-0.5" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
-            <span>
-              <span className="block font-medium">An issue for every new comment</span>
-              <span className="block text-[12px] text-muted-foreground">Off by default. Make issues from the brief when you mean it.</span>
-            </span>
-          </label>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" loading={connect.isPending} disabled={!siteUrl.trim() || !project.trim() || !email.trim() || !apiToken.trim() || !chosen}>
-              {connect.isPending ? "Checking…" : "Connect"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
 
@@ -716,7 +341,7 @@ function ConnectSlack({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="sl-token">2. Bot User OAuth Token</Label>
-            <Input id="sl-token" type="password" placeholder="xoxb-…" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" />
+            <SecretInput id="sl-token" placeholder="xoxb-…" value={token} onChange={setToken} />
             <p className="m-0 text-[12px] text-muted-foreground">On the app's OAuth &amp; Permissions page after installing.</p>
           </div>
           <div className="flex flex-col gap-1.5">
@@ -743,4 +368,28 @@ function ConnectSlack({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** The way back, on the row: whether the tracker's webhook has been heard from, and why it was refused if it was. */
+function WayBackLine({ r }: { r: Exclude<TrackerIntegration, { provider: "slack" }> }) {
+  const name = TRACKER_NAME[r.provider];
+  // A taken delivery is signed and wins; a refused one is unsigned, so it
+  // only heads the line while nothing has been taken.
+  if (r.lastDeliveryAt) {
+    const later = r.lastRefusedAt && Date.parse(r.lastRefusedAt) > Date.parse(r.lastDeliveryAt);
+    return (
+      <span className="basis-full text-[12px] text-muted-foreground">
+        Webhook works · last delivery {ago(r.lastDeliveryAt)}
+        {later ? ` · a later one was refused ${ago(r.lastRefusedAt!)}` : ""}
+      </span>
+    );
+  }
+  if (r.lastRefusedAt)
+    return (
+      <span className="basis-full text-[12px] text-destructive">
+        Webhook refused {ago(r.lastRefusedAt)}: {r.lastRefusedError} Unsigned, so check {name}'s webhook log first.
+      </span>
+    );
+  if (r.provider === "linear" && !r.hasWebhookSecret) return <span className="basis-full text-[12px] text-muted-foreground">No webhook yet, so {name} cannot move comments here. Webhook… sets it up.</span>;
+  return <span className="basis-full text-[12px] text-muted-foreground">No webhook delivery seen yet. Webhook… shows how to set it up.</span>;
 }

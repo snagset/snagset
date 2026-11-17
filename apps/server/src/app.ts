@@ -688,6 +688,7 @@ export function createApp(deps: Deps): Hono<Env> {
     ...(githubApiBase ? { githubApiBase } : {}),
     ...(linearApiBase ? { linearApiBase } : {}),
     ...(slackApiBase ? { slackApiBase } : {}),
+    jiraPrivate: cfg.bool("SNAGSET_JIRA_PRIVATE_ADDRESSES"),
   };
   // A9b's features, and the plan's word on them: a bucket makes screenshots
   // possible, the org's limits say whether they are offered.
@@ -804,6 +805,10 @@ export function createApp(deps: Deps): Hono<Env> {
   app.route("/", instanceRoutes({ sql, keys, cfg, env }));
   // The trackers. Dashboard-class, owners write.
   app.use("/api/v1/integrations", requireOwner());
+  // The token check (0.1.55) sits under the same path, so it takes the same
+  // cookie-and-CSRF guard. Named exactly, not `/*`: `/:provider/inbound` is
+  // the tracker's, signed and cookieless, and must stay open.
+  app.on("POST", "/api/v1/integrations/:provider/discover", requireOwner());
   // The studio's own feed across every site. Any signed-in member.
   app.use("/api/v1/activity", requireOwner());
   app.route("/", activityRoutes(sql));

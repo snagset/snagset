@@ -55,6 +55,7 @@ export function jobSet(d: JobSetDeps): JobSet {
     ...(githubApiBase ? { githubApiBase } : {}),
     ...(linearApiBase ? { linearApiBase } : {}),
     ...(slackApiBase ? { slackApiBase } : {}),
+    jiraPrivate: d.cfg.bool("SNAGSET_JIRA_PRIVATE_ADDRESSES"),
   };
 
   // How the owner hears about comments. The registry validated it and

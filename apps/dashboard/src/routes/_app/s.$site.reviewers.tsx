@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
+import { Picker } from "@/components/app/Picker";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CheckIcon, PlusIcon, UsersIcon, XIcon } from "lucide-react";
@@ -194,7 +195,7 @@ function AddReviewer({
   const mint = useMintLink(uid);
   const rounds = useQuery({ ...q.rounds(uid), enabled: open });
   const [error, setError] = useState("");
-  const { register, handleSubmit, formState, reset } = useForm<Form>({
+  const { register, handleSubmit, formState, reset, control } = useForm<Form>({
     resolver: zodResolver(form),
     defaultValues: { days: "14", roundId: "" },
   });
@@ -214,8 +215,6 @@ function AddReviewer({
       setError(reason(err));
     }
   });
-  const selectClass =
-    "h-8 w-full rounded-md border border-input bg-card px-2.5 text-[13.5px] text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50";
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -237,25 +236,40 @@ function AddReviewer({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="reviewer-days">Link expires in</Label>
-            <select id="reviewer-days" className={selectClass} {...register("days")}>
-              <option value="7">7 days</option>
-              <option value="14">14 days</option>
-              <option value="30">30 days</option>
-              <option value="90">90 days</option>
-            </select>
+            <Controller
+              control={control}
+              name="days"
+              render={({ field }) => (
+                <Picker
+                  id="reviewer-days"
+                  value={String(field.value)}
+                  onChange={field.onChange}
+                  options={[
+                    { value: "7", label: "7 days" },
+                    { value: "14", label: "14 days" },
+                    { value: "30", label: "30 days" },
+                    { value: "90", label: "90 days" },
+                  ]}
+                />
+              )}
+            />
             <p className="m-0 text-[12px] text-muted-foreground">You can revoke it at any time before that.</p>
           </div>
           {rounds.data && rounds.data.data.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="reviewer-round">Pin to a round</Label>
-              <select id="reviewer-round" className={selectClass} {...register("roundId")}>
-                <option value="">Any round</option>
-                {rounds.data.data.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
+              <Controller
+                control={control}
+                name="roundId"
+                render={({ field }) => (
+                  <Picker
+                    id="reviewer-round"
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    options={[{ value: "", label: "Any round" }, ...rounds.data!.data.map((r) => ({ value: r.id, label: r.name }))]}
+                  />
+                )}
+              />
             </div>
           )}
           <DialogFooter>

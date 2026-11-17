@@ -69,6 +69,11 @@ export interface IntegrationRow<C = Record<string, unknown>> {
   enabled: boolean;
   installState: string;
   lastError: string | null;
+  /** The last webhook delivery accepted here — signed, so the tracker's. */
+  lastDeliveryAt: Date | null;
+  /** The last one refused, and why in words: unsigned, so possibly anybody's. */
+  lastRefusedAt: Date | null;
+  lastRefusedError: string | null;
   updatedAt: Date;
 }
 
@@ -83,11 +88,14 @@ interface Row {
   enabled: boolean;
   install_state: string;
   last_error: string | null;
+  last_delivery_at: Date | null;
+  last_refused_at: Date | null;
+  last_refused_error: string | null;
   updated_at: Date;
 }
 
 const SELECT = (tx: postgres.TransactionSql) => tx`
-  id, org_id, project_id, provider, config, credentials, credentials_iv, enabled, install_state, last_error, updated_at`;
+  id, org_id, project_id, provider, config, credentials, credentials_iv, enabled, install_state, last_error, last_delivery_at, last_refused_at, last_refused_error, updated_at`;
 
 function shapeRow<C>(keys: Keyring, r: Row): IntegrationRow<C> {
   const sealed = r.credentials && r.credentials_iv ? { ciphertext: r.credentials, iv: r.credentials_iv } : null;
@@ -103,6 +111,9 @@ function shapeRow<C>(keys: Keyring, r: Row): IntegrationRow<C> {
     enabled: r.enabled,
     installState: r.install_state,
     lastError: r.last_error,
+    lastDeliveryAt: r.last_delivery_at,
+    lastRefusedAt: r.last_refused_at,
+    lastRefusedError: r.last_refused_error,
     updatedAt: r.updated_at,
   };
 }
@@ -154,7 +165,32 @@ export async function putIntegration(
         SET config = EXCLUDED.config,
             credentials = COALESCE(EXCLUDED.credentials, integrations.credentials),
             credentials_iv = COALESCE(EXCLUDED.credentials_iv, integrations.credentials_iv),
-            enabled = true, install_state = 'ok', last_error = NULL, deleted_at = NULL, updated_at = now()
+            enabled = true, install_state = 'ok', last_error = NULL, deleted_at = NULL, updated_at = now(),
+            -- A new key or secret starts the webhook's record afresh.
+            last_delivery_at = NULL, last_refused_at = NULL, last_refused_error = NULL
+    `;
+  });
+}
+
+/**
+ * A new webhook secret on a live connection: the sealed credentials and the
+ * webhook's record, nothing else. Not `putIntegration`, which also clears
+ * health — a card whose API token was revoked must still say so after a
+ * secret change (0.1.55 review).
+ */
+export async function replaceCredentials(
+  sql: postgres.Sql,
+  keys: Keyring,
+  input: { orgId: string; projectId: string; provider: Provider; secret: string },
+): Promise<void> {
+  const sealed = seal(keys, input.secret);
+  await sql.begin(async (tx) => {
+    await tx`SELECT set_config('app.org_id', ${input.orgId}, true)`;
+    await tx`
+      UPDATE integrations
+         SET credentials = ${sealed.ciphertext}, credentials_iv = ${sealed.iv}, updated_at = now(),
+             last_delivery_at = NULL, last_refused_at = NULL, last_refused_error = NULL
+       WHERE project_id = ${input.projectId}::uuid AND provider = ${input.provider}::snag_provider AND deleted_at IS NULL
     `;
   });
 }
@@ -166,6 +202,34 @@ export async function removeIntegration(sql: postgres.Sql, orgId: string, projec
       UPDATE integrations SET deleted_at = now(), enabled = false, credentials = NULL, credentials_iv = NULL, updated_at = now()
       WHERE project_id = ${projectId}::uuid AND provider = ${provider}::snag_provider AND deleted_at IS NULL
     `;
+  });
+}
+
+/**
+ * A delivery the tracker signed with this connection's secret: the way back
+ * works. Under the maintenance claim, as the inbound route reads — the
+ * tracker holds no org. Never touches health.
+ */
+export async function markDelivered(sql: postgres.Sql, id: string): Promise<void> {
+  await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    await tx`UPDATE integrations SET last_delivery_at = now() WHERE id = ${id}::uuid`;
+  });
+}
+
+/**
+ * A delivery that named exactly this connection and failed its signature.
+ * Unsigned means it could be anybody's, so this is throttled to one write a
+ * minute per row: a flood of forgeries costs one row update a minute, not
+ * one per request. The caller records nothing when a delivery matches more
+ * than one connection — that is not evidence about any of them.
+ */
+export async function markRefused(sql: postgres.Sql, id: string, error: string): Promise<void> {
+  await sql.begin(async (tx) => {
+    await tx`SET LOCAL app.maintenance = 'on'`;
+    await tx`
+      UPDATE integrations SET last_refused_at = now(), last_refused_error = ${error}
+       WHERE id = ${id}::uuid AND (last_refused_at IS NULL OR last_refused_at < now() - interval '1 minute')`;
   });
 }
 

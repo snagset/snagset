@@ -224,6 +224,12 @@ interface TrackerBase {
   lastError: string | null;
   updatedAt: string;
   hasWebhookSecret: boolean;
+  /** The tracker's last webhook delivery here, and the refusal in words if it was refused. */
+  /** The last webhook delivery taken — signed with this connection's secret, so the tracker's. */
+  lastDeliveryAt: string | null;
+  /** The last one refused, and why. Unsigned, so it may not be the tracker's. */
+  lastRefusedAt: string | null;
+  lastRefusedError: string | null;
 }
 export interface GitHubIntegration extends TrackerBase {
   provider: "github";
@@ -553,7 +559,7 @@ export const api = {
       | { siteUrl: string; project: string; email: string; apiToken?: string; webhookSecret?: string; createOn: "manual" | "thread.created" }
       | { channel: string; token?: string; createOn: "manual" | "thread.created" },
   ) =>
-    call<{ integration: TrackerIntegration; webhook?: GitHubWebhook | { url: string } }>(
+    call<{ integration: TrackerIntegration; webhook?: { url: string; secret?: string } }>(
       "PUT",
       `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}`,
       input,
@@ -563,6 +569,18 @@ export const api = {
   /** A new GitHub webhook secret, shown once; the old one stops working. */
   regenerateGitHubWebhook: (uid: string) =>
     call<{ webhook: GitHubWebhook }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/github/webhook-secret`),
+  /** 0.1.55: GitHub and Jira mint a new secret (shown once); Linear stores the one pasted from Linear. */
+  setWebhookSecret: (uid: string, provider: "github" | "linear" | "jira", secret?: string) =>
+    call<{ webhook: { url: string; secret?: string } }>(
+      "POST",
+      `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}/webhook-secret`,
+      secret === undefined ? undefined : { secret },
+    ),
+  /** 0.1.55: who the credentials are, and the repositories, teams or projects they can see. */
+  discoverTracker: (
+    provider: "github" | "linear" | "jira",
+    input: { token: string } | { apiKey: string } | { siteUrl: string; email: string; apiToken: string },
+  ) => call<{ who: string; options: { value: string; label: string; canWrite?: boolean }[] }>("POST", `/api/v1/integrations/${provider}/discover`, input),
   disconnectTracker: (uid: string, provider: Tracker) =>
     call<{ integration: null }>("DELETE", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}`),
   testTracker: (uid: string, provider: Tracker) =>

@@ -164,7 +164,7 @@ function AppSidebar({ me, site }: { me: Me; site: Site | null }) {
   const billingUrl = me.user.role === "owner" ? setup.data?.billingUrl : null;
   return (
     <Sidebar>
-      <SidebarHeader className="px-3 pb-1 pt-3">
+      <SidebarHeader className="px-2 pb-1 pt-3">
         <StudioHeader me={me} />
       </SidebarHeader>
       <SidebarContent>
@@ -305,9 +305,9 @@ function StudioHeader({ me }: { me: Me }) {
   const admin = can(me.user.role, "settings");
   if (me.orgs.length <= 1 && !me.signupOpen) {
     // A member has no studio settings to open: the name is a label.
-    if (!admin) return <div className="flex items-center gap-2.5 px-1 py-0.5 text-foreground">{block}</div>;
+    if (!admin) return <div className="flex items-center gap-2.5 border border-transparent px-2.5 py-1 text-foreground">{block}</div>;
     return (
-      <Link to="/studio" className="flex items-center gap-2.5 rounded-md px-1 py-0.5 text-foreground hover:bg-sidebar-accent" aria-label={`${me.org.name} — studio settings`}>
+      <Link to="/studio" className="flex items-center gap-2.5 rounded-md border border-transparent px-2.5 py-1 text-foreground transition-colors hover:border-border hover:bg-sidebar-accent" aria-label={`${me.org.name} — studio settings`}>
         {block}
       </Link>
     );
@@ -332,7 +332,7 @@ function StudioHeader({ me }: { me: Me }) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger
-          render={<button type="button" className="flex w-full items-center gap-2.5 rounded-md px-1 py-0.5 text-foreground hover:bg-sidebar-accent" aria-label="Switch studio" />}
+          render={<button type="button" className="flex w-full items-center gap-2.5 rounded-md border border-transparent px-2.5 py-1 text-foreground transition-colors hover:border-border hover:bg-sidebar-accent" aria-label="Switch studio" />}
         >
           {block}
           <ChevronsUpDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
@@ -404,7 +404,7 @@ function SiteSwitcher({ me, site }: { me: Me; site: Site | null }) {
         render={
           <button
             type="button"
-            className="mb-1 flex h-[34px] w-full items-center justify-between rounded-md border border-border bg-card px-2.5 text-[13px] font-semibold text-foreground"
+            className="mb-1 flex h-[34px] w-full items-center justify-between rounded-md border border-border bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:bg-sidebar-accent"
             aria-label="Switch site"
           />
         }

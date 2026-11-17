@@ -24,7 +24,7 @@ import { q } from "@/lib/query";
  */
 
 /**
- * MCP — the fifth card. Agents read the same brief the dashboard
+ * MCP — the first card (first since 0.1.55). Agents read the same brief the dashboard
  * copies, and mark a fix ready — never resolved. A token is minted here,
  * shown once with the config that uses it, and revoked here; only its hash
  * is stored, so a lost one is replaced, not re-displayed.
@@ -116,7 +116,7 @@ export function McpCard({
       )}
       {list.isSuccess && live.length === 0 && (
         <div className="flex items-center gap-3">
-          <Badge variant="outline">No tokens</Badge>
+          <Badge variant="outline">{rows.length > 0 ? "No active tokens" : "No tokens"}</Badge>
           <span className="text-[13px] text-muted-foreground">{mine ? "You have no agent tokens yet." : "No agent can read this studio yet."}</span>
         </div>
       )}

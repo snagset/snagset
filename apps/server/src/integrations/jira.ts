@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { publicApiFetch } from "../net/publicFetch.ts";
 
 /**
  * Jira Cloud, spoken with an API token.
@@ -17,6 +18,8 @@ export interface JiraClientOptions {
   email: string;
   apiToken: string;
   fetch?: typeof globalThis.fetch;
+  /** SNAGSET_JIRA_PRIVATE_ADDRESSES: a Jira on the studio's own network may be reached. */
+  allowPrivate?: boolean;
 }
 
 export type JiraCategory = "new" | "indeterminate" | "done";
@@ -33,7 +36,9 @@ export class JiraError extends Error {
 
 export function jiraClient(opts: JiraClientOptions) {
   const base = opts.siteUrl.replace(/\/+$/, "");
-  const f = opts.fetch ?? globalThis.fetch;
+  // Guarded by default (0.1.55): the site URL is typed by a person, and a
+  // server that fetches what it is told can be pointed at itself.
+  const f = opts.fetch ?? publicApiFetch({ allowPrivate: !!opts.allowPrivate });
   const headers = {
     authorization: "Basic " + Buffer.from(`${opts.email}:${opts.apiToken}`, "utf8").toString("base64"),
     accept: "application/json",
@@ -78,6 +83,18 @@ export function jiraClient(opts: JiraClientOptions) {
 
   return {
     /** The account, the project, and an issue type to create with — Task if the project has one. */
+    /** What a connect dialog offers to pick from: who the credentials are, and what they can see. */
+    async discover(): Promise<{ ok: true; who: string; options: { value: string; label: string }[] } | { ok: false; detail: string }> {
+      try {
+        const me = await call<{ displayName?: string; emailAddress?: string }>("GET", "/rest/api/2/myself");
+        // Jira now calls projects "spaces" and shows the name before the key;
+        // the key is what we store, so the label carries both.
+        const page = await call<{ values?: { key: string; name: string }[] }>("GET", "/rest/api/2/project/search?maxResults=100");
+        return { ok: true, who: me.displayName ?? me.emailAddress ?? "", options: (page.values ?? []).map((p) => ({ value: p.key, label: `${p.name} (${p.key})` })) };
+      } catch (e) {
+        return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+      }
+    },
     async probe(projectKey: string): Promise<
       | { ok: true; me: string; project: { id: string; key: string; name: string }; issueType: { id: string; name: string } }
       | { ok: false; detail: string }

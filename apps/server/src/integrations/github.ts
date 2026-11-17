@@ -81,6 +81,22 @@ export function githubClient(opts: GitHubClientOptions) {
 
   return {
     /** Proves the token can see the repo and may write issues. */
+    /** What a connect dialog offers to pick from: who the credentials are, and what they can see. */
+    async discover(): Promise<{ ok: true; who: string; options: { value: string; label: string; canWrite: boolean }[] } | { ok: false; detail: string }> {
+      try {
+        // A fine-grained token answers with the repositories it was given;
+        // a classic one with every repository its owner can reach.
+        const me = await call<{ login?: string }>("GET", "/user").catch(() => ({ login: "" }));
+        const repos = await call<{ full_name: string; permissions?: { push?: boolean; admin?: boolean } }[]>("GET", "/user/repos?per_page=100&sort=updated");
+        return {
+          ok: true,
+          who: me.login ?? "",
+          options: repos.map((r) => ({ value: r.full_name, label: r.full_name, canWrite: !!(r.permissions?.push || r.permissions?.admin) })),
+        };
+      } catch (e) {
+        return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+      }
+    },
     async probe(r: GitHubRepo): Promise<{ ok: true; fullName: string; canWrite: boolean } | { ok: false; detail: string }> {
       try {
         const repo = await call<{ full_name: string; permissions?: { push?: boolean; admin?: boolean } }>(

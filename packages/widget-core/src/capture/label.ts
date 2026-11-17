@@ -6,7 +6,7 @@ import { format } from "../strings/capture.ts";
 
 /** The masking hooks — the attribute form and both class forms. */
 const MASK_SELECTOR = [`[${hostAttr("mask")}]`, `.${cssClass("mask")}`, `.${cssClass("block")}`].join(", ");
-import { isSensitiveValue } from "../redact/predicates.ts";
+import { isSensitiveValue, redactText } from "../redact/predicates.ts";
 
 /**
  * `deriveAnchorLabel` — what was pinned, in words.
@@ -47,17 +47,52 @@ function suppressLabelText(el: Element, t: string): boolean {
   );
 }
 
+/**
+ * The words a label may quote, or null. Up to 120 characters the whole text
+ * goes through the gate, as it always has. Past that, the length rule alone
+ * used to turn every ordinary paragraph into "the p"; so a long text is
+ * judged by its opening instead — the same gate over the first 120
+ * characters, and only if they read as prose (several words), since a long
+ * run with no spaces is what a token looks like. The quote is 52 characters,
+ * cut back to a word where one ends late enough.
+ *
+ * Quoting prose made the gate's job wider, so the gate is wider too (0.1.55
+ * review). `isSensitiveValue` judges a value: its OPAQUE rule needs the WHOLE
+ * string to be one token, which prose never is. So the text is also judged
+ * word by word, and by the redactor that runs over free text — the
+ * `key=value` and `Bearer …` shapes a value check does not look for. Any hit
+ * and nothing is quoted. The checked span holds the whole quote and 68
+ * characters more, so a secret that shows in the quote is checked whole.
+ *
+ * What no shape can catch is a secret written as an ordinary word — "your
+ * password is hunter2". That is what the masking hooks are for, and the mask
+ * gate is on the element, so it holds whatever the length.
+ */
+function quotable(el: Element, t: string): string | null {
+  if (!t) return null;
+  const head = t.slice(0, 120);
+  if (t.length > 120 && (head.match(/ /g) ?? []).length < 3) return null;
+  if (suppressLabelText(el, head) || redactText(head) !== head) return null;
+  if (head.includes(" ") && head.split(" ").some((w) => isSensitiveValue(w))) return null;
+  if (t.length <= 52) return t;
+  let cut = t.slice(0, 52);
+  const space = cut.lastIndexOf(" ");
+  if (space >= 32) cut = cut.slice(0, space);
+  return cut + "…";
+}
+
 export function deriveAnchorLabel(el: Element): string {
   // BOUNDED READ. `innerText` forces layout and, on a section-sized element,
   // allocates a very large string before anything gets to cap it — so the cap
   // is on the read, not just on the result. Same principle as the pre-cap.
   const raw = ((el as HTMLElement).innerText ?? el.textContent ?? "").slice(0, 512);
   const t = raw.trim().replace(/\s+/g, " ");
-  if (t && !suppressLabelText(el, t)) {
+  const quoted = quotable(el, t);
+  if (quoted) {
     // Typographic quotes, U+201C/U+201D, and a real ellipsis — carried by the
     // catalogue entry, because quotation marks are a translator's decision.
     // Asserts the English result byte-for-byte and still passes.
-    return format("label.text", { text: t.length > 52 ? t.slice(0, 52) + "…" : t });
+    return format("label.text", { text: quoted });
   }
   const tag = el.tagName.toLowerCase();
   return tag === "img"
@@ -77,8 +112,7 @@ export function deriveAnchorLabel(el: Element): string {
  */
 export function deriveQuoteLabel(el: Element, exact: string): string {
   const t = exact.trim().replace(/\s+/g, " ");
-  if (t && !suppressLabelText(el, t)) {
-    return format("label.text", { text: t.length > 52 ? t.slice(0, 52) + "…" : t });
-  }
+  const quoted = quotable(el, t);
+  if (quoted) return format("label.text", { text: quoted });
   return deriveAnchorLabel(el);
 }

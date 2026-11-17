@@ -59,6 +59,8 @@ function fakeGitHub(): Promise<{ server: Server; url: string }> {
           res.end(JSON.stringify(payload));
         };
         if (auth !== "Bearer ghp_good" || ghMode === "revoked") return json(401, { message: "Bad credentials" });
+        if (req.url === "/user") return json(200, { login: "ada" });
+        if (req.url!.startsWith("/user/repos")) return json(200, [{ full_name: "acme/site", permissions: { push: true } }, { full_name: "acme/docs", permissions: { pull: true } }]);
         const m = /^\/repos\/([^/]+)\/([^/]+)(\/issues(?:\/(\d+))?)?$/.exec(req.url!);
         if (!m) return json(404, { message: "Not Found" });
         if (m[1] !== "acme") return json(404, { message: "Not Found" });
@@ -105,6 +107,7 @@ function fakeLinear(): Promise<{ server: Server; url: string }> {
           res.end(JSON.stringify(payload));
         };
         if (auth !== "lin_api_good") return json(401, { errors: [{ message: "Authentication required" }] });
+        if (/SnagsetTeams/.test(query)) return json(200, { data: { viewer: { name: "Ada" }, teams: { nodes: [{ key: "ENG", name: "Engineering" }, { key: "OPS", name: "Ops" }] } } });
         if (/SnagsetProbe/.test(query)) {
           const nodes = variables.key === "ENG" ? [{ id: "team-eng", key: "ENG", name: "Engineering", states: { nodes: LN_STATES } }] : [];
           return json(200, { data: { viewer: { name: "Ada" }, teams: { nodes } } });
@@ -191,6 +194,7 @@ function fakeJira(): Promise<{ server: Server; url: string }> {
         if (auth !== good) return json(401, { errorMessages: ["Basic authentication failed"] });
         const path = req.url!.split("?")[0]!;
         if (path === "/rest/api/2/myself") return json(200, { displayName: "Ada", emailAddress: "ada@kilnwork.studio" });
+        if (path === "/rest/api/2/project/search") return json(200, { values: [{ id: "10000", key: "KAN", name: "Kilnwork" }] });
         if (path === "/rest/api/2/project/KAN") {
           return json(200, { id: "10000", key: "KAN", name: "Kilnwork", issueTypes: [{ id: "10001", name: "Sub-task", subtask: true }, { id: "10002", name: "Task" }] });
         }
@@ -228,10 +232,17 @@ function fakeJira(): Promise<{ server: Server; url: string }> {
 }
 
 /** The suite's app. `afterResponse` is the hook: absent, a write's queued work waits for a worker run. */
-function build(extra: { afterResponse?: (drain: Promise<void>) => Promise<void> | void } = {}) {
+function build(extra: { afterResponse?: (drain: Promise<void>) => Promise<void> | void } = {}, privateJira = true) {
   return createApp({
     sql,
-    cfg: loadConfig({ DATABASE_URL: URL_!, SNAGSET_SECRET_KEY: SECRET, SNAGSET_BASE_URL: "https://review.example.dev" }),
+    // The fake Jira is on 127.0.0.1, a private address: the suite opts in, as
+    // a self-host with Jira on its own network would. One test builds without.
+    cfg: loadConfig({
+      DATABASE_URL: URL_!,
+      SNAGSET_SECRET_KEY: SECRET,
+      SNAGSET_BASE_URL: "https://review.example.dev",
+      ...(privateJira ? { SNAGSET_JIRA_PRIVATE_ADDRESSES: "true" } : {}),
+    }),
     secretKey: SECRET,
     state: "READY",
     version: "0.0.0-test",
@@ -263,7 +274,7 @@ const as = (who: { cookie: string; csrf: string }) => ({ "content-type": "applic
 const json = (res: Response) => res.json() as Promise<Record<string, any>>;
 const gh_ = () => `/api/v1/projects/${uid}/integrations/github`;
 const runWorker = async () => {
-  const job = pushToTrackers(sql, { keys: createKeyring(SECRET), baseUrl: async () => "https://review.example.dev", githubApiBase: ghUrl, linearApiBase: lnUrl, slackApiBase: slUrl });
+  const job = pushToTrackers(sql, { keys: createKeyring(SECRET), baseUrl: async () => "https://review.example.dev", githubApiBase: ghUrl, linearApiBase: lnUrl, slackApiBase: slUrl, jiraPrivate: true });
   for (let i = 0; i < 5; i++) {
     const out = await job.run({ sql, now: new Date(), log: () => {} } as JobContext);
     if (!out.more) break;
@@ -516,7 +527,7 @@ test("GitHub → us: a signed issues.closed resolves the thread, a replay does n
   assert.equal(forged.status, 401);
   assert.equal((await json(forged))["error"].code, "provider_signature_invalid");
   const stranger = await app.request("/api/v1/integrations/github/inbound", signed({ ...issueEvent("closed", 1), repository: { full_name: "someone/else" } }, webhook.secret, "d-4"));
-  assert.equal(stranger.status, 409);
+  assert.equal(stranger.status, 401, "not connected answers as a wrong signature does");
   const ping = await app.request("/api/v1/integrations/github/inbound", signed({ zen: "hi", repository: { full_name: "acme/site" } }, webhook.secret, "d-5", "ping"));
   assert.equal(ping.status, 200);
   const unknownIssue = await app.request("/api/v1/integrations/github/inbound", signed(issueEvent("closed", 999), webhook.secret, "d-6"));
@@ -705,12 +716,72 @@ test("Linear → us: a signed Issue update maps the state type back, a stale tim
   const replay = await app.request("/api/v1/integrations/linear/inbound", lnSigned(event("update", "completed"), "lnhook-secret", "ld-2"));
   assert.equal((await json(replay))["why"], "replay");
 
+  const inboundOf = async () =>
+    (
+      await sql<{ at: Date | null; refusedAt: Date | null; error: string | null }[]>`
+        SELECT last_delivery_at AS at, last_refused_at AS "refusedAt", last_refused_error AS error
+          FROM integrations WHERE provider = 'linear' AND deleted_at IS NULL`
+    )[0]!;
+  const heard = await inboundOf();
+  assert.ok(heard.at, "a taken delivery is recorded");
+  assert.equal(heard.refusedAt, null);
+
   const forged = await app.request("/api/v1/integrations/linear/inbound", lnSigned(event("update", "completed"), "wrong", "ld-3"));
   assert.equal(forged.status, 401);
+  // The refusal is on the card in words, where Linear's own log is the only other place it shows.
+  const refusedOnce = await inboundOf();
+  assert.match(refusedOnce.error ?? "", /signed with a different secret/);
+  assert.ok(refusedOnce.at, "a refusal never erases the signed delivery before it");
+  const card = (await json(await app.request("/api/v1/integrations", { headers: as(owner) })))["data"] as { provider: string; lastRefusedError: string | null; lastDeliveryAt: string | null }[];
+  assert.match(card.find((i) => i.provider === "linear")!.lastRefusedError ?? "", /different secret/);
+  assert.ok(card.find((i) => i.provider === "linear")!.lastDeliveryAt);
+  // Unsigned, so anybody's: a flood of them is one row write a minute, not one each.
+  await sql`UPDATE integrations SET last_refused_error = 'marker' WHERE provider = 'linear' AND deleted_at IS NULL`;
+  const again = await app.request("/api/v1/integrations/linear/inbound", lnSigned(event("update", "completed"), "wrong", "ld-3b"));
+  assert.equal(again.status, 401);
+  assert.equal((await inboundOf()).error, "marker", "a second refusal inside the minute writes nothing");
+
+  // Two sites on one Linear team, each with its own secret: a delivery that
+  // matches neither is no evidence about either, so neither card is written.
+  const second = await app.request("/api/v1/projects", { method: "POST", headers: as(owner), body: JSON.stringify({ name: "Kilnwork shop", domain: "shop.kilnwork.studio" }) });
+  assert.equal(second.status, 201, await second.clone().text());
+  const uid2 = (await json(second))["uid"] as string;
+  const ln2 = `/api/v1/projects/${uid2}/integrations/linear`;
+  const both = await app.request(ln2, { method: "PUT", headers: as(owner), body: JSON.stringify({ team: "eng", apiKey: "lin_api_good", webhookSecret: "lnhook-shop", createOn: "manual" }) });
+  assert.equal(both.status, 200, await both.clone().text());
+  await sql`UPDATE integrations SET last_refused_at = NULL, last_refused_error = NULL WHERE provider = 'linear'`;
+  const shared = await app.request("/api/v1/integrations/linear/inbound", lnSigned(event("update", "completed"), "wrong", "ld-3c"));
+  assert.equal(shared.status, 401);
+  const [written] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM integrations WHERE provider = 'linear' AND last_refused_at IS NOT NULL`;
+  assert.equal(written!.n, 0, "a refusal two connections share is recorded on neither");
+  assert.equal((await app.request(ln2, { method: "DELETE", headers: as(owner) })).status, 200);
+
+  // A wrong paste is fixed in place: the secret is replaced, no disconnecting, and never echoed back.
+  const empty = await app.request(`${ln_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: " " }) });
+  assert.equal(empty.status, 422);
+  await sql`UPDATE integrations SET install_state = 'needs_reauth', last_error = 'the API key was refused' WHERE provider = 'linear' AND deleted_at IS NULL`;
+  const replaced = await app.request(`${ln_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: "lnhook-2" }) });
+  assert.equal(replaced.status, 200, await replaced.clone().text());
+  const [health] = await sql<{ install_state: string; last_error: string | null }[]>`SELECT install_state, last_error FROM integrations WHERE provider = 'linear' AND deleted_at IS NULL`;
+  assert.equal(health!.install_state, "needs_reauth", "a new secret does not paper over a dead API key");
+  assert.equal(health!.last_error, "the API key was refused");
+  await sql`UPDATE integrations SET install_state = 'ok', last_error = NULL WHERE provider = 'linear' AND deleted_at IS NULL`;
+  assert.equal(((await json(replaced))["webhook"] as Record<string, unknown>)["secret"], undefined, "Linear's secret is not shown back");
+  const fresh = await inboundOf();
+  assert.equal(fresh.at, null, "a new secret starts the record afresh");
+  assert.equal(fresh.refusedAt, null);
+  const oldSecret = await app.request("/api/v1/integrations/linear/inbound", lnSigned(event("update", "completed"), "lnhook-secret", "ld-3a"));
+  assert.equal(oldSecret.status, 401, "the replaced secret stops working");
+  const back = await app.request(`${ln_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: "lnhook-secret" }) });
+  assert.equal(back.status, 200);
   const stale = await app.request("/api/v1/integrations/linear/inbound", lnSigned({ ...event("update", "completed"), webhookTimestamp: Date.now() - 10 * 60_000 }, "lnhook-secret", "ld-4"));
   assert.equal(stale.status, 401);
   const otherTeam = await app.request("/api/v1/integrations/linear/inbound", lnSigned({ ...event("update", "completed"), data: { ...event("update", "completed").data, teamId: "team-ops" } }, "lnhook-secret", "ld-5"));
-  assert.equal(otherTeam.status, 409);
+  // Not connected answers exactly as a wrong signature does: the endpoint
+  // is public, and a different answer would tell anybody which teams are here.
+  assert.equal(otherTeam.status, 401);
+  const errOf = async (r: Response) => ({ ...(await json(r))["error"], requestId: undefined });
+  assert.deepEqual(await errOf(otherTeam), await errOf(await app.request("/api/v1/integrations/linear/inbound", lnSigned(event("update", "completed"), "wrong", "ld-5b"))));
   const comment = await app.request("/api/v1/integrations/linear/inbound", lnSigned({ ...event("update", "completed"), type: "Comment" }, "lnhook-secret", "ld-6"));
   assert.equal((await json(comment))["ignored"], "Comment");
 
@@ -812,6 +883,16 @@ test("Jira: the issue is made with the brief as text, moved by status category b
   assert.equal((await json(replay))["why"], "replay");
   const forged = await app.request("/api/v1/integrations/jira/inbound", jrSigned(event("jira:issue_updated", "new"), "wrong", "jd-2"));
   assert.equal(forged.status, 401);
+  // The site has to be named, and named exactly: a project id is a small
+  // number many Jira sites share, and a prefix of the host is another site.
+  const withSelf = (self: string | undefined) => {
+    const e = event("jira:issue_updated", "new") as { issue: Record<string, unknown> };
+    return { ...e, issue: { ...e.issue, self } };
+  };
+  const noSite = await app.request("/api/v1/integrations/jira/inbound", jrSigned(withSelf(undefined), "wrong", "jd-2a"));
+  assert.equal(noSite.status, 400);
+  const prefix = await app.request("/api/v1/integrations/jira/inbound", jrSigned(withSelf(`${jrUrl.replace(/:\d+$/, "")}/rest/api/2/issue/20001`), "wrong", "jd-2b"));
+  assert.equal(prefix.status, 401, "a host that only starts the same names no connection");
   const doing = await app.request("/api/v1/integrations/jira/inbound", jrSigned(event("jira:issue_updated", "indeterminate"), "jira-hook", "jd-3"));
   assert.equal((await json(doing))["applied"], "reopened");
   assert.equal((await sql<{ status: string }[]>`SELECT status FROM threads WHERE id = ${threadId}`)[0]!.status, "progress");
@@ -948,4 +1029,65 @@ test("Slack: one message per thread, the reviewer's words neutralised in every f
   assert.equal(shout!.body.parse, "none");
 
   assert.equal((await app.request(sl_(), { method: "DELETE", headers: as(owner) })).status, 200);
+});
+
+test("discover: the credentials are tried and what they can see is listed — owners only, nothing stored", { skip }, async () => {
+  const d = (pv: string, body: unknown, who = owner) => app.request(`/api/v1/integrations/${pv}/discover`, { method: "POST", headers: as(who), body: JSON.stringify(body) });
+  const gh = await d("github", { token: "ghp_good" });
+  assert.equal(gh.status, 200, await gh.clone().text());
+  const ghBody = await json(gh);
+  assert.equal(ghBody["who"], "ada");
+  assert.deepEqual(ghBody["options"], [
+    { value: "acme/site", label: "acme/site", canWrite: true },
+    { value: "acme/docs", label: "acme/docs", canWrite: false },
+  ]);
+  assert.equal((await d("github", { token: "ghp_bad" })).status, 422);
+  assert.equal((await d("github", {})).status, 422);
+
+  const lnBody = await json(await d("linear", { apiKey: "lin_api_good" }));
+  assert.deepEqual(lnBody["options"], [
+    { value: "ENG", label: "Engineering (ENG)" },
+    { value: "OPS", label: "Ops (OPS)" },
+  ]);
+  assert.equal((await d("linear", { apiKey: "lin_api_bad" })).status, 422);
+
+  const jr = await d("jira", { siteUrl: jrUrl, email: "ada@kilnwork.studio", apiToken: "jira_good" });
+  assert.equal(jr.status, 200, await jr.clone().text());
+  assert.deepEqual((await json(jr))["options"], [{ value: "KAN", label: "Kilnwork (KAN)" }]);
+  assert.equal((await d("jira", { siteUrl: "not a url", email: "ada@kilnwork.studio", apiToken: "jira_good" })).status, 422);
+
+  assert.equal((await d("slack", {})).status, 409);
+  const anon = await app.request("/api/v1/integrations/github/discover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: "ghp_good" }) });
+  assert.ok(anon.status === 401 || anon.status === 403, `signed out is refused, got ${anon.status}`);
+  // A cross-site page can make the browser send the cookie, not the CSRF
+  // header: without it the token is never tried against the tracker.
+  lnSeen.length = 0;
+  const forgedSite = await app.request("/api/v1/integrations/linear/discover", { method: "POST", headers: { "content-type": "application/json", Cookie: owner.cookie }, body: JSON.stringify({ apiKey: "lin_good" }) });
+  assert.equal(forgedSite.status, 403);
+  assert.equal((await json(forgedSite))["error"].code, "csrf_failed");
+  assert.equal(lnSeen.length, 0, "Linear was never asked");
+  // A handful a minute per studio, then 429 — and the tracker is not asked.
+  await sql`DELETE FROM rate_counters WHERE bucket_key = 'integrations:discover'`;
+  for (let i = 0; i < 20; i++) assert.notEqual((await d("linear", { apiKey: "lin_api_good" })).status, 429, `check ${i + 1}`);
+  lnSeen.length = 0;
+  const limited = await d("linear", { apiKey: "lin_api_good" });
+  assert.equal(limited.status, 429);
+  assert.equal(lnSeen.length, 0, "the 21st check never reaches Linear");
+  await sql`DELETE FROM rate_counters WHERE bucket_key = 'integrations:discover'`;
+});
+
+test("SSRF: by default the Jira address is reached only on the public internet — a private one is refused before any request", { skip }, async () => {
+  const guarded = build({}, false);
+  const before = jrSeen.length;
+  const tryIt = (siteUrl: string) =>
+    guarded.request("/api/v1/integrations/jira/discover", { method: "POST", headers: as(owner), body: JSON.stringify({ siteUrl, email: "ada@kilnwork.studio", apiToken: "jira_good" }) });
+  for (const siteUrl of [jrUrl, "http://169.254.169.254", "http://10.0.0.5:8000", "http://[::1]:5432"]) {
+    const r = await tryIt(siteUrl);
+    assert.equal(r.status, 422, siteUrl);
+    assert.match(JSON.stringify(await json(r)), /not on the public internet/, siteUrl);
+  }
+  assert.equal(jrSeen.length, before, "the fake Jira on 127.0.0.1 was never reached");
+  // Connecting goes the same way: nothing stored.
+  const put = await guarded.request(jr_(), { method: "PUT", headers: as(owner), body: JSON.stringify({ siteUrl: jrUrl, project: "KAN", email: "ada@kilnwork.studio", apiToken: "jira_good" }) });
+  assert.equal(put.status, 422);
 });

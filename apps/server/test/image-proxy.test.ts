@@ -87,11 +87,18 @@ test("private, loopback, link-local and metadata addresses are not public", () =
     "::ffff:10.0.0.1",
     "::ffff:127.0.0.1",
     "64:ff9b::a00:1",
+    // An IPv4 address carried inside an IPv6 one, in each form (0.1.55 review).
+    "::ffff:7f00:1", // mapped, in hex
+    "::7f00:1", // compatible
+    "::ffff:0:7f00:1", // SIIT
+    "2002:a00:1::", // 6to4 of 10.0.0.1
+    "2002:a9fe:a9fe::1", // 6to4 of the metadata address
+    "2001:0:4136:e378::1", // Teredo
     "not-an-ip",
   ]) {
     assert.equal(isPublicAddress(a), false, a);
   }
-  for (const a of ["93.184.216.34", "8.8.8.8", "2606:4700:4700::1111", "::ffff:8.8.8.8"]) {
+  for (const a of ["93.184.216.34", "8.8.8.8", "2606:4700:4700::1111", "::ffff:8.8.8.8", "::ffff:808:808", "2002:808:808::1"]) {
     assert.equal(isPublicAddress(a), true, a);
   }
 });

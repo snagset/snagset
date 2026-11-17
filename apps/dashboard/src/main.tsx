@@ -32,6 +32,30 @@ const router = createRouter({
   scrollRestoration: true,
 });
 
+/**
+ * After a deploy, a tab opened before it still asks for the old build's
+ * chunks, which are gone — "Failed to fetch dynamically imported module".
+ * Vite reports that as `vite:preloadError`; the answer is to load the new
+ * build. Once a minute at most, so a chunk that is genuinely missing shows
+ * the error page instead of reloading forever.
+ */
+window.addEventListener("vite:preloadError", (event) => {
+  let last = 0;
+  try {
+    last = Number(sessionStorage.getItem("snag:chunk-reload") ?? 0);
+  } catch {
+    /* storage refused — fall through and reload once */
+  }
+  if (Date.now() - last < 60_000) return;
+  try {
+    sessionStorage.setItem("snag:chunk-reload", String(Date.now()));
+  } catch {
+    /* as above */
+  }
+  event.preventDefault();
+  window.location.reload();
+});
+
 declare module "@tanstack/react-router" {
   interface Register {
     router: typeof router;

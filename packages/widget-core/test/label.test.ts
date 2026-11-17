@@ -50,6 +50,34 @@ test("SENSITIVE TEXT NEVER BECOMES A LABEL", () => {
   assert.equal(out, "the p", "it falls through to the tag, saying nothing it should not");
 });
 
+test("a long paragraph is quoted by its opening words, not named by its tag", () => {
+  const p =
+    "This domain is for use in documentation examples without needing permission. Avoid use in operations. " +
+    "Learn more about it in the documentation that comes with it.";
+  assert.ok(p.length > 120);
+  assert.equal(deriveAnchorLabel(el("p", p)), "“This domain is for use in documentation examples…”");
+});
+
+test("a long text with no words in it is still not quoted", () => {
+  assert.equal(deriveAnchorLabel(el("p", "a1B2".repeat(40))), "the p");
+});
+
+test("a long paragraph that opens with a secret is still not quoted", () => {
+  const p = "Contact jane.doe@example.com for access " + "and some more words here ".repeat(6);
+  assert.equal(deriveAnchorLabel(el("p", p)), "the p");
+});
+
+test("a secret inside prose is caught word by word, and by the free-text redactor", () => {
+  const more = " and then some more ordinary words follow on.".repeat(3);
+  // A token among words: a value check alone needs the whole string to be one.
+  assert.equal(deriveAnchorLabel(el("p", "Your recovery code is Xk9~aB3dE.fG7hI_jK2lM-nO4p keep it" + more)), "the p");
+  // The shapes redacts in free text: key=value and an auth scheme.
+  assert.equal(deriveAnchorLabel(el("p", "Set password=hunter2andmore before you start" + more)), "the p");
+  assert.equal(deriveAnchorLabel(el("p", "Send Bearer abcdef123456 with the call")), "the p");
+  // Short prose goes through the same gate.
+  assert.equal(deriveAnchorLabel(el("p", "code Xk9~aB3dE.fG7hI_jK2lM-nO4p")), "the p");
+});
+
 test("MASKED SUBTREES NEVER BECOME A LABEL", () => {
   // The other gate the fork did not have. Masking is a promise about a region
   // of the page, and quoting that region breaks it just as thoroughly as
