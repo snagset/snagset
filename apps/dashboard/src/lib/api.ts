@@ -587,7 +587,7 @@ export const api = {
     call<{ webhook: GitHubWebhook }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/github/webhook-secret`),
   /** 0.1.55: GitHub and Jira mint a new secret (shown once); Linear and Trello store the one pasted. */
   setWebhookSecret: (uid: string, provider: "github" | "linear" | "jira" | "trello", secret?: string) =>
-    call<{ webhook: { url: string; secret?: string } }>(
+    call<{ webhook: { url: string; secret?: string }; check?: { sent: boolean; detail?: string } }>(
       "POST",
       `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}/webhook-secret`,
       secret === undefined ? undefined : { secret },

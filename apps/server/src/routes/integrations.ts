@@ -606,7 +606,17 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
       provider: pv,
       secret: JSON.stringify({ token: had.token, webhookSecret: secret }),
     });
-    return c.json({ webhook: { url: await webhookUrl(pv), ...(show ? { secret } : {}) } });
+    // Trello: confirm the secret here and now rather than asking the studio
+    // to move a card (a board made a moment ago has none). A card made and
+    // deleted on the board fires two signed deliveries; the dialog, already
+    // polling, turns to "works" or "refused" when they land.
+    let check: { sent: boolean; detail?: string } | undefined;
+    if (pv === "trello") {
+      const cfg = i.config as unknown as TrelloIntegrationConfig;
+      const r = await trelloClient({ apiKey: cfg.apiKey, token: had.token, ...trOpts() }).checkWebhook(cfg.lists.open);
+      check = r.ok ? { sent: true } : { sent: false, detail: r.detail };
+    }
+    return c.json({ webhook: { url: await webhookUrl(pv), ...(show ? { secret } : {}) }, ...(check ? { check } : {}) });
   });
 
   /** After an inbound resolve, the same mail a dashboard resolve sends, signed by the tracker. */

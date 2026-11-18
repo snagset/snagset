@@ -282,6 +282,7 @@ function fakeTrello(): Promise<{ server: Server; url: string }> {
           const id = String(n).padStart(24, "c");
           return json(200, { id, shortUrl: `https://trello.com/c/card${n}`, idList: body?.idList });
         }
+        if (/^\/1\/cards\/[^/]+$/.test(path) && req.method === "DELETE") return json(200, {});
         if (/^\/1\/cards\/[^/]+$/.test(path) && req.method === "PUT") return json(200, { id: path.slice(9), idList: body?.idList });
         if (path === "/1/webhooks" && req.method === "POST") {
           if (trWebhookMode === "fail") return json(400, "URL (https://review.example.dev/x) did not return 200 status code, got 404");
@@ -1266,9 +1267,19 @@ test("Trello: discover lists boards then lists; connecting probes three distinct
   // The Power-Up secret is pasted, never minted or echoed.
   const empty = await app.request(`${tr_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({}) });
   assert.equal(empty.status, 422);
+  trSeen.length = 0;
   const pasted = await app.request(`${tr_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: "tr-powerup-secret" }) });
   assert.equal(pasted.status, 200, await pasted.clone().text());
-  assert.ok(!JSON.stringify(await json(pasted)).includes("tr-powerup-secret"));
+  const pastedBody = await json(pasted);
+  assert.ok(!JSON.stringify(pastedBody).includes("tr-powerup-secret"));
+  // 0.1.60: saving the secret confirms it without the studio touching Trello:
+  // a check card made in the open list and deleted at once, whose two signed
+  // deliveries mark the connection.
+  assert.deepEqual(pastedBody["check"], { sent: true });
+  const made = trSeen.find((r) => r.method === "POST" && r.path === "/1/cards");
+  assert.ok(made, "a check card was made");
+  assert.equal((made as any).body?.name, "Snagset check");
+  assert.ok(trSeen.some((r) => r.method === "DELETE" && /^\/1\/cards\/c+\d+$/.test(r.path)), "and deleted again");
 });
 
 test("Trello: the card is made in the list for our status and moved as the status moves", { skip }, async () => {

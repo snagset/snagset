@@ -167,8 +167,13 @@ nothing to create in Trello. Trello signs its deliveries with the Power-Up's
 secret:
 
 1. On the Power-Up's *API key* tab, copy the **Secret**.
-2. Paste it in step 3 as the *Power-Up secret*.
-3. Move any card on the board to another list once. The dialog ticks.
+2. Paste it in step 3 as the *Power-Up secret* and save.
+
+Saving makes a card named *Snagset check* on the board and deletes it at
+once. Trello's delivery for it is signed with the secret, so the dialog ticks
+within a few seconds, or says the secret does not match. If the check card
+cannot be made, the dialog says why; moving any card to another list once
+does the same job.
 
 Trello checks the address before it agrees to the webhook, so your server
 must be reachable from the internet. If it is not, the site still connects,

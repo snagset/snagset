@@ -217,6 +217,8 @@ export function WayBackStep({
   // The field empties on a save (a secret is never shown back), so the hint
   // says "Saved" at once rather than after the next refetch.
   const [justSaved, setJustSaved] = useState(false);
+  // Trello (0.1.60): Save makes and deletes a check card; null until a save, then whether Trello took it.
+  const [check, setCheck] = useState<{ sent: boolean; detail?: string } | null>(null);
   const list = useQuery({ ...q.integrations(), refetchInterval: 3000 });
   const row = list.data?.data.find((i) => i.site === site && i.provider === provider) as TrackerIntegration | undefined;
   const save = useMutation({
@@ -225,6 +227,7 @@ export function WayBackStep({
       setError("");
       setPaste("");
       setJustSaved(true);
+      setCheck(r.check ?? null);
       onSecret(r.webhook.secret ?? null);
       void qc.invalidateQueries({ queryKey: ["integrations"] });
       toast.success(provider === "linear" ? "Signing secret saved" : provider === "trello" ? "Secret saved" : "New secret made — the old one has stopped working");
@@ -243,7 +246,11 @@ export function WayBackStep({
     provider === "github"
       ? "GitHub sends a test delivery the moment the webhook is saved."
       : provider === "trello"
-        ? `Then move any card on ${target.label} to another list once.`
+        ? check?.sent
+          ? `Snagset made a check card on ${target.label} and deleted it again; Trello's delivery for it confirms the secret in a moment.`
+          : check
+            ? `Snagset could not make its check card (${check.detail}). Move any card on ${target.label} to another list once instead.`
+            : `Saving the secret makes a check card on ${target.label} and deletes it again; Trello's delivery for it confirms the secret.`
         : provider === "linear"
         ? `Then move any issue in ${target.label} to another status once.`
         : `Then move any issue in ${target.label} once.`;
@@ -395,7 +402,7 @@ export function WayBackStep({
             <>Waiting for the {provider === "linear" ? "signing secret" : "Power-Up's secret"}. Without it, {TRACKER_NAME[provider]}'s deliveries are refused.</>
           ) : (
             <>
-              <span className="font-medium">Waiting for the first delivery.</span> {trigger}
+              <span className="font-medium">{provider === "trello" && check?.sent ? "Checking the secret…" : "Waiting for the first delivery."}</span> {trigger}
             </>
           )}
         </span>

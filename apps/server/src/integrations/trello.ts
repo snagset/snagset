@@ -146,6 +146,21 @@ export function trelloClient(opts: TrelloClientOptions) {
       });
       return { id: made.id, url: made.shortUrl ?? made.url ?? "" };
     },
+    /**
+     * Proof the way back works without the studio touching Trello (0.1.60): a
+     * card made on the board and deleted at once. Each is an action on the
+     * board, so the webhook delivers both, signed with the Power-Up's secret,
+     * and the inbound route marks the connection delivered or refused.
+     */
+    async checkWebhook(listId: string): Promise<{ ok: true } | { ok: false; detail: string }> {
+      try {
+        const made = await call<{ id: string }>("POST", "/cards", { idList: listId, name: "Snagset check", desc: "Made and deleted by Snagset to check the webhook. Nothing to do.", pos: "bottom" });
+        await call("DELETE", `/cards/${encodeURIComponent(made.id)}`);
+        return { ok: true };
+      } catch (e) {
+        return fail(e);
+      }
+    },
     async moveCard(cardId: string, listId: string): Promise<void> {
       await call("PUT", `/cards/${encodeURIComponent(cardId)}`, { idList: listId });
     },
