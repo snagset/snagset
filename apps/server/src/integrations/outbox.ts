@@ -435,9 +435,17 @@ export function pushToTrackers(sql0: postgres.Sql, deps: PushDeps, only?: DrainO
 /** Drain the queue now — the dashboard's "Create issue" wants the link back in the same click. */
 export async function drainNow(sql: postgres.Sql, deps: PushDeps, limit = 5, only?: DrainOnly): Promise<void> {
   const job = pushToTrackers(sql, deps, only);
-  const ctx: JobContext = { sql, now: new Date(), log: () => {} } as JobContext;
   for (let i = 0; i < limit; i++) {
-    const out = await job.run(ctx);
+    // Each pass in its own transaction under the maintenance claim, as
+    // the jobs runner takes it: outbox is FORCE ROW LEVEL SECURITY, and on a
+    // role that does not bypass it (Cloud's) a bare pool sees no rows at all,
+    // so every inline drain claimed nothing and the button always waited out
+    // its ten seconds (seen live on 0.1.58). No job lock: SKIP LOCKED keeps
+    // two drains off one row.
+    const out = (await sql.begin(async (tx) => {
+      await tx`SET LOCAL app.maintenance = 'on'`;
+      return job.run({ sql: tx, now: new Date(), log: () => {} } as unknown as JobContext);
+    })) as unknown as JobOutcome;
     if (!out.more) break;
   }
 }

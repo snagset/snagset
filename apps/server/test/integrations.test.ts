@@ -11,7 +11,7 @@ import { createApp } from "../src/app.ts";
 import { hashPassword } from "../src/routes/owner.ts";
 import { mintSession } from "../src/session.ts";
 import { createKeyring } from "../src/keys.ts";
-import { pushToTrackers } from "../src/integrations/outbox.ts";
+import { pushToTrackers, drainNow, queueIntegrationEvent } from "../src/integrations/outbox.ts";
 import type { JobContext } from "../src/jobs/index.ts";
 import { HTTP_HEADER } from "@snagset/types/names";
 
@@ -1361,6 +1361,45 @@ test("Create … issue works its own row first: a backlog of other rows ahead of
   assert.ok((await json(res))["ref"].url, "the card's link, not queued");
   await sql`DELETE FROM outbox WHERE dedupe_key LIKE 'backlog:%'`;
   await sql`DELETE FROM threads WHERE id = ${t3}`;
+});
+
+test("the inline drain works on a role that does not bypass RLS (Cloud's): it claims the row and makes the card", { skip }, async () => {
+  const ROLE = "integrations_rls_drain";
+  await sql.unsafe(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${ROLE}') THEN
+      CREATE ROLE ${ROLE} LOGIN PASSWORD 'rls' NOSUPERUSER NOBYPASSRLS;
+    END IF;
+  END $$`);
+  await sql.unsafe(`GRANT USAGE ON SCHEMA public TO ${ROLE}`);
+  await sql.unsafe(`GRANT ALL ON ALL TABLES IN SCHEMA public TO ${ROLE}`);
+  await sql.unsafe(`GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO ${ROLE}`);
+  await sql.unsafe(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO ${ROLE}`);
+  const u = new URL(URL_!);
+  u.username = ROLE;
+  u.password = "rls";
+  const rls = connect(u.toString(), { max: 2 });
+  const t4 = randomUUID();
+  try {
+    await sql.begin(async (tx) => {
+      await tx`SELECT set_config('app.org_id', ${orgId}, true)`;
+      const [env] = await tx<{ id: string }[]>`SELECT id FROM environments WHERE project_id = ${projectId} AND is_default`;
+      const [round] = await tx<{ id: string }[]>`SELECT id FROM rounds WHERE project_id = ${projectId}`;
+      const [integ] = await tx<{ id: string }[]>`SELECT id FROM integrations WHERE project_id = ${projectId} AND provider = 'trello'`;
+      await tx`
+        INSERT INTO threads (id, org_id, project_id, key, environment_id, round_id, round_number, anchor, context, created_by)
+        VALUES (${t4}, ${orgId}, ${projectId}, 'SN-92', ${env!.id}, ${round!.id}, 92,
+                ${tx.json({ label: "z", css: "main", page: { origin: "https://kilnwork.studio", pathname: "/", route: "/" }, offset: {} })}, ${tx.json({})}, ${adaId})`;
+      await queueIntegrationEvent(tx as unknown as postgres.TransactionSql, { orgId, projectId, integrationId: integ!.id, threadId: t4, provider: "trello", topic: "issue.create", version: 0 });
+    });
+    await drainNow(rls, { keys: createKeyring(SECRET), baseUrl: async () => "https://review.example.dev", githubApiBase: ghUrl, linearApiBase: lnUrl, slackApiBase: slUrl, trelloApiBase: trUrl, jiraPrivate: true }, 2, { threadId: t4, provider: "trello" });
+    const [ref] = await sql`SELECT url FROM external_refs WHERE thread_id = ${t4}::uuid AND provider = 'trello'`;
+    assert.ok(ref, "the drain on the RLS role made the card");
+  } finally {
+    await rls.end();
+    await sql`DELETE FROM outbox WHERE thread_id = ${t4}::uuid`;
+    await sql`DELETE FROM external_refs WHERE thread_id = ${t4}::uuid`;
+    await sql`DELETE FROM threads WHERE id = ${t4}`;
+  }
 });
 
 test("Trello: a second site on the same board, token and Power-Up shares the one webhook; a failed re-register keeps the webhook that works", { skip }, async () => {
