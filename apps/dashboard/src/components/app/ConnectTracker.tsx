@@ -286,11 +286,16 @@ export function WayBackStep({
                 ? `Snagset could not register the webhook on ${target.label}${target.trelloNote ? `: ${target.trelloNote}` : ""}. Trello must be able to reach this server's address; connect again once it can.`
                 : `Snagset registered the webhook on ${target.label} for you: nothing to set up in Trello.`}
             </li>
-            <li>
-              Trello signs each delivery with your Power-Up's secret. Open <Ext href="https://trello.com/power-ups/admin">Trello › Power-Ups admin</Ext>, your Power-Up's
-              API key tab, and copy the Secret.
-            </li>
-            <li>Paste it below.</li>
+            {/* 0.1.62: once the webhook works there is no field, so no step pointing at one. */}
+            {showField && (
+              <>
+                <li>
+                  Trello signs each delivery with your Power-Up's secret. Open <Ext href="https://trello.com/power-ups/admin">Trello › Power-Ups admin</Ext>, your Power-Up's
+                  API key tab, and copy the Secret.
+                </li>
+                <li>Paste it below.</li>
+              </>
+            )}
           </>
         ) : provider === "linear" ? (
           <>
@@ -298,7 +303,7 @@ export function WayBackStep({
               Open <Ext href="https://linear.app/settings/api">Linear › Settings › API</Ext>, then Webhooks › New webhook.
             </li>
             <li>Paste the address; pick the team {target.label}; under data change events tick Issues. Create.</li>
-            <li>Linear shows a signing secret: copy it and paste it below.</li>
+            {showField && <li>Linear shows a signing secret: copy it and paste it below.</li>}
           </>
         ) : (
           <>
