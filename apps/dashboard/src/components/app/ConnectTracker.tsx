@@ -51,7 +51,7 @@ function guessLists(lists: { value: string; label: string }[]) {
 }
 
 /** A key or secret field with an eye to show what was pasted. */
-export function SecretInput({ id, value, onChange, placeholder }: { id: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+export function SecretInput({ id, value, onChange, placeholder, disabled }: { id: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean }) {
   const [shown, setShown] = useState(false);
   return (
     <div className="relative">
@@ -61,6 +61,7 @@ export function SecretInput({ id, value, onChange, placeholder }: { id: string; 
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
         autoComplete="off"
         spellCheck={false}
         className="pr-9 font-mono text-[12.5px]"
@@ -242,6 +243,13 @@ export function WayBackStep({
   const state: "waiting" | "ok" | "refused" | "nosecret" =
     (provider === "linear" || provider === "trello") && row && !row.hasWebhookSecret ? "nosecret" : at ? "ok" : refusedAt ? "refused" : "waiting";
   const laterRefusal = state === "ok" && refusedAt > at;
+  // 0.1.61: a pasted secret is a question with one answer. While the check
+  // card's delivery is on its way the field is locked; once it works the field
+  // goes (Replace the secret… brings it back); refused, it asks again.
+  const pasted = provider === "linear" || provider === "trello";
+  const checking = provider === "trello" && !!check?.sent && state === "waiting";
+  const [replacing, setReplacing] = useState(false);
+  const showField = pasted && (state !== "ok" || replacing);
   const trigger =
     provider === "github"
       ? "GitHub sends a test delivery the moment the webhook is saved."
@@ -344,17 +352,27 @@ export function WayBackStep({
       </dl>
       {shownSecret && <p className="m-0 -mt-2 text-[12px] text-muted-foreground">Copy it now: it is not shown again. A new one can be made here any time.</p>}
 
-      {(provider === "linear" || provider === "trello") && (
+      {showField && (
         <Field
           id="wb-secret"
           label={provider === "linear" ? "Signing secret" : "Power-Up secret"}
-          hint={justSaved || row?.hasWebhookSecret ? "Saved. Paste a new one to replace it." : provider === "linear" ? "From the webhook Linear just made." : "Next to the API key in Trello."}
+          hint={
+            checking
+              ? "Checking it with Trello…"
+              : state === "refused"
+                ? `That secret did not match. Copy the Secret from the ${provider === "linear" ? "webhook in Linear" : "Power-Up's API key tab"} again and paste it here.`
+                : justSaved || row?.hasWebhookSecret
+                  ? "Saved. Paste a new one to replace it."
+                  : provider === "linear"
+                    ? "From the webhook Linear just made."
+                    : "Next to the API key in Trello."
+          }
         >
           <div className="flex gap-2">
             <div className="min-w-0 flex-1">
-              <SecretInput id="wb-secret" value={paste} onChange={setPaste} placeholder={provider === "linear" ? "lin_wh_…" : ""} />
+              <SecretInput id="wb-secret" value={paste} onChange={setPaste} placeholder={provider === "linear" ? "lin_wh_…" : ""} disabled={checking} />
             </div>
-            <Button type="button" variant="outline" disabled={!paste.trim()} loading={save.isPending} onClick={() => save.mutate(paste.trim())}>
+            <Button type="button" variant="outline" disabled={!paste.trim() || checking} loading={save.isPending || checking} onClick={() => { setReplacing(false); save.mutate(paste.trim()); }}>
               Save
             </Button>
           </div>
@@ -383,8 +401,12 @@ export function WayBackStep({
         <span className="min-w-0">
           {state === "ok" ? (
             <>
-              <span className="font-medium">The webhook works.</span> Last delivery {ago(row!.lastDeliveryAt!)}
-              {at >= since ? ", just now." : "."}
+              <span className="font-medium">The webhook works.</span> Last delivery {at >= since ? "just now" : ago(row!.lastDeliveryAt!)}.
+              {pasted && !replacing && (
+                <button type="button" className="ml-1 underline underline-offset-2 text-muted-foreground hover:text-foreground" onClick={() => setReplacing(true)}>
+                  Replace the secret…
+                </button>
+              )}
               {laterRefusal && (
                 <span className="mt-1 block text-muted-foreground">
                   A later delivery was refused ({ago(row!.lastRefusedAt!)}): {row!.lastRefusedError} If you did not change the secret, it may not have come from {TRACKER_NAME[provider]}.
