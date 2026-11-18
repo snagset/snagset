@@ -219,7 +219,7 @@ export function WayBackStep({
   // says "Saved" at once rather than after the next refetch.
   const [justSaved, setJustSaved] = useState(false);
   // Trello (0.1.60): Save makes and deletes a check card; null until a save, then whether Trello took it.
-  const [check, setCheck] = useState<{ sent: boolean; detail?: string } | null>(null);
+  const [check, setCheck] = useState<{ sent: boolean; detail?: string; left?: string } | null>(null);
   const list = useQuery({ ...q.integrations(), refetchInterval: 3000 });
   const row = list.data?.data.find((i) => i.site === site && i.provider === provider) as TrackerIntegration | undefined;
   const save = useMutation({
@@ -247,7 +247,19 @@ export function WayBackStep({
   // card's delivery is on its way the field is locked; once it works the field
   // goes (Replace the secret… brings it back); refused, it asks again.
   const pasted = provider === "linear" || provider === "trello";
-  const checking = provider === "trello" && !!check?.sent && state === "waiting";
+  // 0.1.63: Linear checks on Save like Trello; Jira, whose webhook is made in
+  // Jira after Snagset shows the secret, checks on "Check it".
+  const checks = provider === "trello" || provider === "linear" || provider === "jira";
+  const checking = checks && !!check?.sent && state === "waiting";
+  const runCheck = useMutation({
+    mutationFn: () => api.checkWebhook(site, provider as "linear" | "jira" | "trello"),
+    onSuccess: (r) => {
+      setCheck(r.check);
+      void qc.invalidateQueries({ queryKey: ["integrations"] });
+    },
+    onError: (err) => setError(failed(err)),
+  });
+  const leftNote = check?.left ? ` It could not delete ${check.left} afterwards; delete it by hand.` : "";
   const [replacing, setReplacing] = useState(false);
   const showField = pasted && (state !== "ok" || replacing);
   const trigger =
@@ -260,8 +272,16 @@ export function WayBackStep({
             ? `Snagset could not make its check card (${check.detail}). Move any card on ${target.label} to another list once instead.`
             : `Saving the secret makes a check card on ${target.label} and deletes it again; Trello's delivery for it confirms the secret.`
         : provider === "linear"
-        ? `Then move any issue in ${target.label} to another status once.`
-        : `Then move any issue in ${target.label} once.`;
+          ? check?.sent
+            ? `Snagset made a check issue in ${target.label} and deleted it again; Linear's delivery for it confirms the secret in a moment.`
+            : check
+              ? `Snagset could not make its check issue (${check.detail}). Move any issue in ${target.label} to another status once instead.`
+              : `Saving the secret makes a check issue in ${target.label} and deletes it again; Linear's delivery for it confirms the secret.`
+          : check?.sent
+            ? `Snagset made a check issue in ${target.label}, edited it and deleted it; Jira's delivery for it confirms the webhook in a moment.${leftNote}`
+            : check
+              ? `Snagset could not make its check issue (${check.detail}). Move any issue in ${target.label} once instead.`
+              : `Once the webhook is created in Jira, Check it makes an issue in ${target.label}, edits it and deletes it; Jira's delivery for it confirms the webhook.`;
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -363,7 +383,7 @@ export function WayBackStep({
           label={provider === "linear" ? "Signing secret" : "Power-Up secret"}
           hint={
             checking
-              ? "Checking it with Trello…"
+              ? `Checking it with ${TRACKER_NAME[provider]}…`
               : state === "refused"
                 ? `That secret did not match. Copy the Secret from the ${provider === "linear" ? "webhook in Linear" : "Power-Up's API key tab"} again and paste it here.`
                 : justSaved || row?.hasWebhookSecret
@@ -429,11 +449,18 @@ export function WayBackStep({
             <>Waiting for the {provider === "linear" ? "signing secret" : "Power-Up's secret"}. Without it, {TRACKER_NAME[provider]}'s deliveries are refused.</>
           ) : (
             <>
-              <span className="font-medium">{provider === "trello" && check?.sent ? "Checking the secret…" : "Waiting for the first delivery."}</span> {trigger}
+              <span className="font-medium">{checking ? (provider === "jira" ? "Checking the webhook…" : "Checking the secret…") : "Waiting for the first delivery."}</span> {trigger}
             </>
           )}
         </span>
       </div>
+      {checks && row?.hasWebhookSecret && (state === "waiting" || state === "refused") && (
+        <div className="-mt-2 flex justify-end">
+          <Button type="button" size="sm" variant="outline" loading={runCheck.isPending || checking} disabled={checking} onClick={() => runCheck.mutate()}>
+            {check ? "Check again" : "Check it"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

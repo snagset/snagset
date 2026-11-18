@@ -130,6 +130,21 @@ export function linearClient(opts: LinearClientOptions) {
       if (!data.issueCreate.success || !data.issueCreate.issue) throw new LinearError(502, "Linear did not create the issue");
       return data.issueCreate.issue;
     },
+    /**
+     * Proof the way back works (0.1.63): an issue made in the team and deleted
+     * at once. Linear's webhook sends both, signed with the signing secret,
+     * and the inbound route marks the connection delivered or refused.
+     */
+    async checkWebhook(teamId: string): Promise<{ ok: true } | { ok: false; detail: string }> {
+      try {
+        const made = await this.createIssue({ teamId, title: "Snagset check", description: "Made and deleted by Snagset to check the webhook. Nothing to do." });
+        const del = await gql<{ issueDelete: { success: boolean } }>(`mutation SnagsetCheckDelete($id: String!) { issueDelete(id: $id) { success } }`, { id: made.id });
+        if (!del.issueDelete.success) return { ok: false, detail: `the check issue ${made.identifier} was made but Linear did not delete it; delete it by hand` };
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+      }
+    },
     async setState(issueId: string, stateId: string): Promise<void> {
       const data = await gql<{ issueUpdate: { success: boolean } }>(
         `mutation SnagsetState($id: String!, $input: IssueUpdateInput!) {

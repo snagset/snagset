@@ -117,6 +117,7 @@ function fakeLinear(): Promise<{ server: Server; url: string }> {
           return json(200, { data: { issueCreate: { success: true, issue: { id: `lin-${n}`, identifier: `ENG-${n}`, url: `https://linear.app/acme/issue/ENG-${n}/title` } } } });
         }
         if (/SnagsetState/.test(query)) return json(200, { data: { issueUpdate: { success: true } } });
+        if (/SnagsetCheckDelete/.test(query)) return json(200, { data: { issueDelete: { success: true } } });
         return json(400, { errors: [{ message: "unknown operation" }] });
       });
     });
@@ -177,6 +178,7 @@ let nextJira = 1;
 let jiraStatus: "new" | "indeterminate" | "done" = "new";
 
 let jrTransFail = false;
+let jrDeleteFail = false;
 /** Enough of Jira Cloud's REST v2: myself, the project, issue creation, transitions. */
 function fakeJira(): Promise<{ server: Server; url: string }> {
   return new Promise((resolve) => {
@@ -222,6 +224,8 @@ function fakeJira(): Promise<{ server: Server; url: string }> {
           return json(204, {});
         }
         const one = /^\/rest\/api\/2\/issue\/(KAN-\d+)$/.exec(path);
+        if (one && req.method === "PUT") return json(204, {});
+        if (one && req.method === "DELETE") return jrDeleteFail ? json(403, { errorMessages: ["You do not have permission to delete issues in this project."] }) : json(204, {});
         if (one && req.method === "GET") return json(200, { key: one[1], fields: { status: { statusCategory: { key: jiraStatus } } } });
         return json(404, { errorMessages: ["Not Found"] });
       });
@@ -842,13 +846,21 @@ test("Linear → us: a signed Issue update maps the state type back, a stale tim
   const empty = await app.request(`${ln_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: " " }) });
   assert.equal(empty.status, 422);
   await sql`UPDATE integrations SET install_state = 'needs_reauth', last_error = 'the API key was refused' WHERE provider = 'linear' AND deleted_at IS NULL`;
+  lnSeen.length = 0;
   const replaced = await app.request(`${ln_()}/webhook-secret`, { method: "POST", headers: as(owner), body: JSON.stringify({ secret: "lnhook-2" }) });
   assert.equal(replaced.status, 200, await replaced.clone().text());
   const [health] = await sql<{ install_state: string; last_error: string | null }[]>`SELECT install_state, last_error FROM integrations WHERE provider = 'linear' AND deleted_at IS NULL`;
   assert.equal(health!.install_state, "needs_reauth", "a new secret does not paper over a dead API key");
   assert.equal(health!.last_error, "the API key was refused");
   await sql`UPDATE integrations SET install_state = 'ok', last_error = NULL WHERE provider = 'linear' AND deleted_at IS NULL`;
-  assert.equal(((await json(replaced))["webhook"] as Record<string, unknown>)["secret"], undefined, "Linear's secret is not shown back");
+  const replacedBody = await json(replaced);
+  assert.equal((replacedBody["webhook"] as Record<string, unknown>)["secret"], undefined, "Linear's secret is not shown back");
+  // 0.1.63: saving the signing secret checks it at once, with an issue made and deleted in the team.
+  assert.deepEqual(replacedBody["check"], { sent: true });
+  const checkIssue = lnSeen.find((r) => /SnagsetCreate/.test(r.query) && r.variables.input.title === "Snagset check");
+  assert.ok(checkIssue, "a check issue was made");
+  assert.equal(checkIssue!.variables.input.teamId, "team-eng");
+  assert.ok(lnSeen.some((r) => /SnagsetCheckDelete/.test(r.query)), "and deleted again");
   const fresh = await inboundOf();
   assert.equal(fresh.at, null, "a new secret starts the record afresh");
   assert.equal(fresh.refusedAt, null);
@@ -1006,6 +1018,30 @@ test("Jira: the issue is made with the brief as text, moved by status category b
 });
 
 const sl_ = () => `/api/v1/projects/${uid}/integrations/slack`;
+
+test("Check it (0.1.63): Jira makes, edits and deletes a check issue; a deletion it may not make leaves the issue and says so; GitHub needs no check", { skip }, async () => {
+  const put = await app.request(jr_(), { method: "PUT", headers: as(owner), body: JSON.stringify({ siteUrl: jrUrl, project: "KAN", email: "ada@kilnwork.studio", apiToken: "jira_good" }) });
+  assert.equal(put.status, 200, await put.clone().text());
+  jrSeen.length = 0;
+  const ok = await app.request(`${jr_()}/webhook-check`, { method: "POST", headers: as(owner) });
+  assert.equal(ok.status, 200, await ok.clone().text());
+  assert.deepEqual((await json(ok))["check"], { sent: true });
+  const made = jrSeen.find((r) => r.method === "POST" && r.path === "/rest/api/2/issue");
+  assert.equal(made?.body?.fields?.summary, "Snagset check");
+  assert.ok(jrSeen.some((r) => r.method === "PUT" && /^\/rest\/api\/2\/issue\/KAN-\d+$/.test(r.path)), "edited once, for the updated event");
+  assert.ok(jrSeen.some((r) => r.method === "DELETE" && /^\/rest\/api\/2\/issue\/KAN-\d+$/.test(r.path)), "and deleted, for the deleted event");
+  jrDeleteFail = true;
+  try {
+    const left = await app.request(`${jr_()}/webhook-check`, { method: "POST", headers: as(owner) });
+    const body = (await json(left))["check"] as Record<string, unknown>;
+    assert.equal(body["sent"], true, "the edit still sends a delivery");
+    assert.match(String(body["left"]), /^KAN-\d+$/, "the issue left behind is named");
+  } finally {
+    jrDeleteFail = false;
+  }
+  assert.equal((await app.request(`/api/v1/projects/${uid}/integrations/github/webhook-check`, { method: "POST", headers: as(owner) })).status, 409);
+  assert.equal((await app.request(jr_(), { method: "DELETE", headers: as(owner) })).status, 200);
+});
 
 test("Slack: the token and the channel are probed, the channel resolved by name, the manifest offered; a message for every comment by default", { skip }, async () => {
   const bad = await app.request(sl_(), { method: "PUT", headers: as(owner), body: JSON.stringify({ channel: "#reviews", token: "xoxb-wrong" }) });

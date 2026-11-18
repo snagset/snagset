@@ -587,11 +587,14 @@ export const api = {
     call<{ webhook: GitHubWebhook }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/github/webhook-secret`),
   /** 0.1.55: GitHub and Jira mint a new secret (shown once); Linear and Trello store the one pasted. */
   setWebhookSecret: (uid: string, provider: "github" | "linear" | "jira" | "trello", secret?: string) =>
-    call<{ webhook: { url: string; secret?: string }; check?: { sent: boolean; detail?: string } }>(
+    call<{ webhook: { url: string; secret?: string }; check?: { sent: boolean; detail?: string; left?: string } }>(
       "POST",
       `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}/webhook-secret`,
       secret === undefined ? undefined : { secret },
     ),
+  /** 0.1.63: the self-check on demand — something made and removed in the tracker, whose signed delivery ticks the dialog. */
+  checkWebhook: (uid: string, provider: "linear" | "jira" | "trello") =>
+    call<{ check: { sent: boolean; detail?: string; left?: string } }>("POST", `/api/v1/projects/${encodeURIComponent(uid)}/integrations/${provider}/webhook-check`),
   /** 0.1.55: who the credentials are, and the repositories, teams or projects they can see. */
   discoverTracker: (
     provider: "github" | "linear" | "jira" | "trello",

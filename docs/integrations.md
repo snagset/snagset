@@ -94,7 +94,9 @@ issues — the `ENG` in `ENG-123`.
    *Data change events:* tick **Issues**. Create.
 3. Linear shows a *signing secret*. Copy it — with the copy icon, so nothing
    is cut off — and paste it into the dialog's *Signing secret*, then Save.
-4. Move any issue in the team to another status once. The dialog ticks.
+4. Save it. Snagset makes an issue named *Snagset check* in the team and
+   deletes it at once; Linear's delivery for it is signed with the secret, so
+   the dialog ticks within a few seconds, or says the secret does not match.
 
 A wrong paste shows as "signed with a different secret". Paste the right one
 over it: it is replaced in place, no disconnecting.
@@ -132,7 +134,10 @@ once — nothing to invent.
    secret from the dialog.
 3. Under *Issue*, tick **updated** and **deleted**. Leave JQL empty, or limit
    it to the project. Create.
-4. Move any issue in the project once. The dialog ticks.
+4. Back in Snagset, click **Check it**. Snagset makes an issue named
+   *Snagset check* in the project, edits it once and deletes it; Jira's
+   deliveries for those are signed with the secret, so the dialog ticks. If
+   the account may not delete issues, the dialog names the issue left behind.
 
 **What happens:** the issue is made with the brief as its description, in
 Jira's own wiki format with its specials escaped. Our status moves it through

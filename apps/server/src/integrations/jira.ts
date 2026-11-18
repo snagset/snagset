@@ -129,6 +129,26 @@ export function jiraClient(opts: JiraClientOptions) {
       });
       return { id: String(made.id), key: made.key, url: `${base}/browse/${made.key}` };
     },
+    /**
+     * Proof the way back works (0.1.63): an issue made, edited once and
+     * deleted. Snagset's setup ticks Jira's issue updated and deleted events,
+     * so the edit and the delete each send a signed delivery. A deletion the
+     * account is not allowed to make leaves the issue, and says so.
+     */
+    async checkWebhook(projectId: string, issueTypeId: string): Promise<{ ok: true; left?: string } | { ok: false; detail: string }> {
+      try {
+        const made = await this.createIssue({ projectId, issueTypeId, summary: "Snagset check", description: "Made by Snagset to check the webhook, and deleted again. Nothing to do." });
+        await call("PUT", `/rest/api/2/issue/${encodeURIComponent(made.key)}`, { fields: { summary: "Snagset check (checking the webhook)" } });
+        try {
+          await call("DELETE", `/rest/api/2/issue/${encodeURIComponent(made.key)}`);
+          return { ok: true };
+        } catch {
+          return { ok: true, left: made.key };
+        }
+      } catch (e) {
+        return { ok: false, detail: e instanceof Error ? e.message : String(e) };
+      }
+    },
     /** Move the issue to a status in the category; refused with a sentence when the workflow offers none. */
     async transitionTo(issueKey: string, category: JiraCategory): Promise<void> {
       const list = await call<{ transitions: { id: string; name: string; to: { statusCategory?: { key?: string } } }[] }>(

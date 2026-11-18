@@ -574,6 +574,44 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
    * Linear makes its own: the body carries the one Linear shows, and it
    * replaces the stored one — no disconnecting to fix a wrong paste.
    */
+  /**
+   * The self-check (0.1.60 Trello, 0.1.63 Linear and Jira): something made and
+   * removed in the tracker, whose signed delivery tells the dialog whether
+   * the way back works. The answer here is only whether the tracker took the
+   * change; the delivery itself lands on the inbound route.
+   */
+  const sendCheck = async (pv: "trello" | "linear" | "jira", config: unknown, token: string): Promise<{ sent: boolean; detail?: string; left?: string }> => {
+    if (pv === "trello") {
+      const cfg = config as TrelloIntegrationConfig;
+      const r = await trelloClient({ apiKey: cfg.apiKey, token, ...trOpts() }).checkWebhook(cfg.lists.open);
+      return r.ok ? { sent: true } : { sent: false, detail: r.detail };
+    }
+    if (pv === "linear") {
+      const cfg = config as LinearIntegrationConfig;
+      const r = await linearClient({ apiKey: token, ...lnOpts() }).checkWebhook(cfg.teamId);
+      return r.ok ? { sent: true } : { sent: false, detail: r.detail };
+    }
+    const cfg = config as JiraIntegrationConfig;
+    const r = await jiraClient({ siteUrl: cfg.siteUrl, email: cfg.email, apiToken: token, allowPrivate: !!deps.push.jiraPrivate, ...(deps.push.fetch ? { fetch: deps.push.fetch } : {}) }).checkWebhook(cfg.projectId, cfg.issueTypeId);
+    return r.ok ? { sent: true, ...(r.left ? { left: r.left } : {}) } : { sent: false, detail: r.detail };
+  };
+
+  /** "Check it": the self-check on demand, for Jira (whose webhook is made in Jira after the secret) and as a retry for Linear and Trello. */
+  app.post("/api/v1/projects/:uid/integrations/:provider/webhook-check", async (c) => {
+    const owner = mustBeOwner(c);
+    if (owner instanceof Response) return owner;
+    const pv = provider(c);
+    if (pv instanceof Response) return pv;
+    const p = await site(c, owner);
+    if (!p) return fail(c, 404, "project_not_found", "No project with that uid.");
+    if (pv !== "trello" && pv !== "linear" && pv !== "jira") return fail(c, 409, "integration_not_configured", `${NAME[pv]} checks its own webhook: GitHub pings it when it is saved, and Slack sends nothing back.`);
+    const i = await getIntegration(sql, keys, p.org_id, p.id, pv);
+    const had = trackerSecrets(i?.secret ?? null);
+    if (!i || !had.token) return fail(c, 409, "integration_not_configured", `${NAME[pv]} is not connected on this site.`);
+    if (!had.webhookSecret) return fail(c, 409, "integration_not_configured", "Save the webhook's secret first: without it every delivery is refused.");
+    return c.json({ check: await sendCheck(pv, i.config, had.token) });
+  });
+
   app.post("/api/v1/projects/:uid/integrations/:provider/webhook-secret", async (c) => {
     const owner = mustBeOwner(c);
     if (owner instanceof Response) return owner;
@@ -610,12 +648,8 @@ export function integrationRoutes(deps: IntegrationDeps): Hono<Env> {
     // to move a card (a board made a moment ago has none). A card made and
     // deleted on the board fires two signed deliveries; the dialog, already
     // polling, turns to "works" or "refused" when they land.
-    let check: { sent: boolean; detail?: string } | undefined;
-    if (pv === "trello") {
-      const cfg = i.config as unknown as TrelloIntegrationConfig;
-      const r = await trelloClient({ apiKey: cfg.apiKey, token: had.token, ...trOpts() }).checkWebhook(cfg.lists.open);
-      check = r.ok ? { sent: true } : { sent: false, detail: r.detail };
-    }
+    // Linear too (0.1.63): an issue made and deleted in the team.
+    const check = pv === "trello" || pv === "linear" ? await sendCheck(pv, i.config, had.token) : undefined;
     return c.json({ webhook: { url: await webhookUrl(pv), ...(show ? { secret } : {}) }, ...(check ? { check } : {}) });
   });
 
