@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Gate } from "@/components/app/Gate";
+import { NotFound } from "@/components/app/NotFound";
 import { Shell } from "@/components/app/Shell";
 import { Waiting } from "@/components/app/Waiting";
 import { ApiFailure } from "@/lib/api";
@@ -60,6 +61,7 @@ export const Route = createFileRoute("/_app")({
   },
   pendingComponent: () => <Waiting what="Signing you in" />,
   errorComponent: ({ error }) => <Failed error={error} />,
+  notFoundComponent: NotFound,
   component: () => (
     <Shell>
       <Outlet />

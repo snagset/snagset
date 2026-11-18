@@ -19,6 +19,7 @@ import { Route as SignUpRouteImport } from './routes/sign-up'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as WidgetSigninRouteImport } from './routes/widget-signin'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppSplatRouteImport } from './routes/_app/$'
 import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppSitesRouteImport } from './routes/_app/sites'
 import { Route as AppStudioRouteImport } from './routes/_app/studio'
@@ -79,6 +80,11 @@ const WidgetSigninRoute = WidgetSigninRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSplatRoute = AppSplatRouteImport.update({
+  id: '/$',
+  path: '/$',
   getParentRoute: () => AppRoute,
 } as any)
 const AppActivityRoute = AppActivityRouteImport.update({
@@ -152,6 +158,7 @@ export interface FileRoutesByFullPath {
   '/sign-up': typeof SignUpRoute
   '/welcome': typeof WelcomeRoute
   '/widget-signin': typeof WidgetSigninRoute
+  '/$': typeof AppSplatRoute
   '/activity': typeof AppActivityRoute
   '/sites': typeof AppSitesRoute
   '/studio': typeof AppStudioRouteWithChildren
@@ -174,6 +181,7 @@ export interface FileRoutesByTo {
   '/sign-up': typeof SignUpRoute
   '/welcome': typeof WelcomeRoute
   '/widget-signin': typeof WidgetSigninRoute
+  '/$': typeof AppSplatRoute
   '/activity': typeof AppActivityRoute
   '/sites': typeof AppSitesRoute
   '/you': typeof AppYouRoute
@@ -198,6 +206,7 @@ export interface FileRoutesById {
   '/sign-up': typeof SignUpRoute
   '/welcome': typeof WelcomeRoute
   '/widget-signin': typeof WidgetSigninRoute
+  '/_app/$': typeof AppSplatRoute
   '/_app/activity': typeof AppActivityRoute
   '/_app/sites': typeof AppSitesRoute
   '/_app/studio': typeof AppStudioRouteWithChildren
@@ -224,6 +233,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/welcome'
     | '/widget-signin'
+    | '/$'
     | '/activity'
     | '/sites'
     | '/studio'
@@ -246,6 +256,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/welcome'
     | '/widget-signin'
+    | '/$'
     | '/activity'
     | '/sites'
     | '/you'
@@ -269,6 +280,7 @@ export interface FileRouteTypes {
     | '/sign-up'
     | '/welcome'
     | '/widget-signin'
+    | '/_app/$'
     | '/_app/activity'
     | '/_app/sites'
     | '/_app/studio'
@@ -366,6 +378,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/$': {
+      id: '/_app/$'
+      path: '/$'
+      fullPath: '/$'
+      preLoaderRoute: typeof AppSplatRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/activity': {
@@ -490,6 +509,7 @@ const AppSSiteRouteWithChildren = AppSSiteRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppSplatRoute: typeof AppSplatRoute
   AppActivityRoute: typeof AppActivityRoute
   AppSitesRoute: typeof AppSitesRoute
   AppStudioRoute: typeof AppStudioRouteWithChildren
@@ -499,6 +519,7 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppSplatRoute: AppSplatRoute,
   AppActivityRoute: AppActivityRoute,
   AppSitesRoute: AppSitesRoute,
   AppStudioRoute: AppStudioRouteWithChildren,
