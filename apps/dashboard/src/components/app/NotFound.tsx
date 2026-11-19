@@ -20,8 +20,10 @@ export function NotFound() {
           </Button>
         }
       >
-        <p className="m-0">
-          The address may be mistyped, or the page has moved. <code className="break-all">{window.location.pathname}</code>
+        <p className="m-0">The address may be mistyped, or the page has moved.</p>
+        {/* Its own line, whole: it breaks only when one address is wider than the column. */}
+        <p className="m-0 mt-2">
+          <code className="[overflow-wrap:anywhere]">{window.location.pathname}</code>
         </p>
       </EmptyState>
     </div>
